@@ -57,7 +57,10 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
     } catch (error: any) {
-        console.error('API Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('API Error in /api/tasks:', error);
+        if (error instanceof Error) {
+             console.error('Stack:', error.stack);
+        }
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
     }
 }
