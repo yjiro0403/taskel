@@ -1,0 +1,42 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Check if user is accessing their own data
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Projects: Allow full access to authenticated users
+    match /projects/{projectId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Unified Tasks: Allow access to owner or project members
+    match /tasks/{taskId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || 
+        (resource.data.projectId != null && exists(/databases/$(database)/documents/projects/$(resource.data.projectId)) && 
+         request.auth.uid in get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.memberIds)
+      );
+    }
+
+    // Unified Tags: Allow access to owner
+    match /tags/{tagId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // User Data: Allow access only to own data
+    match /users/{userId}/{document=**} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

@@ -1,0 +1,66 @@
+name: CI (t-chute-app)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'Projects/Taskel/t-chute-app/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'Projects/Taskel/t-chute-app/**'
+
+defaults:
+  run:
+    working-directory: Projects/Taskel/t-chute-app
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: Projects/Taskel/t-chute-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Lint
+        run: npm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_FIREBASE_API_KEY: "dummy-api-key"
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "dummy-auth-domain"
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: "dummy-project-id"
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "dummy-storage-bucket"
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "dummy-sender-id"
+      NEXT_PUBLIC_FIREBASE_APP_ID: "dummy-app-id"
+      NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: "dummy-measurement-id"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: Projects/Taskel/t-chute-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
