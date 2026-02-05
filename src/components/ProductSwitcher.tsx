@@ -59,12 +59,16 @@ export default function ProductSwitcher({ user, onDeleteAccount }: ProductSwitch
                 className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-gray-100 transition-colors border border-transparent hover:border-gray-200 group"
             >
                 <div className="flex items-center gap-3 overflow-hidden">
-                    <div className={clsx("flex-shrink-0 p-2 rounded-md text-white transition-colors", isTeam ? "bg-purple-600 shadow-purple-200" : "bg-blue-600 shadow-blue-200", "shadow-sm")}>
-                        {isTeam ? <UserIcon size={20} /> : <UserIcon size={20} />}
+                    <div className={clsx("flex-shrink-0 rounded-md text-white transition-colors overflow-hidden", isTeam ? "bg-purple-600 shadow-purple-200" : "bg-blue-600 shadow-blue-200", "shadow-sm", !user?.photoURL && "p-2")}>
+                        {user?.photoURL ? (
+                            <img src={user.photoURL} alt="Avatar" className="w-9 h-9 object-cover" />
+                        ) : (
+                            isTeam ? <UserIcon size={20} /> : <UserIcon size={20} />
+                        )}
                     </div>
                     <div className="text-left overflow-hidden">
                         <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">
-                            Taskel
+                            {user?.displayName || 'Taskel'}
                         </div>
                         <div className="text-sm font-bold text-gray-900 leading-none truncate">
                             {user?.email || 'Personal'}
@@ -85,6 +89,17 @@ export default function ProductSwitcher({ user, onDeleteAccount }: ProductSwitch
                     {/* Actions */}
                     <div className="py-1">
                         <button
+                            onClick={() => {
+                                setIsOpen(false);
+                                router.push('/settings/account');
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left"
+                        >
+                            <UserIcon size={16} className="text-gray-500" />
+                            <span className="text-sm text-gray-700">Account Settings</span>
+                        </button>
+
+                        <button
                             onClick={handleLogout}
                             className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left"
                         >
@@ -92,13 +107,7 @@ export default function ProductSwitcher({ user, onDeleteAccount }: ProductSwitch
                             <span className="text-sm text-gray-700">Log out</span>
                         </button>
 
-                        <button
-                            onClick={handleDelete}
-                            className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-red-50 transition-colors text-left"
-                        >
-                            <Trash2 size={16} className="text-red-500" />
-                            <span className="text-sm text-red-600">Delete Account</span>
-                        </button>
+
                     </div>
 
                     {/* Team switching is temporarily hidden as per request */}

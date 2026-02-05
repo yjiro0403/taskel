@@ -18,6 +18,7 @@ export interface Task {
     scheduledStart?: string; // HH:mm
     externalLink?: string;
     projectId?: string; // NEW: Link to Project
+    milestoneId?: string; // NEW: Link to Project Milestone
     routineId?: string; // NEW: Link to source Routine (for virtual task matching)
     assignedWeek?: string; // NEW: YYYY-Www for Weekly Goals
     assignedMonth?: string; // NEW: YYYY-MM for Monthly Goals
@@ -83,6 +84,17 @@ export interface Project {
     status: 'active' | 'completed' | 'archived';
     createdAt: number;
     updatedAt: number;
+    milestones?: Milestone[];
+}
+
+export interface Milestone {
+    id: string;
+    title: string;
+    description?: string;
+    startDate?: string; // YYYY-MM-DD
+    endDate?: string; // YYYY-MM-DD
+    order: number;
+    status: 'open' | 'in_progress' | 'done'; // NEW
 }
 
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'custom';

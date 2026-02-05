@@ -18,12 +18,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return;
         }
 
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
             setUser(user);
 
-            // Protected Routes Logic
-            const publicRoutes = ['/', '/login', '/signup'];
-            if (!user && !publicRoutes.includes(pathname)) {
+            if (user) {
+                // Sync user data to Firestore for team features
+                try {
+                    const { doc, setDoc, collection, query, where, getDocs, writeBatch, arrayUnion, getDoc } = await import('firebase/firestore');
+                    const { db } = await import('@/lib/firebase');
+
+                    // 1. Update User Profile
+                    await setDoc(doc(db, 'users', user.uid), {
+                        uid: user.uid,
+                        email: user.email,
+                        displayName: user.displayName,
+                        photoURL: user.photoURL,
+                        lastSeen: Date.now()
+                    }, { merge: true });
+
+                    // 2. Check for Pending Invites
+                    if (user.email) {
+                        const invQ = query(collection(db, 'invitations'), where('email', '==', user.email));
+                        const invSnaps = await getDocs(invQ);
+
+                        if (!invSnaps.empty) {
+                            const batch = writeBatch(db);
+                            let updatesCount = 0;
+
+                            for (const invDoc of invSnaps.docs) {
+                                const invData = invDoc.data();
+                                const projectId = invData.projectId;
+                                const role = invData.role || 'member';
+
+                                if (!projectId) continue;
+
+                                const projectRef = doc(db, 'projects', projectId);
+
+                                // We need to read project to check if we can update (or blindly update map?)
+                                // Arrays can be arrayUnion, but Maps (roles) need setDoc with { merge: true } or updateDoc with specific field path
+                                // Since we are inside a loop, reading might be expensive but robust.
+                                // Or we can optimize: arrayUnion for memberIds, and `roles.uid` dot notation for update.
+
+                                batch.update(projectRef, {
+                                    memberIds: arrayUnion(user.uid),
+                                    [`roles.${user.uid}`]: role
+                                });
+                                batch.delete(invDoc.ref);
+                                updatesCount++;
+                            }
+
+                            if (updatesCount > 0) {
+                                await batch.commit();
+                                console.log(`Processed ${updatesCount} pending invitations.`);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error syncing user profile or invites:", e);
+                }
+
+                // Protected Routes Logic: Redirect if coming from public route (optional, logic kept same as before but inside if)
+            }
+
+            const publicRoutes = ['/', '/login', '/signup', '/join']; // Added /join just in case
+            if (!user && !publicRoutes.includes(pathname) && !pathname.startsWith('/join')) {
                 router.push('/login');
             }
         });

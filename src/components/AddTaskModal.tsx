@@ -16,6 +16,7 @@ interface AddTaskModalProps {
     onClose: () => void;
     defaultSectionId?: string;
     initialProjectId?: string;
+    initialMilestoneId?: string; // NEW
     initialDate?: string; // "YYYY-MM-DD"
     initialAssignedWeek?: string; // "YYYY-Www"
     initialAssignedMonth?: string; // "YYYY-MM"
@@ -30,6 +31,7 @@ export default function AddTaskModal({
     onClose,
     defaultSectionId,
     initialProjectId,
+    initialMilestoneId,
     initialDate,
     initialAssignedWeek,
     initialAssignedMonth,
@@ -64,6 +66,7 @@ export default function AddTaskModal({
         return currentSection || sections[0]?.id || '';
     });
     const [projectId, setProjectId] = useState(targetTask?.projectId || initialProjectId || '');
+    const [milestoneId, setMilestoneId] = useState(targetTask?.milestoneId || initialMilestoneId || '');
     const [scheduledStart, setScheduledStart] = useState(targetTask?.scheduledStart || '');
 
     // Validation State
@@ -156,6 +159,7 @@ export default function AddTaskModal({
             setEstimatedMinutes(targetTask?.estimatedMinutes !== undefined ? targetTask.estimatedMinutes : 15);
             setActualMinutes(targetTask?.actualMinutes !== undefined ? targetTask.actualMinutes : 0);
             setProjectId(targetTask?.projectId || initialProjectId || '');
+            setMilestoneId(targetTask?.milestoneId || initialMilestoneId || '');
 
             // Determine Type
             if (targetTask?.assignedDate || initialAssignedDate) setActiveType('daily');
@@ -190,7 +194,7 @@ export default function AddTaskModal({
             setCurrentTag('');
             setError(null);
         }
-    }, [isOpen, targetTask, defaultSectionId, initialProjectId, initialDate, initialAssignedWeek, initialAssignedMonth, initialAssignedYear, initialAssignedDate, sections, currentDate]);
+    }, [isOpen, targetTask, defaultSectionId, initialProjectId, initialMilestoneId, initialDate, initialAssignedWeek, initialAssignedMonth, initialAssignedYear, initialAssignedDate, sections, currentDate]);
 
     // Exclusive Logic: Auto-select section when time changes
     useEffect(() => {
@@ -286,6 +290,7 @@ export default function AddTaskModal({
                 title,
                 sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal', // Dummy or empty for goals
                 projectId: projectId || '',
+                milestoneId: milestoneId || undefined,
                 estimatedMinutes: activeType === 'task' ? Number(estimatedMinutes) : 0,
                 actualMinutes: activeType === 'task' ? Number(actualMinutes) : 0,
                 scheduledStart: activeType === 'task' ? (scheduledStart || '') : '',
@@ -311,6 +316,7 @@ export default function AddTaskModal({
                 title,
                 sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal',
                 projectId: projectId || '',
+                milestoneId: milestoneId || undefined,
                 date: activeType === 'task' ? date : '',
                 status: 'open' as const,
                 estimatedMinutes: activeType === 'task' ? Number(estimatedMinutes) : 0,
@@ -337,6 +343,7 @@ export default function AddTaskModal({
         setActualMinutes(0);
         setScheduledStart('');
         setProjectId('');
+        setMilestoneId('');
         setMemo('');
         setTags([]);
         setCurrentTag('');
@@ -579,6 +586,31 @@ export default function AddTaskModal({
                             ))}
                         </select>
                     </div>
+
+                    {/* Milestone Selector (Conditional) */}
+                    {(() => {
+                        const selectedProject = projects.find(p => p.id === projectId);
+                        if (selectedProject?.milestones && selectedProject.milestones.length > 0) {
+                            return (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Schedule</label>
+                                    <select
+                                        value={milestoneId}
+                                        onChange={(e) => setMilestoneId(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white text-gray-900"
+                                    >
+                                        <option value="">No Schedule</option>
+                                        {selectedProject.milestones.map((milestone) => (
+                                            <option key={milestone.id} value={milestone.id}>
+                                                {milestone.title}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
 
                     {/* Tags and Score Section */}
                     <div className="flex gap-4">
