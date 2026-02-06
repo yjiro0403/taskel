@@ -12,8 +12,10 @@ import { Plus, Clock, PanelRight, Menu } from 'lucide-react'; // Added Menu
 import { useStore } from '@/store/useStore';
 import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
 import Image from 'next/image';
+import { useTranslations } from 'next-intl';
 
 export default function Home() {
+  const t = useTranslations('TaskList');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar } = useStore();
   const [finishTime, setFinishTime] = useState<Date | null>(null);
@@ -61,7 +63,7 @@ export default function Home() {
             <button
               onClick={toggleLeftSidebar}
               className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Menu"
+              title={t('menu')}
             >
               <Menu size={24} />
             </button>
@@ -81,7 +83,7 @@ export default function Home() {
 
           <div className="flex items-center gap-6 text-sm">
             <div className="hidden sm:flex flex-col items-end">
-              <span className="text-gray-500 text-xs">Current</span>
+              <span className="text-gray-500 text-xs">{t('current')}</span>
               {/* Avoid hydration mismatch by rendering time only on client or using suppressed content */}
               <span className="font-mono text-gray-900 font-medium" suppressHydrationWarning>
                 {formatTime(currentTime)}
@@ -90,7 +92,7 @@ export default function Home() {
 
             {finishTime && (
               <div className="flex flex-col items-end">
-                <span className="text-gray-500 text-xs">Finish at</span>
+                <span className="text-gray-500 text-xs">{t('finish_at')}</span>
                 <div className="flex items-center gap-1 text-blue-600 font-bold font-mono text-lg leading-none" suppressHydrationWarning>
                   <Clock size={14} />
                   {formatTime(finishTime)}
@@ -101,7 +103,7 @@ export default function Home() {
             <button
               onClick={toggleRightSidebar}
               className={`p-2 rounded-lg transition-colors ${isRightSidebarOpen ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}
-              title="Toggle Unscheduled Tasks"
+              title={t('toggle_unscheduled')}
             >
               <PanelRight size={20} />
             </button>
@@ -129,7 +131,7 @@ export default function Home() {
         id="tour-add-task-btn"
         onClick={() => setIsModalOpen(true)}
         className="fixed bottom-8 right-8 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 hover:scale-105 active:scale-95 transition-all duration-200 z-50"
-        aria-label="Add Task"
+        aria-label={t('add_task')}
       >
         <Plus size={24} />
       </button>

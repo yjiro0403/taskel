@@ -10,7 +10,11 @@ import clsx from 'clsx';
 import UserGuideButton from './UserGuideButton';
 import ProductSwitcher from './ProductSwitcher';
 
+import { useTranslations } from 'next-intl';
+
 export default function LeftSidebar() {
+    const t = useTranslations('Sidebar');
+    const tNav = useTranslations('Navigation');
     const { isLeftSidebarOpen, toggleLeftSidebar, user } = useStore();
     const router = useRouter();
     const pathname = usePathname();
@@ -61,7 +65,7 @@ export default function LeftSidebar() {
             )}>
                 {/* ... header ... */}
                 <div className="p-4 border-b border-gray-100 flex justify-between items-center">
-                    <h2 className="font-semibold text-lg text-gray-800">Menu</h2>
+                    <h2 className="font-semibold text-lg text-gray-800">{t('menu')}</h2>
                     <button
                         onClick={toggleLeftSidebar}
                         className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100"
@@ -76,14 +80,14 @@ export default function LeftSidebar() {
 
                     {/* Navigation */}
                     <div className="space-y-2">
-                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Navigation</p>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t('navigation')}</p>
                         <Link
                             href="/tasks"
                             className={getLinkClass('/tasks')}
                             onClick={toggleLeftSidebar}
                         >
                             <ListTodo size={18} />
-                            <span>Task List</span>
+                            <span>{t('task_list')}</span>
                         </Link>
                         <Link
                             href="/projects"
@@ -91,7 +95,7 @@ export default function LeftSidebar() {
                             onClick={toggleLeftSidebar}
                         >
                             <Briefcase size={18} />
-                            <span>Project List</span>
+                            <span>{t('project_list')}</span>
                         </Link>
 
                         <Link
@@ -100,7 +104,7 @@ export default function LeftSidebar() {
                             onClick={toggleLeftSidebar}
                         >
                             <CalendarRange size={18} />
-                            <span>Planning</span>
+                            <span>{t('planning')}</span>
                         </Link>
                         <Link
                             href="/routines"
@@ -108,7 +112,7 @@ export default function LeftSidebar() {
                             onClick={toggleLeftSidebar}
                         >
                             <Repeat size={18} />
-                            <span>Routine Management</span>
+                            <span>{t('routine_management')}</span>
                         </Link>
                         <Link
                             href="/analytics"
@@ -116,7 +120,7 @@ export default function LeftSidebar() {
                             onClick={toggleLeftSidebar}
                         >
                             <BarChart size={18} />
-                            <span>Analytics</span>
+                            <span>{t('analytics')}</span>
                         </Link>
 
                         {/* 
@@ -140,7 +144,7 @@ export default function LeftSidebar() {
                             onClick={toggleLeftSidebar}
                         >
                             <Settings size={18} />
-                            <span>Settings</span>
+                            <span>{t('settings')}</span>
                         </Link>
 
 
@@ -154,14 +158,14 @@ export default function LeftSidebar() {
                                 className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 transition-colors"
                                 onClick={toggleLeftSidebar}
                             >
-                                利用規約
+                                {tNav('terms')}
                             </Link>
                             <Link
                                 href="/privacy"
                                 className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 transition-colors"
                                 onClick={toggleLeftSidebar}
                             >
-                                プライバシーポリシー
+                                {tNav('privacy')}
                             </Link>
                         </div>
                     </div>

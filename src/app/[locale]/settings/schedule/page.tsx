@@ -138,7 +138,7 @@ export default function ScheduleSettingsPage() {
                                                 type="text"
                                                 value={section.name}
                                                 onChange={(e) => handleUpdate(index, 'name', e.target.value)}
-                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+                                                className="w-full px-3 py-2 text-sm text-gray-900 bg-white border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
                                                 placeholder="セクション名"
                                             />
                                         </div>
@@ -150,7 +150,7 @@ export default function ScheduleSettingsPage() {
                                                 type="time"
                                                 value={section.startTime || ''}
                                                 onChange={(e) => handleUpdate(index, 'startTime', e.target.value)}
-                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+                                                className="w-full px-3 py-2 text-sm text-gray-900 bg-white border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
                                             />
                                         </div>
                                     </div>

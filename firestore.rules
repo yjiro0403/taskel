@@ -38,5 +38,14 @@ service cloud.firestore {
     match /users/{userId}/{document=**} {
       allow read, write: if isOwner(userId);
     }
+    
+    // Explicitly listing subcollections for clarity and potential indexing requirements
+    match /users/{userId}/sections/{sectionId} {
+      allow read, write: if isOwner(userId);
+    }
+    
+    match /users/{userId}/routines/{routineId} {
+        allow read, write: if isOwner(userId);
+    }
   }
 }

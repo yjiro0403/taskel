@@ -6,9 +6,12 @@ import { Link, useRouter } from '@/i18n/routing';
 import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
-    signInWithPopup
+    signInWithPopup,
+    getAdditionalUserInfo,
+    User
 } from 'firebase/auth';
-import { auth, googleProvider } from '@/lib/firebase';
+import { auth, googleProvider, db } from '@/lib/firebase';
+import { doc, writeBatch, collection } from 'firebase/firestore';
 import { useStore } from '@/store/useStore';
 
 interface AuthFormProps {
@@ -21,7 +24,6 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const router = useRouter();
-    // We will add setUser to store later, for now we rely on onAuthStateChanged in layout or store
     const { user } = useStore();
 
     useEffect(() => {
@@ -29,6 +31,30 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
             router.push('/tasks');
         }
     }, [user, router]);
+
+    const createDefaultSections = async (user: User) => {
+        const batch = writeBatch(db);
+        const sectionsRef = collection(db, 'users', user.uid, 'sections');
+
+        const defaultSections = [
+            { name: 'Morning', startTime: '06:00', order: 0 },
+            { name: 'Lunch', startTime: '12:00', order: 1 },
+            { name: 'Afternoon', startTime: '13:00', order: 2 },
+            { name: 'Evening', startTime: '18:00', order: 3 },
+            { name: 'Night', startTime: '21:00', order: 4 },
+        ];
+
+        defaultSections.forEach((section) => {
+            const newSectionRef = doc(sectionsRef);
+            batch.set(newSectionRef, {
+                ...section,
+                id: newSectionRef.id,
+                userId: user.uid,
+            });
+        });
+
+        await batch.commit();
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -39,7 +65,8 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
             if (isLogin) {
                 await signInWithEmailAndPassword(auth, email, password);
             } else {
-                await createUserWithEmailAndPassword(auth, email, password);
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                await createDefaultSections(userCredential.user);
             }
             router.push('/tasks');
         } catch (err: any) {
@@ -62,7 +89,13 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
         setIsLoading(true);
         setError(null);
         try {
-            await signInWithPopup(auth, googleProvider);
+            const result = await signInWithPopup(auth, googleProvider);
+            const additionalUserInfo = getAdditionalUserInfo(result);
+
+            if (additionalUserInfo?.isNewUser) {
+                await createDefaultSections(result.user);
+            }
+
             router.push('/tasks');
         } catch (err: any) {
             console.error(err);
