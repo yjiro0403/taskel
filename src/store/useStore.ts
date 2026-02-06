@@ -31,6 +31,15 @@ const sanitizeData = (data: any) => {
     return clean;
 };
 
+// Helper to handle Firestore errors gracefully (suppress permission-denied noise)
+const handleFirestoreError = (error: any, context: string) => {
+    if (error?.code === 'permission-denied') {
+        console.warn(`Firestore permission denied (${context}): User might be logged out or deleted.`);
+    } else {
+        console.error(`Error fetching ${context}:`, error);
+    }
+};
+
 // Generic Note Saver
 const saveNoteGeneric = async (
     collectionName: 'dailyNotes' | 'weeklyNotes' | 'monthlyNotes' | 'yearlyNotes',
@@ -153,6 +162,9 @@ interface StoreState {
 
 export const useStore = create<StoreState>((set, get) => ({
     // ... existing state ... 
+
+    // 159: ...
+    // 273: 
 
     syncGoogleCalendar: async (accessToken: string, targetDateStr?: string) => {
         const { user, tasks, bulkAddTasks, updateTask, currentDate, sections } = get();
@@ -462,7 +474,6 @@ export const useStore = create<StoreState>((set, get) => ({
         const { user, tasks } = get();
         if (user) {
             // Because we might have mixed "correct" and "incorrect" locations for shared tasks,
-            // using a single batch is risky if we blindly trust task.projectId.
             // However, bulk actions are optimization.
             // For now, let's keep it simple: try standard way. If this becomes an issue, we rewrite.
             // The critical fix is bulkAddTasks.
@@ -969,7 +980,7 @@ export const useStore = create<StoreState>((set, get) => ({
             // Track sub-subscriptions that need cleanup
             let unsubShared: (() => void) | null = null;
             let unsubProjects: (() => void) | null = null;
-            let unsubWeeklyNotes: (() => void) | null = null;
+
 
             // Subscribe Tasks
             // UNIFIED: Query global tasks collection where user is the owner
@@ -995,18 +1006,14 @@ export const useStore = create<StoreState>((set, get) => ({
                     const unique = Array.from(new Map(combined.map(t => [t.id, t])).values());
                     return { tasks: unique };
                 });
-            }, (error) => {
-                console.error("Error fetching tasks: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'tasks'));
 
             // Subscribe Routines
             const qRoutines = query(collection(db, 'users', user.uid, 'routines'));
             const unsubRoutines = onSnapshot(qRoutines, (snapshot) => {
                 const routines = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Routine));
                 set({ routines });
-            }, (error) => {
-                console.error("Error fetching routines: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'routines'));
 
             // Subscribe Tags
             // UNIFIED: Query global tags collection where user is the owner
@@ -1014,9 +1021,7 @@ export const useStore = create<StoreState>((set, get) => ({
             const unsubTags = onSnapshot(qTags, (snapshot) => {
                 const tags = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Tag));
                 set({ tags });
-            }, (error) => {
-                console.error("Error fetching tags: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'tags'));
 
             // Subscribe Projects (Global collection, filtered by membership)
             console.log("Subscribing to projects for user:", user.uid);
@@ -1070,9 +1075,7 @@ export const useStore = create<StoreState>((set, get) => ({
                             const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
                             projectTasksCache[projectId] = tasks;
                             updateSharedTasksState();
-                        }, (error) => {
-                            console.error(`Error fetching tasks for project ${projectId}:`, error);
-                        });
+                        }, (error) => handleFirestoreError(error, `project tasks ${projectId}`));
                         unsubs.push(unsub);
                     });
 
@@ -1087,36 +1090,29 @@ export const useStore = create<StoreState>((set, get) => ({
                         return { tasks: personalTasks };
                     });
                 }
-            }, (error) => {
-                console.error("Error fetching projects: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'projects'));
 
             // Subscribe Daily Notes
             const qNotes = query(collection(db, 'users', user.uid, 'dailyNotes'));
             const unsubNotes = onSnapshot(qNotes, (snapshot) => {
                 const dailyNotes = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as DailyNote));
                 set({ dailyNotes });
-            }, (error) => {
-                console.error("Error fetching daily notes: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'dailyNotes'));
 
             // Subscribe Weekly Notes
             const qWeeklyNotes = query(collection(db, 'users', user.uid, 'weeklyNotes'));
-            unsubWeeklyNotes = onSnapshot(qWeeklyNotes, (snapshot) => {
+            // Use const here, as unsubWeeklyNotes is not reassigned
+            const unsubWeeklyNotes = onSnapshot(qWeeklyNotes, (snapshot) => {
                 const weeklyNotes = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as WeeklyNote));
                 set({ weeklyNotes });
-            }, (error) => {
-                console.error("Error fetching weekly notes: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'weeklyNotes'));
 
             // Subscribe Monthly Notes
             const qMonthlyNotes = query(collection(db, 'users', user.uid, 'monthlyNotes'));
             const unsubMonthlyNotes = onSnapshot(qMonthlyNotes, (snapshot) => {
                 const monthlyNotes = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as MonthlyNote));
                 set({ monthlyNotes });
-            }, (error) => {
-                console.error("Error fetching monthly notes: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'monthlyNotes'));
 
             // Subscribe Sections
             const qSections = query(collection(db, 'users', user.uid, 'sections'));
@@ -1148,9 +1144,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 // Sort by time or order
                 sections.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '') || a.order - b.order);
                 set({ sections });
-            }, (error) => {
-                console.error("Error fetching sections: ", error);
-            });
+            }, (error) => handleFirestoreError(error, 'sections'));
 
             // Register all unsubscriptions
             set({

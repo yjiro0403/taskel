@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Mail, Lock, Loader2 } from 'lucide-react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { Link, useRouter } from '@/i18n/routing';
 import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,

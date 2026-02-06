@@ -80,8 +80,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 // Protected Routes Logic: Redirect if coming from public route (optional, logic kept same as before but inside if)
             }
 
-            const publicRoutes = ['/', '/login', '/signup', '/join']; // Added /join just in case
-            if (!user && !publicRoutes.includes(pathname) && !pathname.startsWith('/join')) {
+            const publicRoutes = ['/', '/login', '/signup', '/join'];
+            // Normalize path: calculate path without locale prefix
+            const normalizedPath = pathname.replace(/^\/(en|ja)/, '') || '/';
+
+            if (!user && !publicRoutes.includes(normalizedPath) && !normalizedPath.startsWith('/join')) {
                 router.push('/login');
             }
         });

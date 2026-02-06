@@ -4,9 +4,9 @@ import { useStore } from '@/store/useStore';
 import { useState, useMemo } from 'react';
 import { BarChart, CheckCircle, Clock, Filter, Calendar, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import {
-    startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-    isWithinInterval, format, subWeeks, subMonths, addWeeks, addMonths,
-    eachDayOfInterval, eachWeekOfInterval, isSameDay, isSameWeek
+    startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear,
+    isWithinInterval, format, subWeeks, subMonths, subYears, addWeeks, addMonths, addYears,
+    eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, isSameDay, isSameWeek, isSameMonth
 } from 'date-fns';
 import clsx from 'clsx';
 import { AuthProvider } from '@/components/AuthProvider';
@@ -14,7 +14,7 @@ import LeftSidebar from '@/components/LeftSidebar';
 import PageHeader from '@/components/PageHeader';
 // import { ChevronDown, ChevronRight } from 'lucide-react'; // Removing duplicate import line if existing
 
-type TimeRange = 'week' | 'month' | 'all';
+type TimeRange = 'week' | 'month' | 'year' | 'all';
 type GroupBy = 'tag' | 'project';
 
 export default function AnalyticsPage() {
@@ -30,11 +30,13 @@ export default function AnalyticsPage() {
     const handlePrev = () => {
         if (timeRange === 'week') setCurrentDate(d => subWeeks(d, 1));
         else if (timeRange === 'month') setCurrentDate(d => subMonths(d, 1));
+        else if (timeRange === 'year') setCurrentDate(d => subYears(d, 1));
     };
 
     const handleNext = () => {
         if (timeRange === 'week') setCurrentDate(d => addWeeks(d, 1));
         else if (timeRange === 'month') setCurrentDate(d => addMonths(d, 1));
+        else if (timeRange === 'year') setCurrentDate(d => addYears(d, 1));
     };
 
     // Derived Data
@@ -49,6 +51,9 @@ export default function AnalyticsPage() {
         } else if (timeRange === 'month') {
             start = startOfMonth(currentDate);
             end = endOfMonth(currentDate);
+        } else if (timeRange === 'year') {
+            start = startOfYear(currentDate);
+            end = endOfYear(currentDate);
         }
 
         // 1. Filter Tasks by Date & Criteria
@@ -111,6 +116,16 @@ export default function AnalyticsPage() {
                 }, 0);
                 return { label: format(weekStart, 'd MMM'), value: val };
             });
+        } else if (timeRange === 'year') {
+            const months = eachMonthOfInterval({ start, end });
+            trendData = months.map(monthStart => {
+                const monthTasks = filtered.filter(t => isSameMonth(new Date(`${t.date}T00:00:00`), monthStart));
+                const val = monthTasks.reduce((acc, t) => {
+                    if (t.status !== 'done') return acc;
+                    return acc + (metric === 'minutes' ? Number(t.actualMinutes || 0) : 1);
+                }, 0);
+                return { label: format(monthStart, 'MMM'), value: val };
+            });
         }
 
         return {
@@ -130,6 +145,7 @@ export default function AnalyticsPage() {
     const formatLabel = () => {
         if (timeRange === 'week') return `Week of ${format(currentDate, 'MMM d')}`;
         if (timeRange === 'month') return format(currentDate, 'MMMM yyyy');
+        if (timeRange === 'year') return format(currentDate, 'yyyy');
         return 'All Time';
     };
 
@@ -149,7 +165,7 @@ export default function AnalyticsPage() {
                         <div className="flex gap-4 items-center flex-wrap">
                             {/* TimeRange Buttons */}
                             <div className="flex bg-gray-100 p-1 rounded-lg">
-                                {(['week', 'month', 'all'] as const).map(r => (
+                                {(['week', 'month', 'year', 'all'] as const).map(r => (
                                     <button
                                         key={r}
                                         onClick={() => {
@@ -227,7 +243,7 @@ export default function AnalyticsPage() {
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="font-bold text-gray-800 flex items-center gap-2">
                                     <BarChart size={18} className="text-blue-500" />
-                                    Progress Trend ({timeRange === 'week' ? 'Daily' : 'Weekly'})
+                                    Progress Trend ({timeRange === 'week' ? 'Daily' : timeRange === 'month' ? 'Weekly' : 'Monthly'})
                                 </h3>
                                 {/* Metric Toggle */}
                                 <div className="flex bg-gray-100 p-1 rounded-lg text-xs font-medium">
