@@ -7,14 +7,11 @@ import { useRouter, usePathname } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { collection, query, getDocs, writeBatch } from 'firebase/firestore';
 import clsx from 'clsx';
-import SectionSettingsModal from './SectionSettingsModal';
 import UserGuideButton from './UserGuideButton';
 import ProductSwitcher from './ProductSwitcher';
-import { useState } from 'react';
 
 export default function LeftSidebar() {
     const { isLeftSidebarOpen, toggleLeftSidebar, user } = useStore();
-    const [isSectionSettingsOpen, setIsSectionSettingsOpen] = useState(false);
     const router = useRouter();
     const pathname = usePathname();
 
@@ -137,16 +134,14 @@ export default function LeftSidebar() {
                         </button>
                         */}
 
-                        <button
-                            onClick={() => {
-                                setIsSectionSettingsOpen(true);
-                                toggleLeftSidebar();
-                            }}
-                            className="w-full flex items-center gap-3 text-gray-700 hover:text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-colors text-left"
+                        <Link
+                            href="/settings/general"
+                            className={getLinkClass('/settings')}
+                            onClick={toggleLeftSidebar}
                         >
                             <Settings size={18} />
-                            <span>Section Settings</span>
-                        </button>
+                            <span>Settings</span>
+                        </Link>
 
 
                         <div className="pt-4 border-t border-gray-100">
@@ -171,12 +166,7 @@ export default function LeftSidebar() {
                         </div>
                     </div>
                 </div >
-            </div >
-
-            <SectionSettingsModal
-                isOpen={isSectionSettingsOpen}
-                onClose={() => setIsSectionSettingsOpen(false)}
-            />
+            </div>
         </>
     );
 }
