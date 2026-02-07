@@ -1,0 +1,59 @@
+{
+    "HomePage": {
+        "alpha": "Alpha Version Live",
+        "title": "Focus on <execution>execution.</execution>",
+        "description": "The smart task partner for professionals.<br></br>Eliminate the gap between planning and execution to maximize your performance.<br></br>A new task management tool that visualizes the flow of time.",
+        "cta": "Start Using Taskel",
+        "features": {
+            "visualized": {
+                "title": "Visualized Timeline",
+                "description": "<strong>Capture time \"visually\".</strong><br></br>Real-time visualization of the remaining time of the day and total task volume. Eliminate vague anxiety and provide clear visibility."
+            },
+            "execution": {
+                "title": "Seamless Execution",
+                "description": "<strong>Uninterrupted thinking, smooth execution.</strong><br></br>Start and end tasks with just one action: the play button. Eliminating complex operations to not hinder your immersion into the flow state."
+            },
+            "logging": {
+                "title": "Reliable Logging",
+                "description": "<strong>Results refine the next plan.</strong><br></br>Automatically log planned vs. actual management. A feedback loop based on data, not intuition, sharpens your sense of time."
+            },
+            "section_planning": {
+                "title": "Section Planning",
+                "description": "Divide and manage your day by time zones (sections). Plan reasonably according to the context."
+            },
+            "one_click_timer": {
+                "title": "One-Click Timer",
+                "description": "Intuitive stopwatch function. Clarify the task currently being executed."
+            },
+            "hierarchical_planning": {
+                "title": "Hierarchical Planning",
+                "description": "Set goals for yearly, monthly, and weekly periods. Realize unhesitating execution with task design based on higher-level goals."
+            }
+        },
+        "key_features_title": "Key Features"
+    },
+    "Navigation": {
+        "login": "Log in",
+        "get_started": "Get Started",
+        "terms": "Terms",
+        "privacy": "Privacy Policy",
+        "copyright": "© {year} Taskel (t-chute). Simple, yet powerful."
+    },
+    "Sidebar": {
+        "menu": "Menu",
+        "navigation": "Navigation",
+        "task_list": "Task List",
+        "project_list": "Project List",
+        "planning": "Planning",
+        "routine_management": "Routine Management",
+        "analytics": "Analytics",
+        "settings": "Settings"
+    },
+    "TaskList": {
+        "current": "Current",
+        "finish_at": "Finish at",
+        "menu": "Menu",
+        "toggle_unscheduled": "Toggle Unscheduled Tasks",
+        "add_task": "Add Task"
+    }
+}

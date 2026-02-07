@@ -47,6 +47,8 @@ next-env.d.ts
 !next.config.ts
 !firebase.json
 !cors.json
+!messages/*.json
+!src/messages/*.json
 
 # Firebase Admin Credentials
 SERVICE_ACCOUNT_KEY*.json

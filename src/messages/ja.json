@@ -1,0 +1,59 @@
+{
+    "HomePage": {
+        "alpha": "Alpha Version Live",
+        "title": "Focus on <execution>execution.</execution>",
+        "description": "The smart task partner for professionals.<br></br>計画と実行のズレをなくし、あなたのパフォーマンスを最大化する。<br></br>時間の流れを可視化する、新しいタスク管理ツール。",
+        "cta": "Start Using Taskel",
+        "features": {
+            "visualized": {
+                "title": "Visualized Timeline",
+                "description": "<strong>時間を「視覚」で捉える。</strong><br></br>1日の残り時間とタスクの総量をリアルタイムに可視化。「なんとなく」の不安を消し去り、明瞭な見通し（Visibility）を提供します。"
+            },
+            "execution": {
+                "title": "Seamless Execution",
+                "description": "<strong>思考を止めない、スムーズな実行。</strong><br></br>タスクの開始・終了は、再生ボタンを押すだけのワンアクション。複雑な操作を排除し、フロー状態への没入を妨げません。"
+            },
+            "logging": {
+                "title": "Reliable Logging",
+                "description": "<strong>実績が、次の計画を磨く。</strong><br></br>予実管理を自動でログ化。感覚ではなくデータに基づいたフィードバックループが、あなたの時間感覚をより鋭敏にします。"
+            },
+            "section_planning": {
+                "title": "Section Planning",
+                "description": "1日を時間帯（セクション）で分割管理。コンテキストに合わせた無理のない計画立案。"
+            },
+            "one_click_timer": {
+                "title": "One-Click Timer",
+                "description": "直感的なストップウォッチ機能。現在実行中のタスクを明確化。"
+            },
+            "hierarchical_planning": {
+                "title": "Hierarchical Planning",
+                "description": "イヤリー、マンスリー、ウィークリーの各期間でゴールを設定。上位の目標に基づいたタスク設計で、迷いのない実行を実現。"
+            }
+        },
+        "key_features_title": "Key Features"
+    },
+    "Navigation": {
+        "login": "Log in",
+        "get_started": "Get Started",
+        "terms": "利用規約",
+        "privacy": "プライバシーポリシー",
+        "copyright": "© {year} Taskel (t-chute). Simple, yet powerful."
+    },
+    "Sidebar": {
+        "menu": "メニュー",
+        "navigation": "ナビゲーション",
+        "task_list": "タスク一覧",
+        "project_list": "プロジェクト一覧",
+        "planning": "プランニング",
+        "routine_management": "ルーチン管理",
+        "analytics": "分析",
+        "settings": "設定"
+    },
+    "TaskList": {
+        "current": "現在時刻",
+        "finish_at": "終了予定",
+        "menu": "メニュー",
+        "toggle_unscheduled": "未スケジュールのタスクを表示/非表示",
+        "add_task": "タスクを追加"
+    }
+}
