@@ -47,5 +47,15 @@ service cloud.firestore {
     match /users/{userId}/routines/{routineId} {
         allow read, write: if isOwner(userId);
     }
+
+    // Invitations: Allow reading if involved
+    match /invitations/{invitationId} {
+      allow read: if isAuthenticated() && (
+        resource.data.invitedBy == request.auth.uid ||
+        resource.data.email == request.auth.token.email ||
+        (resource.data.projectId != null && exists(/databases/$(database)/documents/projects/$(resource.data.projectId)) && 
+         request.auth.uid in get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.memberIds)
+      );
+    }
   }
 }

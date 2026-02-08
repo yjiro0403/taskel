@@ -20,7 +20,7 @@ interface FoundUser {
 }
 
 export default function ProjectInviteModal({ isOpen, onClose, projectId, existingMemberIds }: ProjectInviteModalProps) {
-    const { generateInviteLink, updateProject, projects, user } = useStore();
+    const { generateInviteLink, updateProject, inviteMember, projects, user } = useStore();
 
     // Determine current project to robustly handle updates if needed, though projectId is passed
     const project = projects.find(p => p.id === projectId);
@@ -70,24 +70,31 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
         setShowConfirm(false);
 
         try {
-            const q = query(collection(db, 'users'), where('email', '==', email.trim()));
-            const snapshot = await getDocs(q);
+            // Use API instead of direct Firestore query to avoid permission issues
+            const token = await user?.getIdToken();
+            const response = await fetch('/api/users/lookup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ email: email.trim() })
+            });
 
-            if (!snapshot.empty) {
-                const userDoc = snapshot.docs[0];
-                const userData = userDoc.data();
+            if (!response.ok) {
+                throw new Error('Failed to lookup user');
+            }
 
-                if (existingMemberIds.includes(userDoc.id)) {
+            const data = await response.json();
+
+            if (data.found && data.user) {
+                const userData = data.user;
+                if (existingMemberIds.includes(userData.uid)) {
                     setStatus({ loading: false, message: 'User is already a member.', type: 'error' });
                     return;
                 }
 
-                setFoundUser({
-                    uid: userDoc.id,
-                    email: userData.email,
-                    displayName: userData.displayName,
-                    photoURL: userData.photoURL
-                });
+                setFoundUser(userData);
                 setShowConfirm(true);
                 setStatus({ loading: false, message: '', type: 'info' });
             } else {
@@ -108,51 +115,25 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
 
         try {
             if (foundUser) {
-                // Direct Add
+                // Direct Add (if allowed by rules) or use API ideally
+                // For now keep direct update if rules allow, or fallback to inviteMember?
+                // Actually, let's try direct add first as it's faster, but if it fails...
+                // Ideally we should use an API for adding members too, but let's stick to existing logic for found users if possible.
+                // However, "users" query failed, so maybe "update project" works?
+                // Rules say: match /projects/{projectId} { allow read, write: if isAuthenticated(); }
+                // So this should work fine.
                 const newMemberIds = [...project.memberIds, foundUser.uid];
                 const newRoles = { ...project.roles, [foundUser.uid]: inviteRole };
                 await updateProject(projectId, { memberIds: newMemberIds, roles: newRoles });
                 setStatus({ loading: false, message: `Added ${foundUser.displayName || foundUser.email}!`, type: 'success' });
             } else {
-                // Pending Invite
-                try {
-                    // Check if already invited
-                    const qInvs = query(collection(db, 'invitations'), where('email', '==', email.trim()), where('projectId', '==', projectId));
-                    const snapInvs = await getDocs(qInvs);
+                // Pending Invite via API (avoids client-side permission issues)
+                const result = await inviteMember(projectId, email.trim());
 
-                    if (!snapInvs.empty) {
-                        setStatus({ loading: false, message: 'An invite is already pending for this email.', type: 'error' });
-                        return;
-                    }
-
-                    await addDoc(collection(db, 'invitations'), {
-                        email: email.trim(),
-                        projectId: projectId,
-                        role: inviteRole,
-                        invitedBy: user?.uid || 'unknown',
-                        createdAt: Date.now()
-                    });
-
-                    // Send Email via API
-                    try {
-                        await fetch('/api/invite', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                email: email.trim(),
-                                projectTitle: project?.title || 'Project',
-                                inviterName: user?.displayName || 'A Team Member',
-                                inviteLink: `${window.location.origin}/login`
-                            })
-                        });
-                    } catch (emailErr) {
-                        console.error("Failed to trigger email API", emailErr);
-                    }
-
+                if (result.success) {
                     setStatus({ loading: false, message: `Invitation sent to ${email}`, type: 'success' });
-                } catch (e) {
-                    console.error("Error creating invite", e);
-                    setStatus({ loading: false, message: 'Failed to create invitation.', type: 'error' });
+                } else {
+                    setStatus({ loading: false, message: result.message || 'Failed to send invitation.', type: 'error' });
                 }
             }
             // Reset after delay
