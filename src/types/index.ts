@@ -125,9 +125,22 @@ export interface Tag {
     color?: string;
 }
 
+
 export interface DailyNote {
     id: string; // YYYY-MM-DD
     userId: string;
     content: string; // Markdown
     updatedAt: number;
+}
+
+export interface Invitation {
+    id: string;
+    projectId: string;
+    email?: string;
+    role: HubRole;
+    inviterId: string;
+    status: 'pending' | 'accepted' | 'expired';
+    createdAt: number;
+    expiresAt: number;
+    isReusable?: boolean; // NEW: track if it's a reusable link
 }

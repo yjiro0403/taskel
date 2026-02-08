@@ -58,7 +58,11 @@ export default function AnalyticsPage() {
 
         // 1. Filter Tasks by Date & Criteria
         const filtered = tasks.filter(t => {
+            if (!t.date) return false; // Safety check: Skip tasks without a date
+
             const tDate = new Date(`${t.date}T00:00:00`);
+            if (isNaN(tDate.getTime())) return false; // Safety check: Skip invalid dates
+
             // Date Filter
             if (timeRange !== 'all') {
                 if (!isWithinInterval(tDate, { start, end })) return false;
@@ -373,7 +377,7 @@ export default function AnalyticsPage() {
                             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
                                 {stats.filtered
                                     .filter(t => t.status === 'done')
-                                    .sort((a, b) => b.date.localeCompare(a.date)) // Latest first
+                                    .sort((a, b) => (b.date || '').localeCompare(a.date || '')) // Latest first
                                     .map(task => (
                                         <div key={task.id} className="p-3 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors">
                                             <div className="flex justify-between items-start mb-1">
@@ -434,7 +438,7 @@ export default function AnalyticsPage() {
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
                                             {stats.filtered
-                                                .sort((a, b) => b.date.localeCompare(a.date) || a.order - b.order)
+                                                .sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.order - b.order)
                                                 .map(task => (
                                                     <tr key={task.id} className="hover:bg-gray-50/50">
                                                         <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{task.date}</td>
