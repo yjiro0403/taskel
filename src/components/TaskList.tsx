@@ -115,39 +115,22 @@ export default function TaskList() {
     }, [tasks, currentDate]);
 
     const compareTasks = (a: Task, b: Task) => {
-        // Priority Order: Done (Top) > In Progress > Open (Bottom)
-        const getRank = (t: Task) => {
-            if (t.status === 'done') return 0;
-            if (t.status === 'in_progress') return 1;
-            return 2;
-        };
-
-        const rankA = getRank(a);
-        const rankB = getRank(b);
-
-        if (rankA !== rankB) {
-            return rankA - rankB; // 0 < 1 < 2
-        }
-
-        // Helper to check if a task has a valid scheduled time
+        // スケジュール有無の判定
         const hasScheduleA = !!a.scheduledStart && a.scheduledStart.trim() !== '';
         const hasScheduleB = !!b.scheduledStart && b.scheduledStart.trim() !== '';
 
-        // 1. Sort by Scheduled Start Time (if both have it)
+        // 1. スケジュール済み同士は時間順
         if (hasScheduleA && hasScheduleB) {
             const timeCompare = a.scheduledStart!.localeCompare(b.scheduledStart!);
             if (timeCompare !== 0) return timeCompare;
         }
 
-        // 2. Otherwise, trust the Order (User's manual sort)
-        if (a.order !== b.order) {
-            return a.order - b.order;
-        }
+        // 2. スケジュール済み → 未スケジュール の順（時間軸で前に表示）
+        if (hasScheduleA && !hasScheduleB) return -1;
+        if (!hasScheduleA && hasScheduleB) return 1;
 
-        // 3. Tiebreaker: Unscheduled tasks come BEFORE Scheduled tasks
-        if (hasScheduleA && !hasScheduleB) return 1;
-        if (!hasScheduleA && hasScheduleB) return -1;
-        return 0;
+        // 3. order 順（ユーザーの手動ソート）
+        return (a.order ?? 0) - (b.order ?? 0);
     };
 
     const getSortedTasks = () => {
@@ -397,8 +380,8 @@ function SectionContainer({
             <div className="divide-y divide-gray-100 min-h-[50px]">
                 {tasks.map((task: any) => {
                     const schedule = globalSchedule.get(task.id);
-                    const isUnscheduled = !task.scheduledStart;
-                    const isSortable = isUnscheduled && task.status === 'open';
+                    // 全タスクをドラッグ可能にする（タスクシュートの思想）
+                    const isSortable = true;
 
                     return (
                         <SortableTaskItem

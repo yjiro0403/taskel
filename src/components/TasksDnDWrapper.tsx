@@ -81,10 +81,25 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
             return;
         }
 
+        // UIの表示順と同一のソートロジックを使用
+        const hasSchedule = (t: Task) => !!t.scheduledStart && t.scheduledStart.trim() !== '';
         const getTasksBySection = (sectionId: string) => {
             return mergedTasks
                 .filter(t => t.sectionId === sectionId)
-                .sort((a, b) => (a.order || 0) - (b.order || 0));
+                .sort((a, b) => {
+                    const hasA = hasSchedule(a);
+                    const hasB = hasSchedule(b);
+                    // 1. スケジュール済み同士は時間順
+                    if (hasA && hasB) {
+                        const tc = a.scheduledStart!.localeCompare(b.scheduledStart!);
+                        if (tc !== 0) return tc;
+                    }
+                    // 2. スケジュール済み → 未スケジュール
+                    if (hasA && !hasB) return -1;
+                    if (!hasA && hasB) return 1;
+                    // 3. order 順
+                    return (a.order ?? 0) - (b.order ?? 0);
+                });
         };
 
         const displaySections = generateDisplaySections(sections);

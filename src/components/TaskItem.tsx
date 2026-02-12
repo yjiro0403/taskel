@@ -87,12 +87,12 @@ export function TaskItem({
 
             {/* Controls */}
             <div className="mr-4 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
+                {/* 選択トグル：チェックでタスクを選択し、一括操作（削除・日程変更）が可能 */}
                 <button
-                    onClick={() => onToggleStatus(task)}
-                    disabled={!canEdit}
-                    className={clsx("transition-colors", !canEdit ? "opacity-30 cursor-not-allowed" : "text-gray-400 hover:text-blue-600")}
+                    onClick={() => onToggleSelection(task.id)}
+                    className={clsx("transition-colors", "text-gray-400 hover:text-blue-600")}
                 >
-                    {task.status === 'done' ? (
+                    {isSelected ? (
                         <CheckCircle2 size={20} className="text-blue-600" />
                     ) : (
                         <Circle size={20} />
