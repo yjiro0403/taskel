@@ -212,7 +212,7 @@ export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineMo
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                         >
                             <option value="">No Project</option>
-                            {projects.filter(p => p.status !== 'archived' || p.id === projectId).map((project) => (
+                            {projects.filter(p => (p.status === 'active' || p.id === projectId)).map((project) => (
                                 <option key={project.id} value={project.id}>
                                     {project.title}
                                 </option>

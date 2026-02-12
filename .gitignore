@@ -53,3 +53,15 @@ next-env.d.ts
 # Firebase Admin Credentials
 SERVICE_ACCOUNT_KEY*.json
 service-account*.json
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+screenshots/
+
+*storybook.log
+storybook-static

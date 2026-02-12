@@ -44,6 +44,8 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
             { name: 'Night', startTime: '21:00', order: 4 },
         ];
 
+        // セクションを作成し、IDをキャプチャする
+        const createdSectionIds: string[] = [];
         defaultSections.forEach((section) => {
             const newSectionRef = doc(sectionsRef);
             batch.set(newSectionRef, {
@@ -51,7 +53,47 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
                 id: newSectionRef.id,
                 userId: user.uid,
             });
+            createdSectionIds.push(newSectionRef.id);
         });
+
+        // チュートリアル用のシードタスクをトップレベルのtasksコレクションに追加
+        // ストアは collection(db, 'tasks') を購読するため、users/{uid}/tasks ではなくここに書く
+        if (createdSectionIds.length > 0) {
+            const tasksRef = collection(db, 'tasks'); // トップレベル
+            const today = new Date().toISOString().split('T')[0];
+
+            const task1Ref = doc(tasksRef);
+            batch.set(task1Ref, {
+                id: task1Ref.id,
+                title: '【チュートリアル】このタスクの再生ボタンを押してみよう（1分）',
+                estimatedMinutes: 1,
+                actualMinutes: 0,
+                sectionId: createdSectionIds[0],
+                userId: user.uid,
+                status: 'open',
+                order: 0,
+                date: today,
+                assignedDate: today,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+            });
+
+            const task2Ref = doc(tasksRef);
+            batch.set(task2Ref, {
+                id: task2Ref.id,
+                title: '【チュートリアル】完了したらチェックボタンを押す',
+                estimatedMinutes: 5,
+                actualMinutes: 0,
+                sectionId: createdSectionIds[0],
+                userId: user.uid,
+                status: 'open',
+                order: 1,
+                date: today,
+                assignedDate: today,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+            });
+        }
 
         await batch.commit();
     };

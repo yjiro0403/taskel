@@ -88,11 +88,11 @@ export function TaskItem({
             {/* Controls */}
             <div className="mr-4 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
                 <button
-                    onClick={() => onToggleSelection(task.id)}
+                    onClick={() => onToggleStatus(task)}
                     disabled={!canEdit}
                     className={clsx("transition-colors", !canEdit ? "opacity-30 cursor-not-allowed" : "text-gray-400 hover:text-blue-600")}
                 >
-                    {isSelected ? (
+                    {task.status === 'done' ? (
                         <CheckCircle2 size={20} className="text-blue-600" />
                     ) : (
                         <Circle size={20} />

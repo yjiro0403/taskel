@@ -5,7 +5,7 @@ import { Task, Section } from '@/types';
 import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar } from 'lucide-react';
 import clsx from 'clsx';
 import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { addMinutes } from 'date-fns';
 import { INTERVAL_SECTION_PREFIX, isIntervalSection, generateDisplaySections, getSectionForTime } from '@/lib/sectionUtils';
 
@@ -16,6 +16,7 @@ import Link from 'next/link';
 import DailyGoalList from './DailyGoalList';
 import { SortableTaskItem } from './SortableTaskItem';
 import { TaskContextProvider } from '@/contexts/TaskContext';
+import { useTour } from '@/hooks/useTour';
 
 // DnD Imports
 // DnD Imports removed (lifted to wrapper), but useDroppable is needed for SectionContainer
@@ -32,6 +33,27 @@ export default function TaskList() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+    // FTUE: 初回ユーザー向けオンボーディングツアー
+    const { startTour } = useTour();
+    const tourTriggered = useRef(false);
+    useEffect(() => {
+        // 二重発動防止
+        if (tourTriggered.current) return;
+
+        const hasSeenTour = localStorage.getItem('taskel_tour_completed');
+        if (hasSeenTour) return;
+
+        // シードタスクが読み込まれてからツアーを開始
+        if (tasks.length > 0) {
+            tourTriggered.current = true;
+            const timer = setTimeout(() => {
+                startTour();
+                localStorage.setItem('taskel_tour_completed', 'true');
+            }, 1500);
+            return () => clearTimeout(timer);
+        }
+    }, [startTour, tasks.length]);
 
     // DnD Sensors
     // DnD Sensors removed (lifted to wrapper)
@@ -186,9 +208,10 @@ export default function TaskList() {
         const elapsedMinutes = (now - task.startedAt) / 60000;
 
         updateTask(task.id, {
-            status: 'open',
+            status: 'done',
             startedAt: undefined,
-            actualMinutes: (task.actualMinutes || 0) + elapsedMinutes
+            actualMinutes: (task.actualMinutes || 0) + elapsedMinutes,
+            completedAt: now
         });
     };
 

@@ -191,7 +191,7 @@ export default function RightSidebar() {
                         >
                             <option value="all">All Projects</option>
                             <option value="no-project">No Project</option>
-                            {(projects || []).filter(p => p.status !== 'archived').map(p => (
+                            {(projects || []).filter(p => (p.status === 'active' || p.id === filterProjectId)).map(p => (
                                 <option key={p.id} value={p.id}>
                                     {p.title}
                                 </option>
