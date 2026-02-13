@@ -83,10 +83,18 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
 
         // UIの表示順と同一のソートロジックを使用
         const hasSchedule = (t: Task) => !!t.scheduledStart && t.scheduledStart.trim() !== '';
+        const statusRank = (t: Task) => {
+            if (t.status === 'done') return 0;
+            if (t.status === 'in_progress') return 1;
+            return 2;
+        };
         const getTasksBySection = (sectionId: string) => {
             return mergedTasks
                 .filter(t => t.sectionId === sectionId)
                 .sort((a, b) => {
+                    // 0. 完了タスクは上に表示
+                    const rd = statusRank(a) - statusRank(b);
+                    if (rd !== 0) return rd;
                     const hasA = hasSchedule(a);
                     const hasB = hasSchedule(b);
                     // 1. スケジュール済み同士は時間順

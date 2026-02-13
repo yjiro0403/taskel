@@ -4,7 +4,14 @@ import type { NextConfig } from "next";
 const withNextIntl = createNextIntlPlugin();
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async rewrites() {
+    return [
+      {
+        source: '/api/chat',
+        destination: '/api/ai/chat',
+      },
+    ];
+  },
 };
 
 export default withNextIntl(nextConfig);

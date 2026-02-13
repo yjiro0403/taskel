@@ -3,6 +3,8 @@
 
 import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
 import type { User } from 'firebase/auth';
+import type { AISlice } from './slices/aiSlice';
+import type { GoalSlice } from './slices/goalSlice';
 
 // --- 各スライスの型定義 ---
 
@@ -100,4 +102,6 @@ export type StoreState =
     NoteSlice &
     AuthSlice &
     UISlice &
-    CalendarSlice;
+    CalendarSlice &
+    AISlice &
+    GoalSlice;

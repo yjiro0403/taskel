@@ -1,5 +1,46 @@
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'skipped';
 
+export type GoalType = 'yearly' | 'monthly' | 'weekly';
+export type GoalStatus = 'pending' | 'in_progress' | 'achieved' | 'missed' | 'cancelled';
+
+export interface Goal {
+    id: string; // UUID
+    userId: string;
+    type: GoalType;
+    title: string;
+    description?: string; // Markdown supported
+
+    // Scope / Period
+    assignedYear: string; // "2024"
+    assignedMonth?: string; // "2024-01" (Required for Monthly/Weekly)
+    assignedWeek?: string; // "2024-W01" (Required for Weekly)
+
+    // Status & Progress
+    status: GoalStatus;
+    progress: number; // 0-100 (Auto-calculated from sub-items or Manual)
+
+    // Relations
+    parentGoalId?: string; // Weekly -> Monthly -> Yearly
+    projectId?: string;
+
+    // AI & Metadata
+    priority: 1 | 2 | 3 | 4 | 5; // 5 = Highest
+    tags?: string[];
+
+    // Reflection & AI Analysis
+    reflection?: string; // User's self-review after period ends
+    aiAnalysis?: {
+        complexity?: 'high' | 'medium' | 'low'; // AI estimated difficulty
+        feedback?: string; // AI coaching comment
+        suggestedBreakdown?: string[]; // AI proposed sub-goals/tasks
+        keyResults?: string[]; // Success criteria
+    };
+
+    createdAt: number;
+    updatedAt: number;
+}
+
+
 export type HubRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface Task {
@@ -17,6 +58,8 @@ export interface Task {
     completedAt?: number; // timestamp
     scheduledStart?: string; // HH:mm
     externalLink?: string;
+    parentGoalId?: string; // NEW: Link to a Weekly Goal (Execution contributes to Goal)
+    aiTags?: string[]; // NEW: AI automatically assigned tags
     projectId?: string; // NEW: Link to Project
     milestoneId?: string; // NEW: Link to Project Milestone
     routineId?: string; // NEW: Link to source Routine (for virtual task matching)

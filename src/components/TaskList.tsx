@@ -25,6 +25,7 @@ import {
     SortableContext,
     verticalListSortingStrategy
 } from '@dnd-kit/sortable';
+import { AIChatPanel } from './AIChatPanel';
 
 export default function TaskList() {
     const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks } = useStore();
@@ -115,6 +116,15 @@ export default function TaskList() {
     }, [tasks, currentDate]);
 
     const compareTasks = (a: Task, b: Task) => {
+        // 0. 完了タスクは上に表示（done > in_progress > open）
+        const statusRank = (t: Task) => {
+            if (t.status === 'done') return 0;
+            if (t.status === 'in_progress') return 1;
+            return 2;
+        };
+        const rankDiff = statusRank(a) - statusRank(b);
+        if (rankDiff !== 0) return rankDiff;
+
         // スケジュール有無の判定
         const hasScheduleA = !!a.scheduledStart && a.scheduledStart.trim() !== '';
         const hasScheduleB = !!b.scheduledStart && b.scheduledStart.trim() !== '';
@@ -335,10 +345,13 @@ export default function TaskList() {
                                 className="max-w-full max-h-full object-contain rounded-sm shadow-2xl"
                             />
                         </div>
+
                     )
                 }
+
+                <AIChatPanel />
             </div>
-        </TaskContextProvider>
+        </TaskContextProvider >
     );
 }
 

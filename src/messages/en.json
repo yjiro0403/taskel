@@ -55,5 +55,8 @@
         "menu": "Menu",
         "toggle_unscheduled": "Toggle Unscheduled Tasks",
         "add_task": "Add Task"
+    },
+    "AIChatPanel": {
+        "inputPlaceholder": "Ask AI to create tasks or suggest plans..."
     }
 }

@@ -55,5 +55,8 @@
         "menu": "メニュー",
         "toggle_unscheduled": "未スケジュールのタスクを表示/非表示",
         "add_task": "タスクを追加"
+    },
+    "AIChatPanel": {
+        "inputPlaceholder": "AIにタスク作成や提案を依頼..."
     }
 }

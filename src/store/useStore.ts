@@ -12,6 +12,8 @@ import { createNoteSlice } from './slices/noteSlice';
 import { createAuthSlice } from './slices/authSlice';
 import { createUISlice } from './slices/uiSlice';
 import { createCalendarSlice } from './slices/calendarSlice';
+import { createAISlice } from './slices/aiSlice';
+import { createGoalSlice } from './slices/goalSlice';
 
 export const useStore = create<StoreState>()((...a) => ({
     ...createTaskSlice(...a),
@@ -23,4 +25,6 @@ export const useStore = create<StoreState>()((...a) => ({
     ...createAuthSlice(...a),
     ...createUISlice(...a),
     ...createCalendarSlice(...a),
+    ...createAISlice(...a),
+    ...createGoalSlice(...a),
 }));
