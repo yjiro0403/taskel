@@ -3,15 +3,28 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { useStore } from '@/store/useStore';
-import { X, Send, Sparkles, Loader2 } from 'lucide-react';
+import { X, Sparkles, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
-import { cn } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
+import { ChatMessage } from './ai/ChatMessage';
+import { ChatInput } from './ai/ChatInput';
+import { ModelSelector } from './ai/ModelSelector';
+import { TaskCandidate } from '@/lib/ai/types';
 
 export const AIChatPanel: React.FC = () => {
-    const { isAIPanelOpen, toggleAIPanel, user, currentDate, sections } = useStore();
-    const t = useTranslations('AIChatPanel'); // Adding translation hook placeholder
+    const {
+        isAIPanelOpen,
+        toggleAIPanel,
+        user,
+        currentDate,
+        sections,
+        taskCandidates,
+        addTaskCandidate,
+        confirmTaskCandidate,
+        dismissTaskCandidate,
+        updateTaskCandidate,
+    } = useStore();
+    const t = useTranslations('AIChatPanel');
     // Fallback if translation is missing
     const t_placeholder = t('inputPlaceholder') === 'AIChatPanel.inputPlaceholder'
         ? 'AIにタスク作成や提案を依頼...'
@@ -28,27 +41,44 @@ export const AIChatPanel: React.FC = () => {
             currentDate, // 表示中の日付を渡し、タスクが正しい日付で作成・表示されるようにする
             sections,   // 開始時刻から適切なセクションを割り当てるために必要
         },
-        onError: (error) => {
+        onError: (error: Error) => {
             console.error('Chat error:', error);
             alert('AIチャットでエラーが発生しました。');
         },
         maxSteps: 5,
-    });
+    } as any);
 
     const isLoading = status === 'submitted' || status === 'streaming';
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setInput(e.target.value);
-    };
+    // TaskCandidateの検出と自動追加
+    useEffect(() => {
+        // 最新のassistantメッセージからtask_suggestionを検出
+        const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+        if (!lastAssistant?.parts) return;
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+        for (const part of lastAssistant.parts) {
+            const partAny = part as any;
+            if (partAny.type?.startsWith('tool-') && partAny.state === 'output-available') {
+                const output = partAny.output as any;
+                if (output?.type === 'task_suggestion' && output?.candidate) {
+                    const candidate = output.candidate as TaskCandidate;
+                    // BUG-001修正: tempIdで重複チェック
+                    const alreadyExists = taskCandidates.some(c => c.tempId === candidate.tempId);
+                    if (!alreadyExists) {
+                        addTaskCandidate(candidate);
+                    }
+                }
+            }
+        }
+    }, [messages, taskCandidates, addTaskCandidate]);
+
+    const handleSubmit = async () => {
         if (!input.trim()) return;
         const value = input;
         setInput('');
         // ai SDK v6: 標準的なオブジェクト形式で送信
         await sendMessage(
-            { role: 'user', content: value },
+            { role: 'user', content: value } as any,
             {
                 body: {
                     userId: user?.uid,
@@ -56,8 +86,12 @@ export const AIChatPanel: React.FC = () => {
                     currentDate,
                     sections,
                 }
-            }
+            } as any
         );
+    };
+
+    const handleTaskConfirm = (candidate: TaskCandidate) => {
+        confirmTaskCandidate(candidate.tempId);
     };
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -111,19 +145,7 @@ export const AIChatPanel: React.FC = () => {
                                         <Sparkles size={20} />
                                         <h2 className="font-semibold text-lg">AI Assistant</h2>
                                     </div>
-                                    <select
-                                        value={selectedModel}
-                                        onChange={(e) => setSelectedModel(e.target.value)}
-                                        className="text-[10px] bg-zinc-100 dark:bg-zinc-800 border-none rounded px-2 py-1 text-zinc-600 dark:text-zinc-400 focus:ring-1 focus:ring-indigo-500 outline-none w-fit"
-                                    >
-                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                                        <option value="gemini-3-flash">Gemini 3 Flash</option>
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                        <option value="gemini-3-pro">Gemini 3 Pro</option>
-                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                                    </select>
+                                    <ModelSelector value={selectedModel} onChange={setSelectedModel} />
                                 </div>
                                 <button
                                     onClick={toggleAIPanel}
@@ -142,109 +164,15 @@ export const AIChatPanel: React.FC = () => {
                                     </div>
                                 )}
 
-                                {messages.map((m) => {
-                                    // AI SDK v6: メッセージは parts 配列を使用。テキストとツール結果を parts から取得
-                                    const parts = m.parts ?? [];
-                                    const textParts = parts.filter((p: { type?: string }) => p.type === 'text');
-                                    const textContent = textParts
-                                        .map((p: { text?: string }) => p.text ?? '')
-                                        .join('')
-                                        .trim();
-                                    const toolParts = parts.filter((p: { type?: string }) =>
-                                        p.type === 'tool-createTask' || p.type === 'tool-getTodayTasks' || p.type === 'dynamic-tool'
-                                    );
-
-                                    return (
-                                    <div
+                                {messages.map((m) => (
+                                    <ChatMessage
                                         key={m.id}
-                                        className={cn(
-                                            "flex w-full mb-4",
-                                            m.role === 'user' ? "justify-end" : "justify-start"
-                                        )}
-                                    >
-                                        <div
-                                            className={cn(
-                                                "max-w-[85%] rounded-2xl px-4 py-2 text-sm shadow-sm",
-                                                m.role === 'user'
-                                                    ? "bg-indigo-600 text-white rounded-br-none"
-                                                    : "bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-bl-none"
-                                            )}
-                                        >
-                                            {/* テキストコンテンツ */}
-                                            {textContent && (
-                                                <div className="prose dark:prose-invert prose-sm max-w-none">
-                                                    <ReactMarkdown
-                                                        components={{
-                                                            p: ({ node, ...props }) => <p className="mb-0" {...props} />
-                                                        }}
-                                                    >
-                                                        {textContent}
-                                                    </ReactMarkdown>
-                                                </div>
-                                            )}
-
-                                            {/* Tool parts (AI SDK v6): tool-createTask, tool-getTodayTasks, dynamic-tool */}
-                                            {toolParts.map((part: { type?: string; toolCallId?: string; state?: string; output?: { message?: string }; toolName?: string }, idx: number) => {
-                                                const toolName = part.toolName ?? (part.type === 'tool-createTask' ? 'createTask' : part.type === 'tool-getTodayTasks' ? 'getTodayTasks' : '');
-                                                const isCreateTask = toolName === 'createTask' || part.type === 'tool-createTask';
-                                                const isGetTodayTasks = toolName === 'getTodayTasks' || part.type === 'tool-getTodayTasks';
-
-                                                if (part.state === 'output-available' && part.output) {
-                                                    const result = part.output as { message?: string };
-                                                    const displayMsg = isCreateTask
-                                                        ? (result?.message ?? 'タスクを作成しました')
-                                                        : isGetTodayTasks
-                                                            ? 'タスク情報を取得しました'
-                                                            : typeof part.output === 'object' && part.output !== null && 'message' in part.output
-                                                                ? (part.output as { message?: string }).message
-                                                                : '完了しました';
-                                                    return (
-                                                        <div key={part.toolCallId ?? idx} className={cn(
-                                                            "flex items-center gap-2",
-                                                            textContent ? "mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-600" : "py-0.5"
-                                                        )}>
-                                                            <span className="text-base">{isCreateTask ? '✨' : '📊'}</span>
-                                                            <span className={cn(
-                                                                "text-zinc-700 dark:text-zinc-200",
-                                                                !textContent && "font-medium"
-                                                            )}>
-                                                                {displayMsg}
-                                                            </span>
-                                                        </div>
-                                                    );
-                                                }
-                                                if (part.state === 'output-error') {
-                                                    return (
-                                                        <div key={part.toolCallId ?? idx} className="flex items-center gap-2 mt-2 text-red-500 text-sm">
-                                                            ⚠️ エラーが発生しました
-                                                        </div>
-                                                    );
-                                                }
-                                                return (
-                                                    <div key={part.toolCallId ?? idx} className="flex items-center gap-2 mt-2 text-zinc-500">
-                                                        <Loader2 size={14} className="animate-spin" />
-                                                        <span>処理中...</span>
-                                                    </div>
-                                                );
-                                            })}
-
-                                            {/* フォールバック: toolInvocations (旧形式) */}
-                                            {toolParts.length === 0 && (m as { toolInvocations?: Array<{ state?: string; result?: { message?: string }; toolName?: string; toolCallId?: string }> }).toolInvocations?.map((ti, idx) => {
-                                                if (ti.state === 'result' && ti.result) {
-                                                    const msg = (ti.result as { message?: string }).message ?? (ti.toolName === 'createTask' ? 'タスクを作成しました' : '完了しました');
-                                                    return (
-                                                        <div key={ti.toolCallId ?? idx} className="flex items-center gap-2 py-0.5">
-                                                            <span className="text-base">✨</span>
-                                                            <span className="text-zinc-700 dark:text-zinc-200 font-medium">{msg}</span>
-                                                        </div>
-                                                    );
-                                                }
-                                                return null;
-                                            })}
-                                        </div>
-                                    </div>
-                                    );
-                                })}
+                                        message={m}
+                                        onTaskConfirm={handleTaskConfirm}
+                                        onTaskDismiss={dismissTaskCandidate}
+                                        onTaskEdit={updateTaskCandidate}
+                                    />
+                                ))}
 
                                 {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
                                     <div className="flex justify-start">
@@ -257,29 +185,13 @@ export const AIChatPanel: React.FC = () => {
                             </div>
 
                             {/* Input Area */}
-                            <form onSubmit={handleSubmit} className="p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800">
-                                <div className="relative flex items-center">
-                                    <input
-                                        className="w-full bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-full py-3 pl-4 pr-12 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 border-none transition-all"
-                                        value={input}
-                                        onChange={handleInputChange}
-                                        placeholder={t_placeholder}
-                                        disabled={isLoading}
-                                    />
-                                    <button
-                                        type="submit"
-                                        disabled={isLoading || !input.trim()}
-                                        className="absolute right-2 p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                                    </button>
-                                </div>
-                                <div className="text-center mt-2">
-                                    <p className="text-[10px] text-zinc-400">
-                                        AI can make mistakes. Please check important info.
-                                    </p>
-                                </div>
-                            </form>
+                            <ChatInput
+                                value={input}
+                                onChange={setInput}
+                                onSubmit={handleSubmit}
+                                isLoading={isLoading}
+                                placeholder={t_placeholder}
+                            />
                         </motion.div>
                     </>
                 )}
