@@ -22,7 +22,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ value, onChange })
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="text-xs bg-zinc-100 dark:bg-zinc-800 border-none rounded px-2 py-1 text-zinc-600 dark:text-zinc-400 focus:ring-1 focus:ring-indigo-500 outline-none w-fit"
+      className="text-xs bg-zinc-100 border-none rounded px-2 py-1 text-zinc-600 focus:ring-1 focus:ring-indigo-500 outline-none w-fit"
     >
       {AVAILABLE_MODELS.map((model) => (
         <option key={model.id} value={model.id}>

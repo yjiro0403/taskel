@@ -32,8 +32,8 @@ export const GoalSelector: React.FC<GoalSelectorProps> = ({
       value={value || ''}
       onChange={(e) => onChange(e.target.value || undefined)}
       className={cn(
-        'bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600',
-        'rounded px-2 py-1 text-sm text-zinc-900 dark:text-white',
+        'bg-white border border-zinc-300',
+        'rounded px-2 py-1 text-sm text-zinc-900',
         'focus:outline-none focus:ring-1 focus:ring-indigo-500',
         className
       )}

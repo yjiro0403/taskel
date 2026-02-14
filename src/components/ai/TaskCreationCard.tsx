@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { TaskCandidate, GoalSummary } from '@/lib/ai/types';
-import { Sparkles, Check, X, Edit2 } from 'lucide-react';
+import { Sparkles, Check, X, Edit2, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { GoalSelector } from './GoalSelector';
@@ -14,6 +14,8 @@ interface TaskCreationCardProps {
   onEdit: (tempId: string, updates: Partial<TaskCandidate>) => void;
   // Phase 2追加
   availableGoals?: GoalSummary[];
+  // A1追加: 即時開始ハンドラ
+  onConfirmAndStart?: (candidate: TaskCandidate) => void;
 }
 
 export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
@@ -22,6 +24,7 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
   onDismiss,
   onEdit,
   availableGoals,
+  onConfirmAndStart,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValues, setEditValues] = useState<Partial<TaskCandidate>>({});
@@ -31,6 +34,11 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
   const handleConfirm = () => {
     const mergedCandidate = { ...candidate, ...editValues };
     onConfirm(mergedCandidate);
+  };
+
+  const handleConfirmAndStart = () => {
+    const mergedCandidate = { ...candidate, ...editValues };
+    onConfirmAndStart?.(mergedCandidate);
   };
 
   const handleEdit = () => {
@@ -56,9 +64,9 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 rounded-lg p-3 mt-2"
+        className="border border-green-200 bg-green-50 rounded-lg p-3 mt-2"
       >
-        <div className="flex items-center gap-2 text-green-700 dark:text-green-400 text-sm">
+        <div className="flex items-center gap-2 text-green-700 text-sm">
           <Check size={16} />
           <span className="font-medium">タスク「{candidate.title}」を作成しました</span>
         </div>
@@ -67,91 +75,97 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
   }
 
   return (
-    <div className="border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg p-4 mt-2 space-y-3">
+    <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4 mt-2 space-y-3">
       {/* Header */}
-      <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-medium">
+      <div className="flex items-center gap-2 text-indigo-700 font-medium">
         <Sparkles size={16} />
         <span className="text-sm">タスクの提案</span>
+        {candidate.startImmediately && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+            <Play size={10} />
+            即時開始
+          </span>
+        )}
       </div>
 
       {/* Fields */}
       <div className="space-y-2 text-sm">
         {/* Title */}
         <div className="flex items-start gap-2">
-          <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">タイトル:</span>
+          <span className="text-zinc-600 min-w-[80px]">タイトル:</span>
           {isEditing ? (
             <input
               type="text"
               value={editValues.title ?? currentValues.title}
               onChange={(e) => setEditValues({ ...editValues, title: e.target.value })}
-              className="flex-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 text-zinc-900 dark:text-white"
+              className="flex-1 bg-white border border-zinc-300 rounded px-2 py-1 text-zinc-900"
             />
           ) : (
-            <span className="flex-1 text-zinc-900 dark:text-white">{currentValues.title}</span>
+            <span className="flex-1 text-zinc-900">{currentValues.title}</span>
           )}
         </div>
 
         {/* Date */}
         <div className="flex items-start gap-2">
-          <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">日付:</span>
+          <span className="text-zinc-600 min-w-[80px]">日付:</span>
           {isEditing ? (
             <input
               type="date"
               value={editValues.date ?? currentValues.date}
               onChange={(e) => setEditValues({ ...editValues, date: e.target.value })}
-              className="flex-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 text-zinc-900 dark:text-white"
+              className="flex-1 bg-white border border-zinc-300 rounded px-2 py-1 text-zinc-900"
             />
           ) : (
-            <span className="flex-1 text-zinc-900 dark:text-white">{currentValues.date}</span>
+            <span className="flex-1 text-zinc-900">{currentValues.date}</span>
           )}
         </div>
 
         {/* Scheduled Start */}
         {(currentValues.scheduledStart || isEditing) && (
           <div className="flex items-start gap-2">
-            <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">開始時刻:</span>
+            <span className="text-zinc-600 min-w-[80px]">開始時刻:</span>
             {isEditing ? (
               <input
                 type="time"
                 value={editValues.scheduledStart ?? currentValues.scheduledStart ?? ''}
                 onChange={(e) => setEditValues({ ...editValues, scheduledStart: e.target.value })}
-                className="flex-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 text-zinc-900 dark:text-white"
+                className="flex-1 bg-white border border-zinc-300 rounded px-2 py-1 text-zinc-900"
               />
             ) : (
-              <span className="flex-1 text-zinc-900 dark:text-white">{currentValues.scheduledStart}</span>
+              <span className="flex-1 text-zinc-900">{currentValues.scheduledStart}</span>
             )}
           </div>
         )}
 
         {/* Estimated Minutes */}
         <div className="flex items-start gap-2">
-          <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">見積もり:</span>
+          <span className="text-zinc-600 min-w-[80px]">見積もり:</span>
           {isEditing ? (
             <input
               type="number"
               min="1"
               value={editValues.estimatedMinutes ?? currentValues.estimatedMinutes}
               onChange={(e) => setEditValues({ ...editValues, estimatedMinutes: parseInt(e.target.value) })}
-              className="flex-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 text-zinc-900 dark:text-white"
+              className="flex-1 bg-white border border-zinc-300 rounded px-2 py-1 text-zinc-900"
             />
           ) : (
-            <span className="flex-1 text-zinc-900 dark:text-white">{currentValues.estimatedMinutes}分</span>
+            <span className="flex-1 text-zinc-900">{currentValues.estimatedMinutes}分</span>
           )}
         </div>
 
         {/* Memo */}
         {(currentValues.memo || isEditing) && (
           <div className="flex items-start gap-2">
-            <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">メモ:</span>
+            <span className="text-zinc-600 min-w-[80px]">メモ:</span>
             {isEditing ? (
               <textarea
                 value={editValues.memo ?? currentValues.memo ?? ''}
                 onChange={(e) => setEditValues({ ...editValues, memo: e.target.value })}
-                className="flex-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 text-zinc-900 dark:text-white"
+                className="flex-1 bg-white border border-zinc-300 rounded px-2 py-1 text-zinc-900"
                 rows={2}
               />
             ) : (
-              <span className="flex-1 text-zinc-900 dark:text-white">{currentValues.memo}</span>
+              <span className="flex-1 text-zinc-900">{currentValues.memo}</span>
             )}
           </div>
         )}
@@ -159,7 +173,7 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
         {/* Goal Selector - Phase 2 */}
         {availableGoals && availableGoals.length > 0 && (
           <div className="flex items-start gap-2">
-            <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">目標:</span>
+            <span className="text-zinc-600 min-w-[80px]">目標:</span>
             {isEditing ? (
               <GoalSelector
                 value={editValues.parentGoalId ?? currentValues.parentGoalId}
@@ -170,7 +184,7 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
                 className="flex-1"
               />
             ) : (
-              <span className="flex-1 text-zinc-900 dark:text-white">
+              <span className="flex-1 text-zinc-900">
                 {currentValues.parentGoalId
                   ? availableGoals.find(g => g.id === currentValues.parentGoalId)?.title ?? '(不明な目標)'
                   : '紐づけなし'}
@@ -193,7 +207,38 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
             </button>
             <button
               onClick={handleCancelEdit}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-300 rounded text-sm transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded text-sm transition-colors"
+            >
+              <X size={14} />
+              キャンセル
+            </button>
+          </>
+        ) : candidate.startImmediately && onConfirmAndStart ? (
+          <>
+            <button
+              onClick={handleConfirmAndStart}
+              className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm transition-colors"
+            >
+              <Play size={14} />
+              作成して開始
+            </button>
+            <button
+              onClick={handleConfirm}
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded text-sm transition-colors"
+            >
+              <Check size={14} />
+              作成のみ
+            </button>
+            <button
+              onClick={handleEdit}
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded text-sm transition-colors"
+            >
+              <Edit2 size={14} />
+              編集
+            </button>
+            <button
+              onClick={() => onDismiss(candidate.tempId)}
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded text-sm transition-colors"
             >
               <X size={14} />
               キャンセル
@@ -210,14 +255,14 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
             </button>
             <button
               onClick={handleEdit}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 rounded text-sm transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded text-sm transition-colors"
             >
               <Edit2 size={14} />
               編集
             </button>
             <button
               onClick={() => onDismiss(candidate.tempId)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 rounded text-sm transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded text-sm transition-colors"
             >
               <X size={14} />
               キャンセル

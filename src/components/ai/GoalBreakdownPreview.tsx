@@ -65,15 +65,15 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
   };
 
   return (
-    <div className="border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg p-4 mt-2 space-y-3">
+    <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4 mt-2 space-y-3">
       {/* Header */}
-      <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-medium">
+      <div className="flex items-center gap-2 text-indigo-700 font-medium">
         <Target size={16} />
         <span className="text-sm">目標分解: 「{sourceGoal.title}」</span>
       </div>
 
       {/* 合計見積もり */}
-      <div className="text-xs text-zinc-500 dark:text-zinc-400">
+      <div className="text-xs text-zinc-500">
         選択中: {selectedCandidates.length}/{activeCandidates.length}件 |
         合計見積もり: {totalEstimated}分（{Math.round(totalEstimated / 60 * 10) / 10}時間）
       </div>
@@ -85,7 +85,7 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
             key={c.tempId}
             className={cn(
               "flex items-center gap-2 px-2 py-1.5 rounded text-sm",
-              "hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors"
+              "hover:bg-indigo-100 transition-colors"
             )}
           >
             <input
@@ -95,7 +95,7 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
               className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
             />
             <span className="text-zinc-500 text-xs min-w-[20px]">{idx + 1}.</span>
-            <span className="flex-1 text-zinc-900 dark:text-white">{c.title}</span>
+            <span className="flex-1 text-zinc-900">{c.title}</span>
             <span className="text-zinc-500 text-xs">{c.date}</span>
             <span className="text-zinc-500 text-xs">{c.estimatedMinutes}分</span>
           </div>
@@ -111,7 +111,7 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
             "flex items-center gap-1 px-3 py-1.5 rounded text-sm transition-colors",
             selectedCandidates.length > 0
               ? "bg-indigo-600 hover:bg-indigo-700 text-white"
-              : "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
+              : "bg-zinc-200 text-zinc-400 cursor-not-allowed"
           )}
         >
           <Check size={14} />
@@ -119,7 +119,7 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
         </button>
         <button
           onClick={handleDismissAll}
-          className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 rounded text-sm transition-colors"
+          className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded text-sm transition-colors"
         >
           <X size={14} />
           すべてキャンセル

@@ -25,10 +25,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800">
+    <form onSubmit={handleSubmit} className="p-4 bg-white border-t border-zinc-200">
       <div className="relative flex items-center">
         <input
-          className="w-full bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-full py-3 pl-4 pr-12 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 border-none transition-all"
+          className="w-full bg-zinc-100 text-zinc-900 rounded-full py-3 pl-4 pr-12 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 border-none transition-all"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}

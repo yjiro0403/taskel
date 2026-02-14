@@ -30,6 +30,8 @@ export const AIChatPanel: React.FC = () => {
         setCachedCalibrationHint,
         confirmMultipleCandidates,
         dismissMultipleCandidates,
+        // A1追加
+        confirmAndStartTask,
         // Goals情報取得用
         goals,
         tasks,
@@ -105,16 +107,15 @@ export const AIChatPanel: React.FC = () => {
         if (!input.trim()) return;
         const value = input;
         setInput('');
-        // ai SDK v6: 標準的なオブジェクト形式で送信
+        // ai SDK v6: text形式で送信
         await sendMessage(
-            { role: 'user', content: value } as any,
+            { text: value },
             {
                 body: {
                     userId: user?.uid,
                     model: selectedModel,
                     currentDate,
                     sections,
-                    // Phase 2追加
                     activeGoals: cachedGoalSummaries,
                     calibrationHint: cachedCalibrationHint,
                 }
@@ -124,6 +125,10 @@ export const AIChatPanel: React.FC = () => {
 
     const handleTaskConfirm = (candidate: TaskCandidate) => {
         confirmTaskCandidate(candidate.tempId);
+    };
+
+    const handleTaskConfirmAndStart = (candidate: TaskCandidate) => {
+        confirmAndStartTask(candidate.tempId);
     };
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -197,12 +202,12 @@ export const AIChatPanel: React.FC = () => {
                             animate={{ x: 0, opacity: 1 }}
                             exit={{ x: '100%', opacity: 0 }}
                             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="fixed right-0 bottom-0 top-0 w-full md:w-[400px] bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 shadow-xl z-[100] flex flex-col"
+                            className="fixed right-0 bottom-0 top-0 w-full md:w-[400px] bg-white border-l border-zinc-200 shadow-xl z-[100] flex flex-col"
                         >
                             {/* Header */}
-                            <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">
+                            <div className="flex items-center justify-between p-4 border-b border-zinc-200">
                                 <div className="flex flex-col gap-1">
-                                    <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                                    <div className="flex items-center gap-2 text-indigo-600">
                                         <Sparkles size={20} />
                                         <h2 className="font-semibold text-lg">AI Assistant</h2>
                                     </div>
@@ -210,14 +215,14 @@ export const AIChatPanel: React.FC = () => {
                                 </div>
                                 <button
                                     onClick={toggleAIPanel}
-                                    className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors"
+                                    className="p-2 hover:bg-zinc-100 rounded-full transition-colors"
                                 >
                                     <X size={20} className="text-zinc-500" />
                                 </button>
                             </div>
 
                             {/* Messages Area */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50 dark:bg-zinc-950/50">
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50">
                                 {messages.length === 0 && (
                                     <div className="flex flex-col items-center justify-center h-full text-zinc-400 text-sm gap-2">
                                         <Sparkles size={32} className="opacity-20" />
@@ -235,12 +240,13 @@ export const AIChatPanel: React.FC = () => {
                                         availableGoals={cachedGoalSummaries}
                                         onConfirmMultiple={confirmMultipleCandidates}
                                         onDismissMultiple={dismissMultipleCandidates}
+                                        onTaskConfirmAndStart={handleTaskConfirmAndStart}
                                     />
                                 ))}
 
                                 {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
                                     <div className="flex justify-start">
-                                        <div className="bg-white dark:bg-zinc-800 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm border border-zinc-200 dark:border-zinc-700">
+                                        <div className="bg-white rounded-2xl rounded-bl-none px-4 py-3 shadow-sm border border-zinc-200">
                                             <Loader2 size={16} className="animate-spin text-indigo-500" />
                                         </div>
                                     </div>
@@ -271,7 +277,7 @@ export const AIChatPanel: React.FC = () => {
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={toggleAIPanel}
-                        className="fixed bottom-6 right-6 md:bottom-8 md:right-8 p-4 bg-indigo-600 text-white rounded-full shadow-lg z-40 hover:bg-indigo-700 transition-colors"
+                        className="fixed bottom-24 right-6 md:bottom-24 md:right-8 p-4 bg-indigo-600 text-white rounded-full shadow-lg z-40 hover:bg-indigo-700 transition-colors"
                         aria-label="Open AI Assistant"
                     >
                         <Sparkles size={24} />
