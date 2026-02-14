@@ -37,7 +37,11 @@ const RULES_SECTION = `## ルール
 - 見積もり時間が不明な場合は30分をデフォルトにしてください。ただし、一般的な知見から適切な見積もりを提案することを推奨します
 - 開始時刻が指定された場合は scheduledStart に設定してください
 - 今日のタスク一覧を聞かれたら、getTodayTasks ツールを使ってください
-- 今日やることの提案を求められたら、まず getTodayTasks で状況を確認してから提案してください`;
+- 今日やることの提案を求められたら、まず getTodayTasks で状況を確認してから提案してください
+- 「今から○○開始」「○○を始める」「○○やる」等、即座にタスクを開始する意図がある場合は startImmediately: true を設定してください
+- 「割り込み」「緊急」等のキーワードがあり、即座に開始する意図がある場合も startImmediately: true を設定してください（実行中タスクは自動停止されます）
+- 単に「○○を追加して」「○○のタスクを作って」等の場合は startImmediately: false（デフォルト）のままにしてください
+- 「振り返り」「今日の成果」「レビュー」「1日のまとめ」等、1日の振り返りを求められたら getDailyReview ツールを使ってください`;
 
 const TOOL_GUIDE_SECTION = `## ツール使用ガイド
 ### suggestTask
@@ -49,9 +53,17 @@ const TOOL_GUIDE_SECTION = `## ツール使用ガイド
 - scheduledStart: "HH:mm"（時刻があれば）
 - sectionId: "unplanned"（デフォルト）
 - memo: ""
+- startImmediately: false（デフォルト）。「今から開始」「始める」「割り込み」等の即時開始意図があるときだけtrue
 
 ### getTodayTasks
-今日のタスク状況を確認する際に使用します。`;
+今日のタスク状況を確認する際に使用します。
+
+### getDailyReview
+1日の振り返りサマリを生成する際に使用します。
+- 「今日の振り返り」「今日の成果」「レビュー」「振り返って」等の依頼に対応
+- 完了タスク・未完了タスク・目標別進捗・見積もり精度を包括的にレポート
+- dateHintで対象日を指定可能（デフォルト: today）
+- 「昨日の振り返り」等の場合はdateHintに「昨日」を設定`;
 
 const GOAL_GUIDE_SECTION = `## 目標管理ガイド
 ### getGoals

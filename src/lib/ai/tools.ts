@@ -9,7 +9,7 @@ import { resolveDate } from './dateResolver';
 import { getSectionForTime } from '@/lib/sectionUtils';
 import { getDb } from '@/lib/firebaseAdmin';
 import type { Section } from '@/types';
-import type { TodayTasksSummary, GoalSummary, GoalBreakdownContext, CalibrationData, GoalsSummaryResult } from './types';
+import type { TodayTasksSummary, GoalSummary, GoalBreakdownContext, CalibrationData, GoalsSummaryResult, DailyReviewData } from './types';
 
 interface ToolContext {
   userId: string;
@@ -32,6 +32,9 @@ const suggestTaskSchema = z.object({
   parentGoalId: z.string().optional().describe('紐づける目標のID'),
   projectId: z.string().optional().describe('紐づけるプロジェクトのID'),
   aiTags: z.array(z.string()).optional().describe('AIが推定するタグ'),
+  startImmediately: z.boolean().default(false).describe(
+    '即時開始フラグ。「今から○○開始」「○○を始める」「割り込み」等の場合にtrue'
+  ),
 });
 
 export function createAITools(context: ToolContext) {
@@ -58,6 +61,8 @@ export function createAITools(context: ToolContext) {
           if (matched) sectionId = matched;
         }
 
+        const startImmediately = args.startImmediately ?? false;
+
         return {
           type: 'task_suggestion' as const,
           candidate: {
@@ -72,8 +77,11 @@ export function createAITools(context: ToolContext) {
             projectId: args.projectId || undefined,
             aiTags: args.aiTags || [],
             status: 'pending' as const,
+            startImmediately,
           },
-          message: `タスク「${title}」を提案します。内容を確認して、問題なければ作成ボタンを押してください。`,
+          message: startImmediately
+            ? `タスク「${title}」を提案します。「作成して開始」を押すと、タイマーが即座にスタートします。`
+            : `タスク「${title}」を提案します。内容を確認して、問題なければ作成ボタンを押してください。`,
         };
       },
     }),
@@ -500,6 +508,207 @@ export function createAITools(context: ToolContext) {
             },
             worstEstimates: [],
             message: '校正データの取得に失敗しました。',
+          };
+        }
+      },
+    }),
+
+    getDailyReview: tool({
+      description: '指定日のDaily Reviewサマリを生成します。' +
+        '完了タスク・未完了タスク・スキップ済みタスク・目標別進捗を集計し、' +
+        '1日の振り返りレポートを返します。' +
+        '「今日の振り返り」「今日の成果」「レビュー」等の依頼に対応してください。',
+      parameters: z.object({
+        dateHint: z.string().default('today')
+          .describe('対象日のヒント（"today", "昨日", "2025-01-15" 等）'),
+      }),
+      // @ts-ignore
+      execute: async (args: any): Promise<DailyReviewData> => {
+        try {
+          const db = getDb();
+          const targetDate = resolveDate(args.dateHint || 'today', context.currentDate);
+
+          // 対象日のタスクを全取得
+          const snapshot = await db
+            .collection('tasks')
+            .where('userId', '==', context.userId)
+            .where('date', '==', targetDate)
+            .get();
+
+          const allTasks = snapshot.docs.map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              title: data.title as string,
+              status: data.status as string,
+              estimatedMinutes: (data.estimatedMinutes || 0) as number,
+              actualMinutes: (data.actualMinutes || 0) as number,
+              parentGoalId: data.parentGoalId as string | undefined,
+            };
+          });
+
+          if (allTasks.length === 0) {
+            return {
+              type: 'daily_review' as const,
+              date: targetDate,
+              completedTasks: [],
+              incompleteTasks: [],
+              skippedTasks: [],
+              stats: {
+                totalTasks: 0,
+                completedCount: 0,
+                incompleteCount: 0,
+                skippedCount: 0,
+                completionRate: 0,
+                totalEstimatedMinutes: 0,
+                totalActualMinutes: 0,
+                accuracyRatio: 1.0,
+              },
+              goalProgress: [],
+              message: `${targetDate} のタスクデータがありません。`,
+            };
+          }
+
+          // ステータス別に分類
+          const completed = allTasks.filter(t => t.status === 'done');
+          const incomplete = allTasks.filter(t => t.status === 'open' || t.status === 'in_progress');
+          const skipped = allTasks.filter(t => t.status === 'skipped');
+
+          // 目標IDを収集してGoalタイトルをバッチ取得（最大30件）
+          const goalIds = [...new Set(
+            allTasks
+              .map(t => t.parentGoalId)
+              .filter((id): id is string => !!id)
+          )];
+
+          const goalTitles: Record<string, string> = {};
+          if (goalIds.length > 0) {
+            const batches: string[][] = [];
+            for (let i = 0; i < goalIds.length; i += 30) {
+              batches.push(goalIds.slice(i, i + 30));
+            }
+            for (const batch of batches) {
+              const goalSnapshot = await db
+                .collection('goals')
+                .where('__name__', 'in', batch)
+                .get();
+              goalSnapshot.docs.forEach((doc) => {
+                goalTitles[doc.id] = doc.data().title;
+              });
+            }
+          }
+
+          // 完了タスク一覧
+          const completedTasks = completed.map(t => ({
+            title: t.title,
+            estimatedMinutes: t.estimatedMinutes,
+            actualMinutes: t.actualMinutes,
+            parentGoalId: t.parentGoalId,
+            goalTitle: t.parentGoalId ? goalTitles[t.parentGoalId] : undefined,
+          }));
+
+          // 未完了タスク一覧
+          const incompleteTasks = incomplete.map(t => ({
+            title: t.title,
+            status: t.status,
+            estimatedMinutes: t.estimatedMinutes,
+          }));
+
+          // スキップタスク一覧
+          const skippedTasks = skipped.map(t => ({ title: t.title }));
+
+          // 統計計算
+          const totalEstimated = allTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
+          const totalActual = completed.reduce((sum, t) => sum + t.actualMinutes, 0);
+          const completionRate = Math.round((completed.length / allTasks.length) * 100);
+          const accuracyRatio = totalEstimated > 0
+            ? Math.round((totalActual / totalEstimated) * 100) / 100
+            : 1.0;
+
+          // 目標別進捗
+          const goalProgressMap: Record<string, { goalTitle: string; completed: number; total: number }> = {};
+          allTasks.forEach(t => {
+            if (t.parentGoalId && goalTitles[t.parentGoalId]) {
+              if (!goalProgressMap[t.parentGoalId]) {
+                goalProgressMap[t.parentGoalId] = {
+                  goalTitle: goalTitles[t.parentGoalId],
+                  completed: 0,
+                  total: 0,
+                };
+              }
+              goalProgressMap[t.parentGoalId].total++;
+              if (t.status === 'done') {
+                goalProgressMap[t.parentGoalId].completed++;
+              }
+            }
+          });
+
+          const goalProgress = Object.entries(goalProgressMap).map(([goalId, data]) => ({
+            goalId,
+            goalTitle: data.goalTitle,
+            tasksCompleted: data.completed,
+            tasksTotal: data.total,
+          }));
+
+          // サマリメッセージ生成
+          let message = '';
+          if (completionRate >= 80) {
+            message = `素晴らしい1日でした！${completed.length}/${allTasks.length}件のタスクを完了しました（${completionRate}%）。`;
+          } else if (completionRate >= 50) {
+            message = `${completed.length}/${allTasks.length}件のタスクを完了しました（${completionRate}%）。着実に進んでいます。`;
+          } else if (completed.length > 0) {
+            message = `${completed.length}/${allTasks.length}件のタスクを完了しました（${completionRate}%）。明日に持ち越すタスクを整理しましょう。`;
+          } else {
+            message = `本日のタスクはまだ完了していません。進行中のタスクを確認しましょう。`;
+          }
+
+          if (totalEstimated > 0 && totalActual > 0) {
+            if (accuracyRatio > 1.3) {
+              message += ` 見積もり精度は${Math.round(accuracyRatio * 100)}%で、やや超過傾向です。`;
+            } else if (accuracyRatio < 0.7) {
+              message += ` 見積もりより早く完了しており、精度は${Math.round(accuracyRatio * 100)}%です。`;
+            }
+          }
+
+          return {
+            type: 'daily_review' as const,
+            date: targetDate,
+            completedTasks,
+            incompleteTasks,
+            skippedTasks,
+            stats: {
+              totalTasks: allTasks.length,
+              completedCount: completed.length,
+              incompleteCount: incomplete.length,
+              skippedCount: skipped.length,
+              completionRate,
+              totalEstimatedMinutes: totalEstimated,
+              totalActualMinutes: totalActual,
+              accuracyRatio,
+            },
+            goalProgress,
+            message,
+          };
+        } catch (error) {
+          console.error('getDailyReview error:', error);
+          return {
+            type: 'daily_review' as const,
+            date: context.currentDate,
+            completedTasks: [],
+            incompleteTasks: [],
+            skippedTasks: [],
+            stats: {
+              totalTasks: 0,
+              completedCount: 0,
+              incompleteCount: 0,
+              skippedCount: 0,
+              completionRate: 0,
+              totalEstimatedMinutes: 0,
+              totalActualMinutes: 0,
+              accuracyRatio: 1.0,
+            },
+            goalProgress: [],
+            message: 'Daily Reviewデータの取得に失敗しました。',
           };
         }
       },

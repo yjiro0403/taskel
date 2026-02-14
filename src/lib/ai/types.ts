@@ -35,6 +35,8 @@ export interface TaskCandidate {
   fromGoalBreakdown?: boolean;
   /** Phase 2追加: 同一Breakdown内での順序（一括表示用） */
   breakdownOrder?: number;
+  /** A1追加: タスク作成と同時にタイマーを開始するか */
+  startImmediately?: boolean;
 }
 
 /**
@@ -160,6 +162,51 @@ export interface CalibrationData {
     date: string;
   }>;
   /** AIからのフィードバックメッセージ */
+  message: string;
+}
+
+/**
+ * Daily Reviewデータ。
+ * 1日の終わりに完了タスク・未完了タスク・統計・目標進捗をまとめた振り返り情報。
+ */
+export interface DailyReviewData {
+  type: 'daily_review';
+  date: string;
+  /** 完了タスク一覧 */
+  completedTasks: Array<{
+    title: string;
+    estimatedMinutes: number;
+    actualMinutes: number;
+    parentGoalId?: string;
+    goalTitle?: string;
+  }>;
+  /** 未完了タスク一覧 (open / in_progress) */
+  incompleteTasks: Array<{
+    title: string;
+    status: string;
+    estimatedMinutes: number;
+  }>;
+  /** スキップされたタスク */
+  skippedTasks: Array<{ title: string }>;
+  /** 全体統計 */
+  stats: {
+    totalTasks: number;
+    completedCount: number;
+    incompleteCount: number;
+    skippedCount: number;
+    completionRate: number;         // 0-100
+    totalEstimatedMinutes: number;
+    totalActualMinutes: number;
+    accuracyRatio: number;          // actual / estimated
+  };
+  /** 目標別進捗 (今日タスクが紐づいているGoalのみ) */
+  goalProgress: Array<{
+    goalId: string;
+    goalTitle: string;
+    tasksCompleted: number;
+    tasksTotal: number;
+  }>;
+  /** AIが生成するサマリメッセージ */
   message: string;
 }
 

@@ -8,6 +8,7 @@ import { TaskCandidate, GoalSummary } from '@/lib/ai/types';
 import { TaskCreationCard } from './TaskCreationCard';
 import { GoalBreakdownPreview } from './GoalBreakdownPreview';
 import { CalibrationFeedback } from './CalibrationFeedback';
+import { DailyReviewSummary } from './DailyReviewSummary';
 
 interface UIMessage {
   id: string;
@@ -38,6 +39,8 @@ interface ChatMessageProps {
   availableGoals?: GoalSummary[];
   onConfirmMultiple?: (tempIds: string[]) => void;
   onDismissMultiple?: (tempIds: string[]) => void;
+  // A1追加: 即時開始ハンドラ
+  onTaskConfirmAndStart?: (candidate: TaskCandidate) => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({
@@ -48,6 +51,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   availableGoals,
   onConfirmMultiple,
   onDismissMultiple,
+  onTaskConfirmAndStart,
 }) => {
   const parts = message.parts ?? [];
   const textParts = parts.filter((p) => p.type === 'text');
@@ -61,6 +65,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     'tool-getGoals',
     'tool-breakdownGoal',
     'tool-getCalibrationData',
+    'tool-getDailyReview',
     'dynamic-tool',
   ]);
   const toolParts = parts.filter((p) => p.type && TOOL_TYPES.has(p.type));
@@ -76,13 +81,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         className={cn(
           "max-w-[85%] rounded-2xl px-4 py-2 text-sm shadow-sm",
           message.role === 'user'
-            ? "bg-indigo-600 text-white rounded-br-none"
-            : "bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-bl-none"
+            ? "bg-indigo-700 text-white font-medium rounded-br-none"
+            : "bg-white border border-zinc-200 text-zinc-800 rounded-bl-none"
         )}
       >
         {/* テキストコンテンツ */}
         {textContent && (
-          <div className="prose dark:prose-invert prose-sm max-w-none">
+          <div className={cn(
+            "prose prose-sm max-w-none",
+            message.role === 'user' && "prose-invert"
+          )}>
             <ReactMarkdown
               components={{
                 p: ({ node, ...props }) => <p className="mb-0" {...props} />
@@ -101,6 +109,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           const isGetGoals = toolName === 'getGoals';
           const isBreakdownGoal = toolName === 'breakdownGoal';
           const isGetCalibrationData = toolName === 'getCalibrationData';
+          const isGetDailyReview = toolName === 'getDailyReview';
 
           if (part.state === 'output-available' && part.output) {
             // task_suggestion タイプの検出
@@ -113,6 +122,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                   onDismiss={onTaskDismiss}
                   onEdit={onTaskEdit}
                   availableGoals={availableGoals}
+                  onConfirmAndStart={onTaskConfirmAndStart}
                 />
               );
             }
@@ -122,7 +132,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               const summary = part.output as any;
               return (
                 <div key={part.toolCallId ?? idx} className={cn(
-                  "mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-600"
+                  "mt-2 pt-2 border-t border-zinc-200"
                 )}>
                   <div className="text-sm space-y-1">
                     <p className="font-medium">今日のタスク状況</p>
@@ -143,12 +153,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               );
             }
 
+            // getDailyReview の結果表示
+            if (isGetDailyReview && part.output?.type === 'daily_review') {
+              return (
+                <DailyReviewSummary
+                  key={part.toolCallId ?? idx}
+                  data={part.output}
+                />
+              );
+            }
+
             // getGoals の結果表示（簡易版）
             if (isGetGoals && part.output?.type === 'goals_summary') {
               const summary = part.output as any;
               return (
                 <div key={part.toolCallId ?? idx} className={cn(
-                  "mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-600"
+                  "mt-2 pt-2 border-t border-zinc-200"
                 )}>
                   <div className="text-sm space-y-1">
                     <p className="font-medium">目標一覧</p>
@@ -163,11 +183,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             return (
               <div key={part.toolCallId ?? idx} className={cn(
                 "flex items-center gap-2",
-                textContent ? "mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-600" : "py-0.5"
+                textContent ? "mt-2 pt-2 border-t border-zinc-200" : "py-0.5"
               )}>
                 <span className="text-base">{isSuggestTask ? '✨' : isBreakdownGoal ? '🎯' : '📊'}</span>
                 <span className={cn(
-                  "text-zinc-700 dark:text-zinc-200",
+                  "text-zinc-700",
                   !textContent && "font-medium"
                 )}>
                   {displayMsg}
@@ -199,7 +219,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             return (
               <div key={ti.toolCallId ?? idx} className="flex items-center gap-2 py-0.5">
                 <span className="text-base">✨</span>
-                <span className="text-zinc-700 dark:text-zinc-200 font-medium">{msg}</span>
+                <span className="text-zinc-700 font-medium">{msg}</span>
               </div>
             );
           }
