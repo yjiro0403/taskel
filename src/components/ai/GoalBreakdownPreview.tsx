@@ -65,9 +65,9 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
   };
 
   return (
-    <div className="border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 rounded-lg p-4 mt-2 space-y-3">
+    <div className="border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg p-4 mt-2 space-y-3">
       {/* Header */}
-      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-medium">
+      <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-medium">
         <Target size={16} />
         <span className="text-sm">目標分解: 「{sourceGoal.title}」</span>
       </div>
@@ -85,14 +85,14 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
             key={c.tempId}
             className={cn(
               "flex items-center gap-2 px-2 py-1.5 rounded text-sm",
-              "hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
+              "hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors"
             )}
           >
             <input
               type="checkbox"
               checked={selectedIds.has(c.tempId)}
               onChange={() => toggleSelection(c.tempId)}
-              className="rounded border-zinc-300 text-amber-600 focus:ring-amber-500"
+              className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
             />
             <span className="text-zinc-500 text-xs min-w-[20px]">{idx + 1}.</span>
             <span className="flex-1 text-zinc-900 dark:text-white">{c.title}</span>
@@ -110,7 +110,7 @@ export const GoalBreakdownPreview: React.FC<GoalBreakdownPreviewProps> = ({
           className={cn(
             "flex items-center gap-1 px-3 py-1.5 rounded text-sm transition-colors",
             selectedCandidates.length > 0
-              ? "bg-amber-600 hover:bg-amber-700 text-white"
+              ? "bg-indigo-600 hover:bg-indigo-700 text-white"
               : "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
           )}
         >

@@ -44,7 +44,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       </div>
       <div className="text-center mt-2">
         <p className="text-[10px] text-zinc-400">
-          AI can make mistakes. Please check important info.
+          AIの回答は不正確な場合があります。重要な情報はご確認ください。
         </p>
       </div>
     </form>

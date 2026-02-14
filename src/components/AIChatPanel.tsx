@@ -271,7 +271,7 @@ export const AIChatPanel: React.FC = () => {
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={toggleAIPanel}
-                        className="fixed bottom-24 right-6 p-4 bg-indigo-600 text-white rounded-full shadow-lg z-40 hover:bg-indigo-700 transition-colors"
+                        className="fixed bottom-6 right-6 md:bottom-8 md:right-8 p-4 bg-indigo-600 text-white rounded-full shadow-lg z-40 hover:bg-indigo-700 transition-colors"
                         aria-label="Open AI Assistant"
                     >
                         <Sparkles size={24} />

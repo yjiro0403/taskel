@@ -55,14 +55,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     .map((p) => p.text ?? '')
     .join('')
     .trim();
-  const toolParts = parts.filter((p) =>
-    p.type === 'tool-suggestTask' ||
-    p.type === 'tool-getTodayTasks' ||
-    p.type === 'tool-getGoals' ||
-    p.type === 'tool-breakdownGoal' ||
-    p.type === 'tool-getCalibrationData' ||
-    p.type === 'dynamic-tool'
-  );
+  const TOOL_TYPES = new Set([
+    'tool-suggestTask',
+    'tool-getTodayTasks',
+    'tool-getGoals',
+    'tool-breakdownGoal',
+    'tool-getCalibrationData',
+    'dynamic-tool',
+  ]);
+  const toolParts = parts.filter((p) => p.type && TOOL_TYPES.has(p.type));
 
   return (
     <div
@@ -94,12 +95,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
         {/* Tool parts (AI SDK v6): tool-suggestTask, tool-getTodayTasks, tool-getGoals, tool-breakdownGoal, tool-getCalibrationData, dynamic-tool */}
         {toolParts.map((part, idx) => {
-          const toolName = part.toolName ?? (part.type === 'tool-suggestTask' ? 'suggestTask' : part.type === 'tool-getTodayTasks' ? 'getTodayTasks' : part.type === 'tool-getGoals' ? 'getGoals' : part.type === 'tool-breakdownGoal' ? 'breakdownGoal' : part.type === 'tool-getCalibrationData' ? 'getCalibrationData' : '');
-          const isSuggestTask = toolName === 'suggestTask' || part.type === 'tool-suggestTask';
-          const isGetTodayTasks = toolName === 'getTodayTasks' || part.type === 'tool-getTodayTasks';
-          const isGetGoals = toolName === 'getGoals' || part.type === 'tool-getGoals';
-          const isBreakdownGoal = toolName === 'breakdownGoal' || part.type === 'tool-breakdownGoal';
-          const isGetCalibrationData = toolName === 'getCalibrationData' || part.type === 'tool-getCalibrationData';
+          const toolName = part.toolName ?? part.type?.replace('tool-', '') ?? '';
+          const isSuggestTask = toolName === 'suggestTask';
+          const isGetTodayTasks = toolName === 'getTodayTasks';
+          const isGetGoals = toolName === 'getGoals';
+          const isBreakdownGoal = toolName === 'breakdownGoal';
+          const isGetCalibrationData = toolName === 'getCalibrationData';
 
           if (part.state === 'output-available' && part.output) {
             // task_suggestion タイプの検出

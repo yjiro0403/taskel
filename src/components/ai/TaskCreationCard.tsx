@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { TaskCandidate, GoalSummary } from '@/lib/ai/types';
 import { Sparkles, Check, X, Edit2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { motion } from 'framer-motion';
 import { GoalSelector } from './GoalSelector';
 
 interface TaskCreationCardProps {
@@ -52,12 +53,16 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
 
   if (candidate.status === 'confirmed') {
     return (
-      <div className="border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 rounded-lg p-3 mt-2">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 rounded-lg p-3 mt-2"
+      >
         <div className="flex items-center gap-2 text-green-700 dark:text-green-400 text-sm">
           <Check size={16} />
-          <span>タスクを作成しました</span>
+          <span className="font-medium">タスク「{candidate.title}」を作成しました</span>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
@@ -155,15 +160,22 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
         {availableGoals && availableGoals.length > 0 && (
           <div className="flex items-start gap-2">
             <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">目標:</span>
-            <GoalSelector
-              value={editValues.parentGoalId ?? currentValues.parentGoalId}
-              onChange={(goalId) => {
-                setEditValues({ ...editValues, parentGoalId: goalId });
-                onEdit(candidate.tempId, { parentGoalId: goalId });
-              }}
-              goals={availableGoals}
-              className="flex-1"
-            />
+            {isEditing ? (
+              <GoalSelector
+                value={editValues.parentGoalId ?? currentValues.parentGoalId}
+                onChange={(goalId) => {
+                  setEditValues({ ...editValues, parentGoalId: goalId });
+                }}
+                goals={availableGoals}
+                className="flex-1"
+              />
+            ) : (
+              <span className="flex-1 text-zinc-900 dark:text-white">
+                {currentValues.parentGoalId
+                  ? availableGoals.find(g => g.id === currentValues.parentGoalId)?.title ?? '(不明な目標)'
+                  : '紐づけなし'}
+              </span>
+            )}
           </div>
         )}
       </div>
