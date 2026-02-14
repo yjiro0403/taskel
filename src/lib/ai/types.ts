@@ -31,6 +31,10 @@ export interface TaskCandidate {
   status: 'pending' | 'confirmed' | 'dismissed';
   /** この候補を生成したチャットメッセージのID */
   sourceMessageId?: string;
+  /** Phase 2追加: この候補がGoal Breakdownから生成されたかどうか */
+  fromGoalBreakdown?: boolean;
+  /** Phase 2追加: 同一Breakdown内での順序（一括表示用） */
+  breakdownOrder?: number;
 }
 
 /**
@@ -56,4 +60,126 @@ export interface TaskSummaryItem {
   scheduledStart?: string;
   sectionId: string;
   parentGoalId?: string;
+}
+
+/**
+ * AIコンテキストで使用するGoalの要約情報。
+ * 完全なGoal型ではなく、AIが必要とする最小限の情報。
+ */
+export interface GoalSummary {
+  id: string;
+  title: string;
+  type: 'yearly' | 'monthly' | 'weekly';
+  status: 'pending' | 'in_progress' | 'achieved' | 'missed' | 'cancelled';
+  progress: number;
+  assignedYear: string;
+  assignedMonth?: string;
+  assignedWeek?: string;
+  parentGoalId?: string;
+  /** 既に紐づいているタスク数 */
+  linkedTaskCount: number;
+  /** AI分析情報（存在する場合） */
+  aiSuggestedBreakdown?: string[];
+  keyResults?: string[];
+}
+
+/**
+ * breakdownGoalツールの戻り値。
+ * Goal情報と既存タスク情報をコンテキストとして返す。
+ * 実際のタスク分解はAIモデルが後続のsuggestTask呼び出しで行う。
+ */
+export interface GoalBreakdownContext {
+  type: 'goal_breakdown_context';
+  /** 分解元のGoal詳細情報 */
+  sourceGoal: {
+    id: string;
+    title: string;
+    type: string;
+    description?: string;
+    progress?: number;
+    aiAnalysis?: {
+      suggestedBreakdown?: string[];
+      keyResults?: string[];
+      feedback?: string;
+    };
+  };
+  /** 既にこのGoalに紐づいているタスクのタイトル（重複回避用） */
+  existingTaskTitles: string[];
+  /** タスクを配置する日付範囲 */
+  dateRange: {
+    start: string; // YYYY-MM-DD
+    end: string;   // YYYY-MM-DD
+  };
+  /** AIが提案すべきタスク数 */
+  numberOfTasks: number;
+  /** ユーザーからの追加コンテキスト */
+  additionalContext?: string;
+  /** ツール結果のメッセージ */
+  message: string;
+}
+
+/**
+ * 時間校正データ。
+ * 見積もりと実績のギャップを分析するための情報。
+ */
+export interface CalibrationData {
+  type: 'calibration_feedback';
+  /** 分析期間 */
+  period: {
+    start: string; // YYYY-MM-DD
+    end: string;   // YYYY-MM-DD
+    days: number;
+  };
+  /** 全体統計 */
+  overall: {
+    totalTasks: number;
+    completedTasks: number;
+    /** 見積もり合計（分） */
+    totalEstimatedMinutes: number;
+    /** 実績合計（分） */
+    totalActualMinutes: number;
+    /** 見積もり精度（actual / estimated の比率。1.0が完全一致） */
+    accuracyRatio: number;
+    /** 平均乖離率（%）。正=超過、負=余裕 */
+    averageDeviationPercent: number;
+  };
+  /** カテゴリ別の見積もり精度（タグ別） */
+  byTag?: Array<{
+    tag: string;
+    taskCount: number;
+    avgEstimated: number;
+    avgActual: number;
+    accuracyRatio: number;
+  }>;
+  /** 最も見積もりが乖離したタスク（上位5件） */
+  worstEstimates: Array<{
+    title: string;
+    estimated: number;
+    actual: number;
+    deviationPercent: number;
+    date: string;
+  }>;
+  /** AIからのフィードバックメッセージ */
+  message: string;
+}
+
+/**
+ * getGoalsツールの戻り値
+ */
+export interface GoalsSummaryResult {
+  type: 'goals_summary';
+  goals: GoalSummary[];
+  /** 期間フィルタの説明 */
+  periodDescription: string;
+  message: string;
+}
+
+/**
+ * プロンプトコンテキストに埋め込む見積もり精度ヒント。
+ * CalibrationDataから抽出した軽量情報。
+ */
+export interface CalibrationHint {
+  accuracyRatio: number;
+  averageDeviationPercent: number;
+  sampleSize: number;
 }

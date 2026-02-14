@@ -27,7 +27,16 @@ export async function POST(req: Request) {
   console.log('==== AI Chat API Called ====');
   try {
     const json = await req.json();
-    const { messages, userId, currentDate, sections, model: requestedModel } = json;
+    const {
+      messages,
+      userId,
+      currentDate,
+      sections,
+      model: requestedModel,
+      // Phase 2追加: クライアントからのGoals/Calibrationヒント
+      activeGoals,
+      calibrationHint,
+    } = json;
 
     if (!userId) {
       return new Response('Unauthorized', { status: 401 });
@@ -41,10 +50,17 @@ export async function POST(req: Request) {
 
     const result = streamText({
       model: google(modelName),
-      system: buildSystemPrompt({ currentDate: today }),
+      system: buildSystemPrompt({
+        currentDate: today,
+        activeGoals,       // Phase 2追加
+        calibrationHint,   // Phase 2追加
+      }),
       messages: normalizeMessages(messages),
       tools: createAITools({ userId, currentDate: today, sections: sections || [] }),
       toolChoice: 'auto',
+      // Phase 2: Goal Breakdown時の複数ツール呼び出しに対応
+      // AI SDK v6.0.82はデフォルトで十分なステップ数を確保しているため、
+      // 明示的なmaxSteps設定は不要（自動で複数ツール呼び出しに対応）
     });
 
     // ai SDK v6: useChat互換のUIMessageStreamResponseを使用

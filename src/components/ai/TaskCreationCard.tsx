@@ -1,15 +1,18 @@
 'use client';
 
 import React, { useState } from 'react';
-import { TaskCandidate } from '@/lib/ai/types';
+import { TaskCandidate, GoalSummary } from '@/lib/ai/types';
 import { Sparkles, Check, X, Edit2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { GoalSelector } from './GoalSelector';
 
 interface TaskCreationCardProps {
   candidate: TaskCandidate;
   onConfirm: (candidate: TaskCandidate) => void;
   onDismiss: (tempId: string) => void;
   onEdit: (tempId: string, updates: Partial<TaskCandidate>) => void;
+  // Phase 2追加
+  availableGoals?: GoalSummary[];
 }
 
 export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
@@ -17,6 +20,7 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
   onConfirm,
   onDismiss,
   onEdit,
+  availableGoals,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValues, setEditValues] = useState<Partial<TaskCandidate>>({});
@@ -144,6 +148,22 @@ export const TaskCreationCard: React.FC<TaskCreationCardProps> = ({
             ) : (
               <span className="flex-1 text-zinc-900 dark:text-white">{currentValues.memo}</span>
             )}
+          </div>
+        )}
+
+        {/* Goal Selector - Phase 2 */}
+        {availableGoals && availableGoals.length > 0 && (
+          <div className="flex items-start gap-2">
+            <span className="text-zinc-600 dark:text-zinc-400 min-w-[80px]">目標:</span>
+            <GoalSelector
+              value={editValues.parentGoalId ?? currentValues.parentGoalId}
+              onChange={(goalId) => {
+                setEditValues({ ...editValues, parentGoalId: goalId });
+                onEdit(candidate.tempId, { parentGoalId: goalId });
+              }}
+              goals={availableGoals}
+              className="flex-1"
+            />
           </div>
         )}
       </div>

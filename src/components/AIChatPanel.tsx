@@ -23,6 +23,16 @@ export const AIChatPanel: React.FC = () => {
         confirmTaskCandidate,
         dismissTaskCandidate,
         updateTaskCandidate,
+        // Phase 2追加
+        cachedGoalSummaries,
+        setCachedGoalSummaries,
+        cachedCalibrationHint,
+        setCachedCalibrationHint,
+        confirmMultipleCandidates,
+        dismissMultipleCandidates,
+        // Goals情報取得用
+        goals,
+        tasks,
     } = useStore();
     const t = useTranslations('AIChatPanel');
     // Fallback if translation is missing
@@ -40,6 +50,9 @@ export const AIChatPanel: React.FC = () => {
             model: selectedModel,
             currentDate, // 表示中の日付を渡し、タスクが正しい日付で作成・表示されるようにする
             sections,   // 開始時刻から適切なセクションを割り当てるために必要
+            // Phase 2追加
+            activeGoals: cachedGoalSummaries,
+            calibrationHint: cachedCalibrationHint,
         },
         onError: (error: Error) => {
             console.error('Chat error:', error);
@@ -50,9 +63,9 @@ export const AIChatPanel: React.FC = () => {
 
     const isLoading = status === 'submitted' || status === 'streaming';
 
-    // TaskCandidateの検出と自動追加
+    // TaskCandidateの検出と自動追加（Phase 2: Calibrationデータも検出）
     useEffect(() => {
-        // 最新のassistantメッセージからtask_suggestionを検出
+        // 最新のassistantメッセージからtask_suggestionとcalibration_feedbackを検出
         const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
         if (!lastAssistant?.parts) return;
 
@@ -60,6 +73,8 @@ export const AIChatPanel: React.FC = () => {
             const partAny = part as any;
             if (partAny.type?.startsWith('tool-') && partAny.state === 'output-available') {
                 const output = partAny.output as any;
+
+                // 既存: task_suggestion検出
                 if (output?.type === 'task_suggestion' && output?.candidate) {
                     const candidate = output.candidate as TaskCandidate;
                     // BUG-001修正: tempIdで重複チェック
@@ -68,9 +83,23 @@ export const AIChatPanel: React.FC = () => {
                         addTaskCandidate(candidate);
                     }
                 }
+
+                // Phase 2追加: calibration_feedback検出 → キャッシュ更新
+                if (output?.type === 'calibration_feedback' && output?.overall) {
+                    setCachedCalibrationHint({
+                        accuracyRatio: output.overall.accuracyRatio,
+                        averageDeviationPercent: output.overall.averageDeviationPercent,
+                        sampleSize: output.overall.totalTasks,
+                    });
+                }
+
+                // Phase 2追加: goals_summary検出 → キャッシュ更新
+                if (output?.type === 'goals_summary' && output?.goals) {
+                    setCachedGoalSummaries(output.goals);
+                }
             }
         }
-    }, [messages, taskCandidates, addTaskCandidate]);
+    }, [messages, taskCandidates, addTaskCandidate, setCachedCalibrationHint, setCachedGoalSummaries]);
 
     const handleSubmit = async () => {
         if (!input.trim()) return;
@@ -85,6 +114,9 @@ export const AIChatPanel: React.FC = () => {
                     model: selectedModel,
                     currentDate,
                     sections,
+                    // Phase 2追加
+                    activeGoals: cachedGoalSummaries,
+                    calibrationHint: cachedCalibrationHint,
                 }
             } as any
         );
@@ -105,6 +137,35 @@ export const AIChatPanel: React.FC = () => {
             scrollToBottom();
         }
     }, [messages, isAIPanelOpen]);
+
+    // Phase 2追加: AIパネルオープン時にGoalsキャッシュを更新
+    useEffect(() => {
+        if (isAIPanelOpen && goals.length > 0) {
+            // GoalSliceのgoals配列からGoalSummary[]に変換
+            const goalSummaries = goals
+                .filter(g => g.status === 'pending' || g.status === 'in_progress')
+                .map(g => {
+                    // 紐づいているタスク数をカウント
+                    const linkedTaskCount = tasks.filter(t => t.parentGoalId === g.id).length;
+
+                    return {
+                        id: g.id,
+                        title: g.title,
+                        type: g.type,
+                        status: g.status,
+                        progress: g.progress || 0,
+                        assignedYear: g.assignedYear,
+                        assignedMonth: g.assignedMonth,
+                        assignedWeek: g.assignedWeek,
+                        parentGoalId: g.parentGoalId,
+                        linkedTaskCount,
+                        aiSuggestedBreakdown: g.aiAnalysis?.suggestedBreakdown,
+                        keyResults: g.aiAnalysis?.keyResults,
+                    };
+                });
+            setCachedGoalSummaries(goalSummaries);
+        }
+    }, [isAIPanelOpen, goals, tasks, setCachedGoalSummaries]);
 
     // Close on Escape key
     useEffect(() => {
@@ -171,6 +232,9 @@ export const AIChatPanel: React.FC = () => {
                                         onTaskConfirm={handleTaskConfirm}
                                         onTaskDismiss={dismissTaskCandidate}
                                         onTaskEdit={updateTaskCandidate}
+                                        availableGoals={cachedGoalSummaries}
+                                        onConfirmMultiple={confirmMultipleCandidates}
+                                        onDismissMultiple={dismissMultipleCandidates}
                                     />
                                 ))}
 

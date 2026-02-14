@@ -4,8 +4,10 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { TaskCandidate } from '@/lib/ai/types';
+import { TaskCandidate, GoalSummary } from '@/lib/ai/types';
 import { TaskCreationCard } from './TaskCreationCard';
+import { GoalBreakdownPreview } from './GoalBreakdownPreview';
+import { CalibrationFeedback } from './CalibrationFeedback';
 
 interface UIMessage {
   id: string;
@@ -32,6 +34,10 @@ interface ChatMessageProps {
   onTaskConfirm: (candidate: TaskCandidate) => void;
   onTaskDismiss: (tempId: string) => void;
   onTaskEdit: (tempId: string, updates: Partial<TaskCandidate>) => void;
+  // Phase 2追加
+  availableGoals?: GoalSummary[];
+  onConfirmMultiple?: (tempIds: string[]) => void;
+  onDismissMultiple?: (tempIds: string[]) => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({
@@ -39,6 +45,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   onTaskConfirm,
   onTaskDismiss,
   onTaskEdit,
+  availableGoals,
+  onConfirmMultiple,
+  onDismissMultiple,
 }) => {
   const parts = message.parts ?? [];
   const textParts = parts.filter((p) => p.type === 'text');
@@ -47,7 +56,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     .join('')
     .trim();
   const toolParts = parts.filter((p) =>
-    p.type === 'tool-suggestTask' || p.type === 'tool-getTodayTasks' || p.type === 'dynamic-tool'
+    p.type === 'tool-suggestTask' ||
+    p.type === 'tool-getTodayTasks' ||
+    p.type === 'tool-getGoals' ||
+    p.type === 'tool-breakdownGoal' ||
+    p.type === 'tool-getCalibrationData' ||
+    p.type === 'dynamic-tool'
   );
 
   return (
@@ -78,11 +92,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           </div>
         )}
 
-        {/* Tool parts (AI SDK v6): tool-suggestTask, tool-getTodayTasks, dynamic-tool */}
+        {/* Tool parts (AI SDK v6): tool-suggestTask, tool-getTodayTasks, tool-getGoals, tool-breakdownGoal, tool-getCalibrationData, dynamic-tool */}
         {toolParts.map((part, idx) => {
-          const toolName = part.toolName ?? (part.type === 'tool-suggestTask' ? 'suggestTask' : part.type === 'tool-getTodayTasks' ? 'getTodayTasks' : '');
+          const toolName = part.toolName ?? (part.type === 'tool-suggestTask' ? 'suggestTask' : part.type === 'tool-getTodayTasks' ? 'getTodayTasks' : part.type === 'tool-getGoals' ? 'getGoals' : part.type === 'tool-breakdownGoal' ? 'breakdownGoal' : part.type === 'tool-getCalibrationData' ? 'getCalibrationData' : '');
           const isSuggestTask = toolName === 'suggestTask' || part.type === 'tool-suggestTask';
           const isGetTodayTasks = toolName === 'getTodayTasks' || part.type === 'tool-getTodayTasks';
+          const isGetGoals = toolName === 'getGoals' || part.type === 'tool-getGoals';
+          const isBreakdownGoal = toolName === 'breakdownGoal' || part.type === 'tool-breakdownGoal';
+          const isGetCalibrationData = toolName === 'getCalibrationData' || part.type === 'tool-getCalibrationData';
 
           if (part.state === 'output-available' && part.output) {
             // task_suggestion タイプの検出
@@ -94,6 +111,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                   onConfirm={onTaskConfirm}
                   onDismiss={onTaskDismiss}
                   onEdit={onTaskEdit}
+                  availableGoals={availableGoals}
                 />
               );
             }
@@ -114,6 +132,31 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               );
             }
 
+            // getCalibrationData の結果表示
+            if (isGetCalibrationData && part.output?.type === 'calibration_feedback') {
+              return (
+                <CalibrationFeedback
+                  key={part.toolCallId ?? idx}
+                  data={part.output}
+                />
+              );
+            }
+
+            // getGoals の結果表示（簡易版）
+            if (isGetGoals && part.output?.type === 'goals_summary') {
+              const summary = part.output as any;
+              return (
+                <div key={part.toolCallId ?? idx} className={cn(
+                  "mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-600"
+                )}>
+                  <div className="text-sm space-y-1">
+                    <p className="font-medium">目標一覧</p>
+                    <p>{summary.periodDescription}: {summary.goals?.length || 0}件</p>
+                  </div>
+                </div>
+              );
+            }
+
             // その他のツール結果
             const displayMsg = part.output?.message ?? '完了しました';
             return (
@@ -121,7 +164,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                 "flex items-center gap-2",
                 textContent ? "mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-600" : "py-0.5"
               )}>
-                <span className="text-base">{isSuggestTask ? '✨' : '📊'}</span>
+                <span className="text-base">{isSuggestTask ? '✨' : isBreakdownGoal ? '🎯' : '📊'}</span>
                 <span className={cn(
                   "text-zinc-700 dark:text-zinc-200",
                   !textContent && "font-medium"

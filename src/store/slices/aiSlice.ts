@@ -2,7 +2,7 @@
 
 import { StateCreator } from 'zustand';
 import { StoreState } from '../types';
-import { TaskCandidate } from '@/lib/ai/types';
+import { TaskCandidate, GoalSummary, CalibrationHint } from '@/lib/ai/types';
 import { Task } from '@/types';
 
 export interface AISlice {
@@ -24,6 +24,20 @@ export interface AISlice {
   dismissTaskCandidate: (tempId: string) => void;
   /** 全候補をクリア */
   clearTaskCandidates: () => void;
+
+  // --- Phase 2 新規 ---
+  /** クライアントキャッシュ: アクティブなGoals要約 */
+  cachedGoalSummaries: GoalSummary[];
+  /** クライアントキャッシュ: 見積もり精度ヒント */
+  cachedCalibrationHint: CalibrationHint | null;
+  /** Goalsキャッシュを更新 */
+  setCachedGoalSummaries: (goals: GoalSummary[]) => void;
+  /** Calibrationヒントキャッシュを更新 */
+  setCachedCalibrationHint: (hint: CalibrationHint | null) => void;
+  /** Goal Breakdown一括確認: 選択された候補を一括で確定 */
+  confirmMultipleCandidates: (tempIds: string[]) => Promise<void>;
+  /** Goal Breakdown一括破棄: 選択された候補を一括で破棄 */
+  dismissMultipleCandidates: (tempIds: string[]) => void;
 }
 
 export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, get) => ({
@@ -91,4 +105,58 @@ export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, ge
     })),
 
   clearTaskCandidates: () => set({ taskCandidates: [] }),
+
+  // --- Phase 2 新規 ---
+  cachedGoalSummaries: [],
+  cachedCalibrationHint: null,
+
+  setCachedGoalSummaries: (goals) => set({ cachedGoalSummaries: goals }),
+
+  setCachedCalibrationHint: (hint) => set({ cachedCalibrationHint: hint }),
+
+  confirmMultipleCandidates: async (tempIds) => {
+    const { taskCandidates, addTask, user } = get();
+    if (!user) return;
+
+    const candidatesToConfirm = taskCandidates.filter(
+      (c) => tempIds.includes(c.tempId) && c.status === 'pending'
+    );
+
+    // ステータスを一括更新（UI即座反映）
+    set((state) => ({
+      taskCandidates: state.taskCandidates.map((c) =>
+        tempIds.includes(c.tempId) ? { ...c, status: 'confirmed' as const } : c
+      ),
+    }));
+
+    // Firestore保存（順次実行）
+    for (const candidate of candidatesToConfirm) {
+      const newTask: Task = {
+        id: crypto.randomUUID(),
+        userId: user.uid,
+        title: candidate.title,
+        date: candidate.date,
+        estimatedMinutes: candidate.estimatedMinutes,
+        actualMinutes: 0,
+        scheduledStart: candidate.scheduledStart,
+        sectionId: candidate.sectionId,
+        status: 'open',
+        order: 0,
+        memo: candidate.memo,
+        parentGoalId: candidate.parentGoalId,
+        projectId: candidate.projectId,
+        aiTags: candidate.aiTags,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await addTask(newTask);
+    }
+  },
+
+  dismissMultipleCandidates: (tempIds) =>
+    set((state) => ({
+      taskCandidates: state.taskCandidates.map((c) =>
+        tempIds.includes(c.tempId) ? { ...c, status: 'dismissed' as const } : c
+      ),
+    })),
 });
