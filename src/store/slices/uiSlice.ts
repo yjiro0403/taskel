@@ -14,4 +14,8 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) =>
 
     isDailyNoteModalOpen: false,
     toggleDailyNoteModal: () => set((state) => ({ isDailyNoteModalOpen: !state.isDailyNoteModalOpen })),
+
+    isAddTaskModalOpen: false,
+    openAddTaskModal: () => set({ isAddTaskModalOpen: true }),
+    closeAddTaskModal: () => set({ isAddTaskModalOpen: false }),
 });

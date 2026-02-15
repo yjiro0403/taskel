@@ -86,6 +86,9 @@ export interface UISlice {
     toggleLeftSidebar: () => void;
     isDailyNoteModalOpen: boolean;
     toggleDailyNoteModal: () => void;
+    isAddTaskModalOpen: boolean;
+    openAddTaskModal: () => void;
+    closeAddTaskModal: () => void;
 }
 
 export interface CalendarSlice {

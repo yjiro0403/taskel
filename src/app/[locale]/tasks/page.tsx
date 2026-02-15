@@ -16,8 +16,7 @@ import { useTranslations } from 'next-intl';
 
 export default function Home() {
   const t = useTranslations('TaskList');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar } = useStore();
+  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal } = useStore();
   const [finishTime, setFinishTime] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -129,7 +128,7 @@ export default function Home() {
 
       <button
         id="tour-add-task-btn"
-        onClick={() => setIsModalOpen(true)}
+        onClick={openAddTaskModal}
         className="fixed bottom-8 right-8 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 hover:scale-105 active:scale-95 transition-all duration-200 z-50"
         aria-label={t('add_task')}
       >
@@ -137,8 +136,8 @@ export default function Home() {
       </button>
 
       <AddTaskModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        isOpen={isAddTaskModalOpen}
+        onClose={closeAddTaskModal}
       />
     </div>
   );

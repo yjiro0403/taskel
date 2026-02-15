@@ -5,12 +5,16 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useStore } from '@/store/useStore';
 import { useRouter, usePathname } from 'next/navigation';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const setUser = useStore((state) => state.setUser);
 
     const router = useRouter();
     const pathname = usePathname();
+
+    // Keyboard shortcuts (active only for authenticated users)
+    useKeyboardShortcuts();
 
     useEffect(() => {
         if (!auth) {
