@@ -4,10 +4,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
 import { Task, Attachment } from '@/types';
-import { X, Sparkles } from 'lucide-react';
+import { X, Sparkles, MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
 import { format } from 'date-fns';
+import { TaskCommentThread } from '@/components/TaskCommentThread';
 
 type TaskType = 'task' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -42,7 +43,7 @@ export default function AddTaskModal({
     existingTask,
     onTaskCreatedWithAI,
 }: AddTaskModalProps) {
-    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, addTag, projects } = useStore();
+    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, addTag, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, subscribeToComments } = useStore();
 
     // Normalize task to edit
     const targetTask = taskToEdit || existingTask;
@@ -816,6 +817,20 @@ export default function AddTaskModal({
                         <p className="text-xs text-gray-400">Supported images (Max 5MB). Auto-compressed.</p>
                     </div>
 
+                    {/* Taskel AI Conversation (既存のai-workspaceタスク編集時のみ) */}
+                    {targetTask && targetTask.aiTags?.includes('ai-workspace') && (
+                        <ConversationSection
+                            taskId={targetTask.id}
+                            taskComments={taskComments}
+                            commentsLoading={commentsLoading}
+                            aiProcessing={aiProcessing}
+                            fetchComments={fetchComments}
+                            addUserComment={addUserComment}
+                            triggerAIReply={triggerAIReply}
+                            subscribeToComments={subscribeToComments}
+                        />
+                    )}
+
                     <div className="flex flex-col items-end pt-2">
                         {error && (
                             <p className="text-red-500 text-sm mb-2 font-medium">{error}</p>
@@ -841,5 +856,64 @@ export default function AddTaskModal({
             </div>
         </div>,
         document.body
+    );
+}
+
+/**
+ * コンバセーションセクション（ai-workspaceタスク編集時に表示）
+ * useEffectを使うため別コンポーネントに切り出し
+ */
+function ConversationSection({
+    taskId,
+    taskComments,
+    commentsLoading,
+    aiProcessing,
+    fetchComments,
+    addUserComment,
+    triggerAIReply,
+    subscribeToComments,
+}: {
+    taskId: string;
+    taskComments: Record<string, import('@/types').TaskComment[]>;
+    commentsLoading: Record<string, boolean>;
+    aiProcessing: Record<string, boolean>;
+    fetchComments: (taskId: string) => Promise<void>;
+    addUserComment: (taskId: string, content: string) => Promise<void>;
+    triggerAIReply: (taskId: string) => Promise<void>;
+    subscribeToComments: (taskId: string) => () => void;
+}) {
+    const comments = taskComments[taskId] || [];
+    const isLoading = commentsLoading[taskId] || false;
+    const isAIProcessing = aiProcessing[taskId] || false;
+
+    useEffect(() => {
+        fetchComments(taskId);
+        const unsubscribe = subscribeToComments(taskId);
+        return () => unsubscribe();
+    }, [taskId, fetchComments, subscribeToComments]);
+
+    return (
+        <div className="rounded-lg border border-gray-200 overflow-hidden">
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+                <MessageSquare size={14} className="text-gray-400" />
+                <span className="text-xs font-medium text-gray-600">
+                    Taskel AI コンバセーション
+                </span>
+                {comments.length > 0 && (
+                    <span className="text-[10px] text-gray-400">({comments.length})</span>
+                )}
+            </div>
+            <div className="h-[280px]">
+                <TaskCommentThread
+                    taskId={taskId}
+                    comments={comments}
+                    isLoading={isLoading}
+                    isAIProcessing={isAIProcessing}
+                    isAIWorkspace={true}
+                    onAddComment={(content) => addUserComment(taskId, content)}
+                    onTriggerAIReply={() => triggerAIReply(taskId)}
+                />
+            </div>
+        </div>
     );
 }

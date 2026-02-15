@@ -10,7 +10,6 @@ import { addMinutes } from 'date-fns';
 import { INTERVAL_SECTION_PREFIX, isIntervalSection, generateDisplaySections, getSectionForTime } from '@/lib/sectionUtils';
 
 import AddTaskModal from './AddTaskModal';
-import TaskDetailModal from './TaskDetailModal';
 import TagModal from './TagModal';
 import DateNavigation from './DateNavigation';
 import Link from 'next/link';
@@ -35,8 +34,6 @@ export default function TaskList() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-    const [detailTask, setDetailTask] = useState<Task | null>(null);
-    const [isDetailOpen, setIsDetailOpen] = useState(false);
 
     // FTUE: 初回ユーザー向けオンボーディングツアー
     const { startTour } = useTour();
@@ -91,12 +88,6 @@ export default function TaskList() {
     };
 
     const handleEditTask = (task: Task) => {
-        // ai-workspaceタスクはTaskDetailModalを開く
-        if (task.aiTags?.includes('ai-workspace')) {
-            setDetailTask(task);
-            setIsDetailOpen(true);
-            return;
-        }
         setEditingTask(task);
         setIsModalOpen(true);
     };
@@ -106,30 +97,10 @@ export default function TaskList() {
         setEditingTask(null);
     };
 
-    const handleCloseDetail = () => {
-        setIsDetailOpen(false);
-        setDetailTask(null);
-    };
-
-    const handleEditFromDetail = (task: Task) => {
-        // TaskDetailModalから編集ボタンが押された場合
-        setIsDetailOpen(false);
-        setDetailTask(null);
-        setEditingTask(task);
-        setIsModalOpen(true);
-    };
-
     const handleTaskCreatedWithAI = async (taskId: string, initialPrompt: string) => {
         // 初期プロンプトをコメントとして投稿し、AI処理をトリガー
         await addUserComment(taskId, initialPrompt);
         triggerAIProcess(taskId);
-
-        // 作成後にTaskDetailModalを開く
-        const newTask = tasks.find(t => t.id === taskId);
-        if (newTask) {
-            setDetailTask(newTask);
-            setIsDetailOpen(true);
-        }
     };
 
     // Update current time every minute
@@ -357,14 +328,6 @@ export default function TaskList() {
                     taskToEdit={editingTask}
                     onTaskCreatedWithAI={handleTaskCreatedWithAI}
                 />
-                {detailTask && (
-                    <TaskDetailModal
-                        isOpen={isDetailOpen}
-                        onClose={handleCloseDetail}
-                        task={detailTask}
-                        onEdit={handleEditFromDetail}
-                    />
-                )}
                 <TagModal
                     isOpen={!!selectedTagId}
                     onClose={() => setSelectedTagId(null)}
