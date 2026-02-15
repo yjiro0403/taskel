@@ -52,7 +52,7 @@ export const generateDailyReportMarkdown = (
         // Sort by completion time or order? Let's use order for now, or completedAt if available.
         // Usually, in a daily report, time order is nice. But `order` is the list order. 
         // Let's stick to the list `order` as it reflects the user's plan.
-        const sortedExecuted = [...executedTasks].sort((a, b) => a.order - b.order);
+        const sortedExecuted = [...executedTasks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
         sortedExecuted.forEach(task => {
             const timeInfo = `${task.actualMinutes}min`;
@@ -70,7 +70,7 @@ export const generateDailyReportMarkdown = (
     // --- Unexecuted Tasks Section ---
     md += `## ⏳ Unexecuted Tasks\n\n`;
     if (unexecutedTasks.length > 0) {
-        const sortedUnexecuted = [...unexecutedTasks].sort((a, b) => a.order - b.order);
+        const sortedUnexecuted = [...unexecutedTasks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
         sortedUnexecuted.forEach(task => {
             const statusMark = task.status === 'in_progress' ? '[/]' : '[ ]';

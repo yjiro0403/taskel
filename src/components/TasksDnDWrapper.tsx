@@ -24,11 +24,15 @@ import { Task } from '@/types';
 // Drag activation distance threshold (px) - prevents accidental drags during taps/scrolls
 const DRAG_ACTIVATION_DISTANCE = 8;
 
+// order間隔がこの閾値以下になったらセクション内の全orderを正規化
+const ORDER_GAP_THRESHOLD = 0.001;
+
 export default function TasksDnDWrapper({ children }: { children: React.ReactNode }) {
     const {
         tasks,
         sections,
         updateTask,
+        reorderTasks,
         currentDate,
         getMergedTasks,
         projects
@@ -53,6 +57,27 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
             coordinateGetter: sortableKeyboardCoordinates,
         })
     );
+
+    // セクション内のorder間隔が閾値以下なら、全タスクを整数orderに正規化
+    const normalizeOrdersIfNeeded = (sectionTasks: Task[]) => {
+        if (sectionTasks.length < 2) return;
+        const sorted = [...sectionTasks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        let needsNormalize = false;
+        for (let i = 1; i < sorted.length; i++) {
+            if (Math.abs((sorted[i].order ?? 0) - (sorted[i - 1].order ?? 0)) < ORDER_GAP_THRESHOLD) {
+                needsNormalize = true;
+                break;
+            }
+        }
+        if (!needsNormalize) return;
+
+        // 仮想タスク(routine-)は除外して実タスクのみ正規化
+        const realTaskIds = sorted.filter(t => !t.id.startsWith('routine-')).map(t => t.id);
+        if (realTaskIds.length < 2) return;
+
+        // reorderTasks はIDの配列順に order: 0, 1, 2... を割り当てる
+        reorderTasks(realTaskIds);
+    };
 
     const handleDragStart = (event: DragStartEvent) => {
         const id = String(event.active.id);
@@ -160,6 +185,12 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
                 order: newOrder,
                 date: currentDate
             });
+
+            // 正規化チェック（更新後のセクション内タスクで判定）
+            const updatedSectionTasks = getTasksBySection(newSectionId).map(t =>
+                t.id === String(active.id) ? { ...t, order: newOrder, sectionId: newSectionId } : t
+            );
+            normalizeOrdersIfNeeded(updatedSectionTasks);
             return;
         }
 

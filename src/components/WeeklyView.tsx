@@ -41,7 +41,7 @@ export default function WeeklyView({ currentDate = new Date() }: WeeklyViewProps
 
     // Filter Weekly Goals
     const weeklyGoals = useMemo(() => {
-        return tasks.filter(t => t.assignedWeek === weekId && !t.date).sort((a, b) => a.order - b.order);
+        return tasks.filter(t => t.assignedWeek === weekId && !t.date).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }, [tasks, weekId]);
 
     // Get Tasks for each day

@@ -82,7 +82,7 @@ export default function RightSidebar() {
                 if (score1 <= 0 && score2 > 0) return 1;  // t2 first
 
                 // If both are 0/undefined, fall back to Order
-                return (t1.order || 0) - (t2.order || 0);
+                return (t1.order ?? 0) - (t2.order ?? 0);
 
             } else if (sortBy === 'date') {
                 // Date Asc (Oldest first)
@@ -93,7 +93,7 @@ export default function RightSidebar() {
             }
 
             // Default / Fallback: Order Asc
-            return (t1.order || 0) - (t2.order || 0);
+            return (t1.order ?? 0) - (t2.order ?? 0);
         });
 
     const uniqueTags = getUniqueTags(); // Get available tags for dropdown

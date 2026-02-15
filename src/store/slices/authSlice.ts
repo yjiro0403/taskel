@@ -7,6 +7,7 @@ import {
 import { db } from '@/lib/firebase';
 import { Unsubscribe } from 'firebase/auth';
 import { handleFirestoreError } from '../helpers/firestoreError';
+import { isPendingTask } from '../helpers/pendingTasks';
 
 // 認証 + Firestoreリスナー管理スライス
 export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set, get) => ({
@@ -30,10 +31,16 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             // タスクのサブスクリプション（グローバルコレクション）
             const qTasks = query(collection(db, 'tasks'), where('userId', '==', user.uid));
             const unsubTasks = onSnapshot(qTasks, (snapshot) => {
-                const tasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Task));
+                const serverTasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Task));
                 set(state => {
+                    // 楽観的更新中のタスクはローカル版を保持（サーバーで上書きしない）
+                    const serverTaskMap = new Map(serverTasks.map(t => [t.id, t]));
+                    const localPendingTasks = state.tasks.filter(t => !t.projectId && isPendingTask(t.id));
+                    localPendingTasks.forEach(t => serverTaskMap.set(t.id, t));
+
+                    const mergedPersonal = Array.from(serverTaskMap.values());
                     const currentShared = state.tasks.filter(t => t.projectId);
-                    const combined = [...tasks, ...currentShared];
+                    const combined = [...mergedPersonal, ...currentShared];
                     const unique = Array.from(new Map(combined.map(t => [t.id, t])).values());
                     return { tasks: unique };
                 });

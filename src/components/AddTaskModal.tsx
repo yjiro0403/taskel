@@ -307,7 +307,7 @@ export default function AddTaskModal({
         } else {
             // Calculate new order: max order in this section + 1
             const sectionTasks = tasks.filter(t => t.sectionId === (finalSectionId || ''));
-            const maxOrder = sectionTasks.length > 0 ? Math.max(...sectionTasks.map(t => t.order)) : 0;
+            const maxOrder = sectionTasks.length > 0 ? Math.max(...sectionTasks.map(t => t.order ?? 0)) : 0;
             const newOrder = maxOrder + 1;
 
             const newTaskPayload = {

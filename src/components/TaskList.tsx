@@ -112,7 +112,7 @@ export default function TaskList() {
     }, [getMergedTasks, currentDate, tasks]);
 
     const dailyGoals = useMemo(() => {
-        return tasks.filter(t => t.assignedDate === currentDate && !t.date).sort((a, b) => a.order - b.order);
+        return tasks.filter(t => t.assignedDate === currentDate && !t.date).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }, [tasks, currentDate]);
 
     const compareTasks = (a: Task, b: Task) => {

@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { sanitizeData } from '../helpers/sanitize';
+import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
 import { parseISO, isBefore, isSameDay } from 'date-fns';
 
 // タスクCRUD + 仮想タスク生成 + マイグレーション スライス
@@ -50,6 +51,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         const { user, tasks, getMergedTasks } = get();
         if (user) {
             const oldTasks = tasks;
+            // 楽観的更新中はFirestoreリスナーの上書きを防止
+            addPendingTask(taskId);
             // 楽観的更新
             set((state) => ({
                 tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
@@ -128,6 +131,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 console.error("Error updating task via API: ", error);
                 set({ tasks: oldTasks });
                 alert("Failed to update task. Please check your connection.");
+            } finally {
+                removePendingTask(taskId);
             }
         } else {
             set((state) => ({
@@ -147,6 +152,16 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }
 
         if (task) {
+            // 同セクション内で元タスクの直後にあるタスクを探してmidpointを算出
+            const sectionTasks = tasks
+                .filter(t => t.sectionId === task.sectionId && t.date === task.date)
+                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            const taskIndex = sectionTasks.findIndex(t => t.id === task.id);
+            const nextTask = taskIndex >= 0 ? sectionTasks[taskIndex + 1] : undefined;
+            const newOrder = nextTask
+                ? ((task.order ?? 0) + (nextTask.order ?? 0)) / 2
+                : (task.order ?? 0) + 1;
+
             const newTask: Task = {
                 ...task,
                 id: crypto.randomUUID(),
@@ -157,7 +172,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 completedAt: undefined,
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
-                order: task.order + 0.1,
+                order: newOrder,
             };
             await addTask(newTask);
         }
@@ -362,6 +377,15 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 const exists = dbTasks.some(t => t.id === deterministicId || t.routineId === routine.id);
 
                 if (!exists) {
+                    // 同セクション内の既存タスク+仮想タスクから最大orderを算出
+                    const sectionPeers = [
+                        ...dbTasks.filter(t => t.sectionId === routine.sectionId),
+                        ...virtualTasks.filter(t => t.sectionId === routine.sectionId),
+                    ];
+                    const maxPeerOrder = sectionPeers.length > 0
+                        ? Math.max(...sectionPeers.map(t => t.order ?? 0))
+                        : 0;
+
                     virtualTasks.push({
                         id: deterministicId,
                         userId: routine.userId,
@@ -372,7 +396,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                         estimatedMinutes: routine.estimatedMinutes,
                         actualMinutes: 0,
                         scheduledStart: routine.startTime,
-                        order: 999,
+                        order: maxPeerOrder + 1,
                         projectId: routine.projectId,
                         routineId: routine.id,
                         tags: routine.tags,
