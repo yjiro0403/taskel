@@ -29,7 +29,7 @@ import {
 import { AIChatPanel } from './AIChatPanel';
 
 export default function TaskList() {
-    const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks } = useStore();
+    const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -117,6 +117,19 @@ export default function TaskList() {
         setDetailTask(null);
         setEditingTask(task);
         setIsModalOpen(true);
+    };
+
+    const handleTaskCreatedWithAI = async (taskId: string, initialPrompt: string) => {
+        // 初期プロンプトをコメントとして投稿し、AI処理をトリガー
+        await addUserComment(taskId, initialPrompt);
+        triggerAIProcess(taskId);
+
+        // 作成後にTaskDetailModalを開く
+        const newTask = tasks.find(t => t.id === taskId);
+        if (newTask) {
+            setDetailTask(newTask);
+            setIsDetailOpen(true);
+        }
     };
 
     // Update current time every minute
@@ -342,6 +355,7 @@ export default function TaskList() {
                     isOpen={isModalOpen}
                     onClose={handleCloseModal}
                     taskToEdit={editingTask}
+                    onTaskCreatedWithAI={handleTaskCreatedWithAI}
                 />
                 {detailTask && (
                     <TaskDetailModal

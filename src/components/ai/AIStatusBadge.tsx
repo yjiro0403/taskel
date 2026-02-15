@@ -1,6 +1,6 @@
 'use client';
 
-import { Sparkles, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
 
 interface AIStatusBadgeProps {
@@ -20,7 +20,7 @@ export function AIStatusBadge({ status, size = 'sm' }: AIStatusBadgeProps) {
           'bg-amber-50 text-amber-700 border border-amber-200'
         )}>
           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-          {!isSmall && 'AI\u51E6\u7406\u5F85\u3061'}
+          {!isSmall && 'AI処理待ち'}
         </span>
       );
     case 'processing':
@@ -31,7 +31,7 @@ export function AIStatusBadge({ status, size = 'sm' }: AIStatusBadgeProps) {
           'bg-blue-50 text-blue-700 border border-blue-200'
         )}>
           <Loader2 size={isSmall ? 10 : 12} className="animate-spin" />
-          {!isSmall && 'AI\u51E6\u7406\u4E2D'}
+          {!isSmall && 'AI処理中'}
         </span>
       );
     case 'completed':
@@ -42,7 +42,7 @@ export function AIStatusBadge({ status, size = 'sm' }: AIStatusBadgeProps) {
           'bg-green-50 text-green-700 border border-green-200'
         )}>
           <CheckCircle2 size={isSmall ? 10 : 12} />
-          {!isSmall && 'AI\u5B8C\u4E86'}
+          {!isSmall && 'AI完了'}
         </span>
       );
     case 'error':
@@ -53,7 +53,7 @@ export function AIStatusBadge({ status, size = 'sm' }: AIStatusBadgeProps) {
           'bg-red-50 text-red-700 border border-red-200'
         )}>
           <AlertCircle size={isSmall ? 10 : 12} />
-          {!isSmall && '\u30A8\u30E9\u30FC'}
+          {!isSmall && 'エラー'}
         </span>
       );
   }

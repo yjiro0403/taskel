@@ -24,6 +24,7 @@ interface AddTaskModalProps {
     initialAssignedDate?: string; // NEW: "YYYY-MM-DD" for Daily Goals
     taskToEdit?: Task | null; // Changed props name to match usage in WeeklyDayColumn
     existingTask?: Task | null;
+    onTaskCreatedWithAI?: (taskId: string, initialPrompt: string) => void;
 }
 
 export default function AddTaskModal({
@@ -38,7 +39,8 @@ export default function AddTaskModal({
     initialAssignedYear,
     initialAssignedDate,
     taskToEdit,
-    existingTask
+    existingTask,
+    onTaskCreatedWithAI,
 }: AddTaskModalProps) {
     const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, addTag, projects } = useStore();
 
@@ -97,6 +99,7 @@ export default function AddTaskModal({
     const [taskelAIEnabled, setTaskelAIEnabled] = useState(
         targetTask?.aiTags?.includes('ai-workspace') ?? false
     );
+    const [aiInitialPrompt, setAiInitialPrompt] = useState('');
 
     // Attachment State
     const [attachments, setAttachments] = useState<Attachment[]>(targetTask?.attachments || []);
@@ -198,6 +201,7 @@ export default function AddTaskModal({
             setScore(targetTask?.score !== undefined ? targetTask.score : '');
             setCurrentTag('');
             setTaskelAIEnabled(targetTask?.aiTags?.includes('ai-workspace') ?? false);
+            setAiInitialPrompt('');
             setAttachments(targetTask?.attachments || []);
             setError(null);
         }
@@ -353,6 +357,11 @@ export default function AddTaskModal({
             };
             console.log("Creating new task:", newTaskPayload);
             addTask(newTaskPayload);
+
+            // Taskel AI: 初期プロンプトがあればコールバックでトリガー
+            if (taskelAIEnabled && aiInitialPrompt.trim() && onTaskCreatedWithAI) {
+                onTaskCreatedWithAI(newTaskPayload.id, aiInitialPrompt.trim());
+            }
         }
 
         // ... (reset)
@@ -367,6 +376,7 @@ export default function AddTaskModal({
         setTags([]);
         setCurrentTag('');
         setTaskelAIEnabled(false);
+        setAiInitialPrompt('');
         onClose();
     };
 
@@ -707,51 +717,66 @@ export default function AddTaskModal({
                         />
                     </div>
 
-                    {/* Taskel AI Toggle */}
+                    {/* Taskel AI Toggle + Inline Prompt */}
                     {activeType === 'task' && (
-                        <div
-                            className={clsx(
-                                "flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer",
-                                taskelAIEnabled
-                                    ? "bg-indigo-50 border-indigo-200"
-                                    : "bg-gray-50 border-gray-200 hover:bg-gray-100"
-                            )}
-                            onClick={() => setTaskelAIEnabled(!taskelAIEnabled)}
-                        >
-                            <div className="flex items-center gap-2.5">
-                                <Sparkles size={16} className={clsx(
-                                    taskelAIEnabled ? "text-indigo-600" : "text-gray-400"
-                                )} />
-                                <div>
-                                    <span className={clsx(
-                                        "text-sm font-medium",
-                                        taskelAIEnabled ? "text-indigo-900" : "text-gray-700"
-                                    )}>
-                                        Taskel AI
-                                    </span>
-                                    <p className={clsx(
-                                        "text-xs",
-                                        taskelAIEnabled ? "text-indigo-600" : "text-gray-500"
-                                    )}>
-                                        {taskelAIEnabled
-                                            ? "AI\u3068\u306E\u30B3\u30F3\u30D0\u30BB\u30FC\u30B7\u30E7\u30F3\u304C\u6709\u52B9\u306B\u306A\u308A\u307E\u3059"
-                                            : "\u30BF\u30B9\u30AF\u306B\u3064\u3044\u3066AI\u3068\u4F1A\u8A71\u3067\u304D\u307E\u3059"}
-                                    </p>
-                                </div>
-                            </div>
+                        <div className={clsx(
+                            "rounded-lg border transition-colors overflow-hidden",
+                            taskelAIEnabled
+                                ? "bg-indigo-50 border-indigo-200"
+                                : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                        )}>
                             <div
-                                className={clsx(
-                                    "relative w-11 h-6 rounded-full transition-colors",
-                                    taskelAIEnabled ? "bg-indigo-600" : "bg-gray-300"
-                                )}
+                                className="flex items-center justify-between p-3 cursor-pointer"
+                                onClick={() => setTaskelAIEnabled(!taskelAIEnabled)}
                             >
+                                <div className="flex items-center gap-2.5">
+                                    <Sparkles size={16} className={clsx(
+                                        taskelAIEnabled ? "text-indigo-600" : "text-gray-400"
+                                    )} />
+                                    <div>
+                                        <span className={clsx(
+                                            "text-sm font-medium",
+                                            taskelAIEnabled ? "text-indigo-900" : "text-gray-700"
+                                        )}>
+                                            Taskel AI
+                                        </span>
+                                        <p className={clsx(
+                                            "text-xs",
+                                            taskelAIEnabled ? "text-indigo-600" : "text-gray-500"
+                                        )}>
+                                            タスクについてAIと会話できます
+                                        </p>
+                                    </div>
+                                </div>
                                 <div
                                     className={clsx(
-                                        "absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
-                                        taskelAIEnabled ? "translate-x-[22px]" : "translate-x-0.5"
+                                        "relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
+                                        taskelAIEnabled ? "bg-indigo-600" : "bg-gray-300"
                                     )}
-                                />
+                                >
+                                    <div
+                                        className={clsx(
+                                            "absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
+                                            taskelAIEnabled ? "translate-x-[22px]" : "translate-x-0.5"
+                                        )}
+                                    />
+                                </div>
                             </div>
+                            {taskelAIEnabled && (
+                                <div className="px-3 pb-3">
+                                    <textarea
+                                        value={aiInitialPrompt}
+                                        onChange={(e) => setAiInitialPrompt(e.target.value)}
+                                        className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none"
+                                        placeholder="AIへの指示（例：このURLを分析して、タスクを分解して）"
+                                        rows={3}
+                                        onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <p className="text-[10px] text-indigo-400 mt-1">
+                                        作成後、タスク詳細画面でAIが応答します
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     )}
 

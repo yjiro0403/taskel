@@ -48,7 +48,6 @@ export function TaskCommentThread({
 
       // ai-workspaceの場合、コメント送信後にAIリプライをトリガー
       if (isAIWorkspace) {
-        // 少し待ってからAIリプライを開始（コメントがDBに反映されるのを待つ）
         setTimeout(() => {
           onTriggerAIReply();
         }, 500);
@@ -81,8 +80,8 @@ export function TaskCommentThread({
         {comments.length === 0 && (
           <div className="text-center py-8 text-gray-400 text-sm">
             {isAIWorkspace
-              ? 'Taskel AI\u3068\u306E\u4F1A\u8A71\u3092\u59CB\u3081\u307E\u3057\u3087\u3046'
-              : '\u30B3\u30E1\u30F3\u30C8\u306F\u307E\u3060\u3042\u308A\u307E\u305B\u3093'}
+              ? 'Taskel AIとの会話を始めましょう'
+              : 'コメントはまだありません'}
           </div>
         )}
 
@@ -139,7 +138,7 @@ export function TaskCommentThread({
               </div>
               <span className="text-xs font-medium text-indigo-700">Taskel AI</span>
               <Loader2 size={12} className="animate-spin text-indigo-500" />
-              <span className="text-xs text-indigo-500">\u8003\u3048\u4E2D...</span>
+              <span className="text-xs text-indigo-500">考え中...</span>
             </div>
           </div>
         )}
@@ -152,7 +151,7 @@ export function TaskCommentThread({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isAIWorkspace ? 'Taskel AI\u306B\u6307\u793A\u3092\u51FA\u3059...' : '\u30B3\u30E1\u30F3\u30C8\u3092\u5165\u529B...'}
+            placeholder={isAIWorkspace ? 'Taskel AIに指示を出す...' : 'コメントを入力...'}
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg resize-none text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
             rows={2}
           />
@@ -173,7 +172,7 @@ export function TaskCommentThread({
             )}
           </button>
         </div>
-        <p className="text-[10px] text-gray-400 mt-1">Ctrl+Enter \u3067\u9001\u4FE1</p>
+        <p className="text-[10px] text-gray-400 mt-1">Ctrl+Enter で送信</p>
       </div>
     </div>
   );
