@@ -171,6 +171,9 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 set({ sections });
             }, (error) => handleFirestoreError(error, 'sections'));
 
+            // Billing情報を取得
+            get().fetchBillingInfo();
+
             // 全アンサブスクリプションの登録
             set({
                 unsubscribe: () => {

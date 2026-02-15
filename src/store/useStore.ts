@@ -14,6 +14,7 @@ import { createUISlice } from './slices/uiSlice';
 import { createCalendarSlice } from './slices/calendarSlice';
 import { createAISlice } from './slices/aiSlice';
 import { createGoalSlice } from './slices/goalSlice';
+import { createBillingSlice } from './slices/billingSlice';
 
 export const useStore = create<StoreState>()((...a) => ({
     ...createTaskSlice(...a),
@@ -27,4 +28,5 @@ export const useStore = create<StoreState>()((...a) => ({
     ...createCalendarSlice(...a),
     ...createAISlice(...a),
     ...createGoalSlice(...a),
+    ...createBillingSlice(...a),
 }));

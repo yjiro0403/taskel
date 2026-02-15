@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { useStore } from '@/store/useStore';
 import { X, Sparkles, Loader2 } from 'lucide-react';
@@ -9,7 +9,9 @@ import { useTranslations } from 'next-intl';
 import { ChatMessage } from './ai/ChatMessage';
 import { ChatInput } from './ai/ChatInput';
 import { ModelSelector } from './ai/ModelSelector';
+import { QuotaExceededDialog } from './ai/QuotaExceededDialog';
 import { TaskCandidate } from '@/lib/ai/types';
+import { auth } from '@/lib/firebase';
 
 export const AIChatPanel: React.FC = () => {
     const {
@@ -35,6 +37,11 @@ export const AIChatPanel: React.FC = () => {
         // Goals情報取得用
         goals,
         tasks,
+        // Billing
+        billingPlan,
+        usageRequestCount,
+        usageRequestLimit,
+        fetchBillingInfo,
     } = useStore();
     const t = useTranslations('AIChatPanel');
     // Fallback if translation is missing
@@ -44,20 +51,44 @@ export const AIChatPanel: React.FC = () => {
 
     const [input, setInput] = useState('');
     const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+    const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
+    const [quotaInfo, setQuotaInfo] = useState({ used: 0, limit: 20, plan: 'free' });
+
+    // Bearer トークンを取得するヘルパー
+    const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
+        const currentUser = auth.currentUser;
+        if (!currentUser) return {};
+        const token = await currentUser.getIdToken();
+        return { Authorization: `Bearer ${token}` };
+    }, []);
 
     const { messages, sendMessage, status } = useChat({
         api: '/api/ai/chat',
+        headers: async () => getAuthHeaders(),
         body: {
-            userId: user?.uid,
             model: selectedModel,
-            currentDate, // 表示中の日付を渡し、タスクが正しい日付で作成・表示されるようにする
-            sections,   // 開始時刻から適切なセクションを割り当てるために必要
-            // Phase 2追加
+            currentDate,
+            sections,
             activeGoals: cachedGoalSummaries,
             calibrationHint: cachedCalibrationHint,
         },
         onError: (error: Error) => {
             console.error('Chat error:', error);
+            // 429 (quota exceeded) の場合はダイアログ表示
+            try {
+                const parsed = JSON.parse(error.message);
+                if (parsed.error === 'quota_exceeded') {
+                    setQuotaInfo({
+                        used: parsed.used,
+                        limit: parsed.limit,
+                        plan: parsed.plan,
+                    });
+                    setQuotaDialogOpen(true);
+                    return;
+                }
+            } catch {
+                // JSON parse失敗時はフォールバック
+            }
             alert('AIチャットでエラーが発生しました。');
         },
         maxSteps: 5,
@@ -107,12 +138,13 @@ export const AIChatPanel: React.FC = () => {
         if (!input.trim()) return;
         const value = input;
         setInput('');
+        const headers = await getAuthHeaders();
         // ai SDK v6: text形式で送信
         await sendMessage(
             { text: value },
             {
+                headers,
                 body: {
-                    userId: user?.uid,
                     model: selectedModel,
                     currentDate,
                     sections,
@@ -121,6 +153,8 @@ export const AIChatPanel: React.FC = () => {
                 }
             } as any
         );
+        // 送信後に使用量を更新
+        fetchBillingInfo();
     };
 
     const handleTaskConfirm = (candidate: TaskCandidate) => {
@@ -183,6 +217,10 @@ export const AIChatPanel: React.FC = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isAIPanelOpen, toggleAIPanel]);
 
+    // 使用量バッジ表示（Businessプランは非表示）
+    const showUsageBadge = billingPlan !== 'business';
+    const remaining = usageRequestLimit === Infinity ? Infinity : usageRequestLimit - usageRequestCount;
+
     return (
         <>
             <AnimatePresence>
@@ -210,6 +248,15 @@ export const AIChatPanel: React.FC = () => {
                                     <div className="flex items-center gap-2 text-indigo-600">
                                         <Sparkles size={20} />
                                         <h2 className="font-semibold text-lg">AI Assistant</h2>
+                                        {showUsageBadge && (
+                                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                                remaining <= 3 ? 'bg-red-100 text-red-700' :
+                                                remaining <= 10 ? 'bg-amber-100 text-amber-700' :
+                                                'bg-indigo-100 text-indigo-700'
+                                            }`}>
+                                                {usageRequestCount}/{usageRequestLimit}
+                                            </span>
+                                        )}
                                     </div>
                                     <ModelSelector value={selectedModel} onChange={setSelectedModel} />
                                 </div>
@@ -284,6 +331,15 @@ export const AIChatPanel: React.FC = () => {
                     </motion.button>
                 )}
             </AnimatePresence>
+
+            {/* Quota Exceeded Dialog */}
+            <QuotaExceededDialog
+                isOpen={quotaDialogOpen}
+                onClose={() => setQuotaDialogOpen(false)}
+                used={quotaInfo.used}
+                limit={quotaInfo.limit}
+                plan={quotaInfo.plan}
+            />
         </>
     );
 };

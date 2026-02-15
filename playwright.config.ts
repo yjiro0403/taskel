@@ -30,6 +30,14 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      name: 'doc-screenshots',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'e2e/auth.json',
+        viewport: { width: 1280, height: 800 },
+      },
+    },
     /*
     {
       name: 'firefox',

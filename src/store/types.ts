@@ -5,6 +5,7 @@ import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, WeeklyNote, M
 import type { User } from 'firebase/auth';
 import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
+import type { BillingSlice } from './slices/billingSlice';
 
 // --- 各スライスの型定義 ---
 
@@ -107,4 +108,5 @@ export type StoreState =
     UISlice &
     CalendarSlice &
     AISlice &
-    GoalSlice;
+    GoalSlice &
+    BillingSlice;

@@ -1,6 +1,6 @@
 
 import { db, auth, projectId } from './firebaseAdmin';
-import { generateSections, generateTasks, generateNotes } from './data/generators';
+import { generateSections, generateTasks, generateNotes, generateTags, generateProjects, generateGoals, generateRoutines } from './data/generators';
 import * as readline from 'readline';
 
 // --- CLI Arguments & Parsing ---
@@ -57,7 +57,7 @@ async function main() {
 🛠  Mode:              ${dryRun ? 'DRY RUN (No changes)' : 'LIVE EXECUTION'}
 ⚠️  Action:            ${clearOnly ? 'DELETE DATA ONLY' : 'DELETE & SEED DATA'}
 
-This will PERMANENTLY DELETE all tasks, notes, sections, and routines for this user.
+This will PERMANENTLY DELETE all tasks, notes, sections, routines, goals, projects, and tags for this user.
     `);
 
     if (!dryRun) {
@@ -82,21 +82,19 @@ This will PERMANENTLY DELETE all tasks, notes, sections, and routines for this u
     // 3. Clear Existing Data
     console.log('\n🧹 Clearing existing data...');
     if (!dryRun) {
-        await clearCollection(`users/${targetUserId}/tasks`); // Old path if any?
-        // Unified path in recent architecture:
-        // Actually, tasks are now in root 'tasks' collection, filtered by userId.
-        // And notes are in 'users/{uid}/{collection}'
-
-        // 3.1 Clear root tasks
+        // 3.1 Clear root collections (filtered by userId)
         await deleteQueryBatch(db.collection('tasks').where('userId', '==', targetUserId));
+        await deleteQueryBatch(db.collection('goals').where('userId', '==', targetUserId));
+        await deleteQueryBatch(db.collection('projects').where('userId', '==', targetUserId));
+        await deleteQueryBatch(db.collection('tags').where('userId', '==', targetUserId));
 
         // 3.2 Clear user subcollections
-        const subcollections = ['dailyNotes', 'weeklyNotes', 'monthlyNotes', 'yearlyNotes', 'sections', 'routines', 'tags'];
+        const subcollections = ['dailyNotes', 'weeklyNotes', 'monthlyNotes', 'yearlyNotes', 'sections', 'routines'];
         for (const sub of subcollections) {
             await deleteCollectionWithSub(db.collection('users').doc(targetUserId!).collection(sub));
         }
     } else {
-        console.log('(Dry Run) Would delete all tasks and subcollections.');
+        console.log('(Dry Run) Would delete all tasks, goals, projects, tags, and subcollections.');
     }
 
     if (clearOnly) {
@@ -109,10 +107,18 @@ This will PERMANENTLY DELETE all tasks, notes, sections, and routines for this u
     const sections = generateSections(targetUserId!);
     const tasks = generateTasks(targetUserId!, new Date(), targetScale);
     const notes = generateNotes(targetUserId!, new Date());
+    const tags = generateTags(targetUserId!);
+    const projects = generateProjects(targetUserId!);
+    const goals = generateGoals(targetUserId!, new Date());
+    const routines = generateRoutines(targetUserId!);
 
-    console.log(`- Sections: ${sections.length}`);
-    console.log(`- Tasks:    ${tasks.length}`);
-    console.log(`- Notes:    ${notes.length}`);
+    console.log(`- Sections:  ${sections.length}`);
+    console.log(`- Tasks:     ${tasks.length}`);
+    console.log(`- Notes:     ${notes.length}`);
+    console.log(`- Tags:      ${tags.length}`);
+    console.log(`- Projects:  ${projects.length}`);
+    console.log(`- Goals:     ${goals.length}`);
+    console.log(`- Routines:  ${routines.length}`);
 
     if (dryRun) {
         console.log('(Dry Run) Skipping write.');
@@ -136,27 +142,53 @@ This will PERMANENTLY DELETE all tasks, notes, sections, and routines for this u
         }
     };
 
-    // Write Sections
-    // Note: In store/useStore.ts `addSection`, it writes to `users/{uid}/sections`.
+    // Write Sections (users/{uid}/sections)
     for (const section of sections) {
         const ref = db.collection('users').doc(targetUserId!).collection('sections').doc(section.id);
         batch.set(ref, section);
         await checkBatch();
     }
 
-    // Write Tasks
-    // Store: `tasks` root collection
-    for (const task of tasks) {
-        const ref = db.collection('tasks').doc(task.id);
-        batch.set(ref, task);
+    // Write Routines (users/{uid}/routines)
+    for (const routine of routines) {
+        const ref = db.collection('users').doc(targetUserId!).collection('routines').doc(routine.id);
+        batch.set(ref, routine);
         await checkBatch();
     }
 
-    // Write Notes
-    // Generator returns object with `collection` prop
+    // Write Tasks (root tasks collection)
+    for (const task of tasks) {
+        const ref = db.collection('tasks').doc(task.id);
+        // Remove undefined values (Firestore doesn't accept them)
+        const cleanTask = JSON.parse(JSON.stringify(task));
+        batch.set(ref, cleanTask);
+        await checkBatch();
+    }
+
+    // Write Tags (root tags collection)
+    for (const tag of tags) {
+        const ref = db.collection('tags').doc(tag.id);
+        batch.set(ref, tag);
+        await checkBatch();
+    }
+
+    // Write Projects (root projects collection)
+    for (const project of projects) {
+        const ref = db.collection('projects').doc(project.id);
+        batch.set(ref, project);
+        await checkBatch();
+    }
+
+    // Write Goals (root goals collection)
+    for (const goal of goals) {
+        const ref = db.collection('goals').doc(goal.id);
+        batch.set(ref, goal);
+        await checkBatch();
+    }
+
+    // Write Notes (users/{uid}/{collection})
     for (const note of notes) {
         const ref = db.collection('users').doc(targetUserId!).collection(note.collection).doc(note.id);
-        // Remove 'collection' prop before saving
         const { collection: _, ...data } = note;
         batch.set(ref, data);
         await checkBatch();
@@ -186,10 +218,7 @@ async function deleteQueryBatch(query: FirebaseFirestore.Query) {
     });
     await batch.commit();
 
-    // Recurse if there might be more (offset/limit not used here but good practice for massive datasets)
-    // For specific user data, one batch usually enough, but let's be safe.
     if (snapshot.size >= batchSize) {
-        // Recursive delete (simple version)
         await deleteQueryBatch(query);
     }
 }
@@ -201,12 +230,6 @@ async function deleteCollectionWithSub(collectionRef: FirebaseFirestore.Collecti
     let batch = db.batch();
     snapshot.docs.forEach(doc => batch.delete(doc.ref));
     await batch.commit();
-}
-
-// Deprecated in new model but kept for safety if run on old data structures
-async function clearCollection(path: string) {
-    const ref = db.collection(path);
-    await deleteCollectionWithSub(ref);
 }
 
 main().catch(console.error);

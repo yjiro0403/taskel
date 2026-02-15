@@ -81,6 +81,23 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
     }
 
+    // Subscriptions: ユーザー本人のみ読み取り、書き込みはサーバーのみ
+    match /subscriptions/{subId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Usage: ユーザー本人のみ読み取り、書き込みはサーバーのみ
+    match /usage/{userId}/monthly/{monthId} {
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow write: if false;
+    }
+
+    // Stripe Events: サーバーのみアクセス
+    match /stripeEvents/{eventId} {
+      allow read, write: if false;
+    }
+
     // Invitations: 関係者のみアクセス可
     match /invitations/{invitationId} {
       allow read: if isAuthenticated() && (
