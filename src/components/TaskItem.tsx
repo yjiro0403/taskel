@@ -2,8 +2,9 @@
 
 import { Task } from '@/types';
 import clsx from 'clsx';
-import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical } from 'lucide-react';
+import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical, MessageSquare, Sparkles } from 'lucide-react';
 import { formatTime } from '@/lib/timeUtils';
+import { AIStatusBadge } from '@/components/ai/AIStatusBadge';
 import { addMinutes } from 'date-fns';
 import { useStore } from '@/store/useStore';
 import { CSSProperties } from 'react';
@@ -182,6 +183,18 @@ export function TaskItem({
                     <span className="font-mono text-blue-600">Act: {task.actualMinutes ? task.actualMinutes.toFixed(1) : 0}</span>
                     {task.score !== undefined && (
                         <span className="text-gray-500" title="Score">Sc: {task.score}</span>
+                    )}
+                    {task.aiTags?.includes('ai-workspace') && (
+                        <span className="inline-flex items-center gap-0.5 text-indigo-500" title="Taskel AI">
+                            <Sparkles size={10} />
+                        </span>
+                    )}
+                    {task.aiStatus && <AIStatusBadge status={task.aiStatus} />}
+                    {task.commentCount && task.commentCount > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-gray-400" title="Comments">
+                            <MessageSquare size={10} />
+                            <span className="text-[10px]">{task.commentCount}</span>
+                        </span>
                     )}
                     {task.externalLink && (
                         <a

@@ -230,3 +230,8 @@ export interface CalibrationHint {
   averageDeviationPercent: number;
   sampleSize: number;
 }
+
+/**
+ * Taskel AI (ai-workspace) のステータス型
+ */
+export type AIWorkspaceStatus = 'pending' | 'processing' | 'completed' | 'error';

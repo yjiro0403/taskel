@@ -74,6 +74,22 @@ export interface Task {
     attachments?: Attachment[];
     createdAt?: number;
     updatedAt?: number;
+    // Taskel AI (ai-workspace)
+    aiStatus?: 'pending' | 'processing' | 'completed' | 'error';
+    aiError?: string;
+    aiCompletedAt?: number;
+    commentCount?: number;
+}
+
+export interface TaskComment {
+    id: string;
+    taskId: string;
+    userId: string;
+    authorType: 'user' | 'ai';
+    authorName?: string;
+    content: string; // Markdown
+    createdAt: number;
+    updatedAt: number;
 }
 
 export interface WeeklyNote {

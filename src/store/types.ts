@@ -6,6 +6,7 @@ import type { User } from 'firebase/auth';
 import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
 import type { BillingSlice } from './slices/billingSlice';
+import type { WorkspaceSlice } from './slices/workspaceSlice';
 
 // --- 各スライスの型定義 ---
 
@@ -109,4 +110,5 @@ export type StoreState =
     CalendarSlice &
     AISlice &
     GoalSlice &
-    BillingSlice;
+    BillingSlice &
+    WorkspaceSlice;

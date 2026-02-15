@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
 import { Task, Attachment } from '@/types';
-import { X } from 'lucide-react';
+import { X, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
 import { format } from 'date-fns';
@@ -92,6 +92,11 @@ export default function AddTaskModal({
     const [currentTag, setCurrentTag] = useState('');
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
+
+    // Taskel AI State
+    const [taskelAIEnabled, setTaskelAIEnabled] = useState(
+        targetTask?.aiTags?.includes('ai-workspace') ?? false
+    );
 
     // Attachment State
     const [attachments, setAttachments] = useState<Attachment[]>(targetTask?.attachments || []);
@@ -192,6 +197,8 @@ export default function AddTaskModal({
             setTags(targetTask?.tags || []);
             setScore(targetTask?.score !== undefined ? targetTask.score : '');
             setCurrentTag('');
+            setTaskelAIEnabled(targetTask?.aiTags?.includes('ai-workspace') ?? false);
+            setAttachments(targetTask?.attachments || []);
             setError(null);
         }
     }, [isOpen, targetTask, defaultSectionId, initialProjectId, initialMilestoneId, initialDate, initialAssignedWeek, initialAssignedMonth, initialAssignedYear, initialAssignedDate, sections, currentDate]);
@@ -286,6 +293,12 @@ export default function AddTaskModal({
 
         if (targetTask) {
             console.log("AddTaskModal Update:", { taskId: targetTask.id, projectId, finalTags });
+            // Taskel AI: aiTags の計算
+            const existingAiTags = targetTask.aiTags || [];
+            const updatedAiTags = taskelAIEnabled
+                ? (existingAiTags.includes('ai-workspace') ? existingAiTags : [...existingAiTags, 'ai-workspace'])
+                : existingAiTags.filter(t => t !== 'ai-workspace');
+
             updateTask(targetTask.id, {
                 title,
                 sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal', // Dummy or empty for goals
@@ -303,6 +316,8 @@ export default function AddTaskModal({
                 score: score === '' ? undefined : Number(score),
                 memo,
                 attachments,
+                aiTags: updatedAiTags.length > 0 ? updatedAiTags : undefined,
+                ...(taskelAIEnabled && !targetTask.aiStatus ? { aiStatus: 'pending' as const } : {}),
             });
         } else {
             // Calculate new order: max order in this section + 1
@@ -331,6 +346,10 @@ export default function AddTaskModal({
                 assignedMonth: activeType === 'monthly' ? assignedMonth : undefined,
                 assignedYear: activeType === 'yearly' ? assignedYear : undefined,
                 score: score === '' ? undefined : Number(score),
+                ...(taskelAIEnabled ? {
+                    aiTags: ['ai-workspace'],
+                    aiStatus: 'pending' as const,
+                } : {}),
             };
             console.log("Creating new task:", newTaskPayload);
             addTask(newTaskPayload);
@@ -347,6 +366,7 @@ export default function AddTaskModal({
         setMemo('');
         setTags([]);
         setCurrentTag('');
+        setTaskelAIEnabled(false);
         onClose();
     };
 
@@ -686,6 +706,54 @@ export default function AddTaskModal({
                             placeholder="Add notes, meeting minutes..."
                         />
                     </div>
+
+                    {/* Taskel AI Toggle */}
+                    {activeType === 'task' && (
+                        <div
+                            className={clsx(
+                                "flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer",
+                                taskelAIEnabled
+                                    ? "bg-indigo-50 border-indigo-200"
+                                    : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                            )}
+                            onClick={() => setTaskelAIEnabled(!taskelAIEnabled)}
+                        >
+                            <div className="flex items-center gap-2.5">
+                                <Sparkles size={16} className={clsx(
+                                    taskelAIEnabled ? "text-indigo-600" : "text-gray-400"
+                                )} />
+                                <div>
+                                    <span className={clsx(
+                                        "text-sm font-medium",
+                                        taskelAIEnabled ? "text-indigo-900" : "text-gray-700"
+                                    )}>
+                                        Taskel AI
+                                    </span>
+                                    <p className={clsx(
+                                        "text-xs",
+                                        taskelAIEnabled ? "text-indigo-600" : "text-gray-500"
+                                    )}>
+                                        {taskelAIEnabled
+                                            ? "AI\u3068\u306E\u30B3\u30F3\u30D0\u30BB\u30FC\u30B7\u30E7\u30F3\u304C\u6709\u52B9\u306B\u306A\u308A\u307E\u3059"
+                                            : "\u30BF\u30B9\u30AF\u306B\u3064\u3044\u3066AI\u3068\u4F1A\u8A71\u3067\u304D\u307E\u3059"}
+                                    </p>
+                                </div>
+                            </div>
+                            <div
+                                className={clsx(
+                                    "relative w-11 h-6 rounded-full transition-colors",
+                                    taskelAIEnabled ? "bg-indigo-600" : "bg-gray-300"
+                                )}
+                            >
+                                <div
+                                    className={clsx(
+                                        "absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
+                                        taskelAIEnabled ? "translate-x-[22px]" : "translate-x-0.5"
+                                    )}
+                                />
+                            </div>
+                        </div>
+                    )}
 
                     {/* Attachments Section */}
                     <div>
