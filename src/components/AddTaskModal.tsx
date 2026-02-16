@@ -43,7 +43,7 @@ export default function AddTaskModal({
     existingTask,
     onTaskCreatedWithAI,
 }: AddTaskModalProps) {
-    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, addTag, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, subscribeToComments } = useStore();
+    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, addTag, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply } = useStore();
 
     // Normalize task to edit
     const targetTask = taskToEdit || existingTask;
@@ -827,7 +827,6 @@ export default function AddTaskModal({
                             fetchComments={fetchComments}
                             addUserComment={addUserComment}
                             triggerAIReply={triggerAIReply}
-                            subscribeToComments={subscribeToComments}
                         />
                     )}
 
@@ -871,7 +870,6 @@ function ConversationSection({
     fetchComments,
     addUserComment,
     triggerAIReply,
-    subscribeToComments,
 }: {
     taskId: string;
     taskComments: Record<string, import('@/types').TaskComment[]>;
@@ -880,7 +878,6 @@ function ConversationSection({
     fetchComments: (taskId: string) => Promise<void>;
     addUserComment: (taskId: string, content: string) => Promise<void>;
     triggerAIReply: (taskId: string) => Promise<void>;
-    subscribeToComments: (taskId: string) => () => void;
 }) {
     const comments = taskComments[taskId] || [];
     const isLoading = commentsLoading[taskId] || false;
@@ -888,9 +885,12 @@ function ConversationSection({
 
     useEffect(() => {
         fetchComments(taskId);
-        const unsubscribe = subscribeToComments(taskId);
-        return () => unsubscribe();
-    }, [taskId, fetchComments, subscribeToComments]);
+        // AI処理中はポーリングで更新を取得（Firestoreクライアント直接アクセスを避ける）
+        const interval = setInterval(() => {
+            fetchComments(taskId);
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [taskId, fetchComments]);
 
     return (
         <div className="rounded-lg border border-gray-200 overflow-hidden">
