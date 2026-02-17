@@ -718,8 +718,8 @@ export default function AddTaskModal({
                         />
                     </div>
 
-                    {/* Taskel AI Toggle + Inline Prompt */}
-                    {activeType === 'task' && (
+                    {/* Taskel AI Toggle + Inline Prompt - コメントアウト: エラー多発のため一旦無効化 */}
+                    {/* {activeType === 'task' && (
                         <div className={clsx(
                             "rounded-lg border transition-colors overflow-hidden",
                             taskelAIEnabled
@@ -779,7 +779,7 @@ export default function AddTaskModal({
                                 </div>
                             )}
                         </div>
-                    )}
+                    )} */}
 
                     {/* Attachments Section */}
                     <div>
