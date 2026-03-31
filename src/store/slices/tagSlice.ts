@@ -1,54 +1,50 @@
 import { StateCreator } from 'zustand';
-import { StoreState, TagSlice } from '../types';
-import { collection, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { sanitizeData } from '../helpers/sanitize';
 
-// タグCRUD + getUniqueTagsスライス
+import { createClient } from '@/lib/supabase/client';
+import type { Database } from '@/types/supabase';
+import { StoreState, TagSlice } from '../types';
+
 export const createTagSlice: StateCreator<StoreState, [], [], TagSlice> = (set, get) => ({
     tags: [],
 
     addTag: async (tag) => {
         const { user } = get();
-        if (user) {
-            try {
-                // グローバル 'tags' コレクション
-                const ref = doc(collection(db, 'tags'), tag.id || undefined);
-                await setDoc(ref, sanitizeData({
-                    ...tag,
-                    id: ref.id,
-                    userId: user.uid
-                }));
-                return ref.id;
-            } catch (error) {
-                console.error("Error adding tag: ", error);
-                return '';
-            }
+        if (!user) return '';
+
+        const payload: Database['public']['Tables']['tags']['Insert'] = {
+            id: tag.id,
+            user_id: user.uid,
+            name: tag.name,
+            memo: tag.memo ?? null,
+            color: tag.color ?? null,
+        };
+
+        const { data, error } = await createClient().from('tags').insert(payload).select('id').single();
+        if (error) {
+            console.error('Error adding tag:', error);
+            return '';
         }
-        return '';
+
+        return data.id;
     },
 
     updateTag: async (tagId, updates) => {
-        const { user } = get();
-        if (user) {
-            try {
-                const ref = doc(db, 'tags', tagId);
-                await updateDoc(ref, sanitizeData(updates));
-            } catch (error) {
-                console.error("Error updating tag: ", error);
-            }
+        const payload: Database['public']['Tables']['tags']['Update'] = {
+            name: updates.name,
+            memo: updates.memo === undefined ? undefined : updates.memo ?? null,
+            color: updates.color === undefined ? undefined : updates.color ?? null,
+        };
+
+        const { error } = await createClient().from('tags').update(payload).eq('id', tagId);
+        if (error) {
+            console.error('Error updating tag:', error);
         }
     },
 
     deleteTag: async (tagId) => {
-        const { user } = get();
-        if (user) {
-            try {
-                const ref = doc(db, 'tags', tagId);
-                await deleteDoc(ref);
-            } catch (error) {
-                console.error("Error deleting tag: ", error);
-            }
+        const { error } = await createClient().from('tags').delete().eq('id', tagId);
+        if (error) {
+            console.error('Error deleting tag:', error);
         }
     },
 
@@ -56,15 +52,9 @@ export const createTagSlice: StateCreator<StoreState, [], [], TagSlice> = (set, 
         const { tasks, tags } = get();
         const tagSet = new Set<string>();
 
-        // グローバルタグ
-        tags.forEach(t => tagSet.add(t.name));
+        tags.forEach((tag) => tagSet.add(tag.name));
+        tasks.forEach((task) => task.tags?.forEach((tag) => tagSet.add(tag)));
 
-        // レガシータスクタグ（下位互換）
-        tasks.forEach(task => {
-            if (task.tags) {
-                task.tags.forEach(tag => tagSet.add(tag));
-            }
-        });
         return Array.from(tagSet).sort();
     },
 });

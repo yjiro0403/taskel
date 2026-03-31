@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Users, Trash2 } from 'lucide-react';
 import { Project } from '@/types';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { useStore } from '@/store/useStore';
+import { createClient } from '@/lib/supabase/client';
 
 interface ProjectMembersProps {
     project: Project;
@@ -19,41 +17,46 @@ interface UserData {
 }
 
 export default function ProjectMembers({ project, currentUserRole, currentUserId }: ProjectMembersProps) {
-    const { updateProject } = useStore();
     const [members, setMembers] = useState<UserData[]>([]);
 
     // Fetch Member Data
     useEffect(() => {
         const fetchMembers = async () => {
             if (!project.memberIds) return;
+            const { data, error } = await createClient()
+                .from('profiles')
+                .select('*')
+                .in('id', project.memberIds);
 
-            const memberData: UserData[] = [];
-            for (const uid of project.memberIds) {
-                try {
-                    const userDoc = await getDoc(doc(db, 'users', uid));
-                    if (userDoc.exists()) {
-                        memberData.push(userDoc.data() as UserData);
-                    } else {
-                        // Fallback if no user doc (e.g. old user)
-                        memberData.push({ uid, displayName: 'Unknown User', email: null, photoURL: null });
-                    }
-                } catch (e) {
-                    memberData.push({ uid, displayName: 'Error Loading', email: null, photoURL: null });
-                }
+            if (error || !data) {
+                setMembers(project.memberIds.map((uid) => ({ uid, displayName: 'Error Loading', email: null, photoURL: null })));
+                return;
             }
-            setMembers(memberData);
+
+            const map = new Map(data.map((profile) => [profile.id, profile]));
+            setMembers(project.memberIds.map((uid) => {
+                const profile = map.get(uid);
+                return {
+                    uid,
+                    displayName: profile?.display_name ?? 'Unknown User',
+                    email: profile?.email ?? null,
+                    photoURL: profile?.avatar_url ?? null,
+                };
+            }));
         };
         fetchMembers();
     }, [project.memberIds]);
 
     const handleRemoveMember = async (uid: string) => {
         if (!confirm('Remove this member from the project?')) return;
-
-        const newMemberIds = project.memberIds.filter(id => id !== uid);
-        const newRoles = { ...project.roles };
-        delete newRoles[uid];
-
-        await updateProject(project.id, { memberIds: newMemberIds, roles: newRoles });
+        const { error } = await createClient()
+            .from('project_members')
+            .delete()
+            .eq('project_id', project.id)
+            .eq('user_id', uid);
+        if (error) {
+            console.error('Failed to remove project member:', error);
+        }
     };
 
     const isOwner = currentUserRole === 'owner';

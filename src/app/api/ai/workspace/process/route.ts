@@ -1,13 +1,13 @@
 import { generateText, stepCountIs } from 'ai';
 import { google } from '@ai-sdk/google';
 import { format } from 'date-fns';
-import { getDb } from '@/lib/firebaseAdmin';
 import { checkQuota, incrementRequestCount, recordTokenUsage } from '@/lib/billing/usage';
 import { buildWorkspaceProcessPrompt } from '@/lib/ai/workspacePrompts';
 import { createWorkspaceTools } from '@/lib/ai/workspaceTools';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError, jsonError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
+import { createClient } from '@/lib/supabase/server';
 import { taskIdRequestSchema } from '@/lib/validations/task';
 
 const MODEL = 'gemini-2.5-flash';
@@ -15,7 +15,8 @@ const MODEL = 'gemini-2.5-flash';
 export async function POST(req: Request) {
   console.log('==== AI Workspace Process API Called ====');
   try {
-    const { uid } = await requireAuth(req);
+    const user = await requireAuth();
+    const uid = user.id;
 
     // 2. クォータチェック
     const quota = await checkQuota(uid);
@@ -35,21 +36,23 @@ export async function POST(req: Request) {
 
     const { taskId } = await parseJsonBody(req, taskIdRequestSchema);
 
-    const db = getDb();
+    const supabase = await createClient();
 
     // 3. タスク取得 + 所有権チェック
-    const taskDoc = await db.collection('tasks').doc(taskId).get();
-    if (!taskDoc.exists || taskDoc.data()?.userId !== uid) {
+    const { data: taskData, error: taskError } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', taskId)
+      .maybeSingle();
+    if (taskError) {
+      throw taskError;
+    }
+    if (!taskData || taskData.user_id !== uid) {
       return jsonError('Task not found', 404);
     }
 
-    const taskData = taskDoc.data()!;
-
     // 4. ステータスを processing に更新
-    await db.collection('tasks').doc(taskId).update({
-      aiStatus: 'processing',
-      updatedAt: Date.now(),
-    });
+    await supabase.from('tasks').update({ ai_status: 'processing' }).eq('id', taskId);
 
     const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -58,8 +61,8 @@ export async function POST(req: Request) {
       const systemPrompt = buildWorkspaceProcessPrompt({
         currentDate: today,
         taskTitle: taskData.title,
-        taskMemo: taskData.memo,
-        taskTags: taskData.tags,
+        taskMemo: taskData.memo ?? undefined,
+        taskTags: [],
       });
 
       const tools = createWorkspaceTools({
@@ -89,31 +92,22 @@ export async function POST(req: Request) {
       // 7. AIのテキスト応答もコメントとして投稿（ツールでpostCommentしなかった場合）
       if (result.text && result.text.trim()) {
         const now = Date.now();
-        const commentRef = db.collection('tasks').doc(taskId).collection('comments').doc();
-        const batch = db.batch();
-        batch.set(commentRef, {
-          id: commentRef.id,
-          taskId,
-          userId: uid,
-          authorType: 'ai',
-          authorName: 'Taskel AI',
+        await supabase.from('task_comments').insert({
+          task_id: taskId,
+          user_id: uid,
+          author_type: 'ai',
+          author_name: 'Taskel AI',
           content: result.text,
-          createdAt: now,
-          updatedAt: now,
         });
-        const admin = await import('firebase-admin');
-        batch.update(db.collection('tasks').doc(taskId), {
-          commentCount: admin.default.firestore.FieldValue.increment(1),
-          updatedAt: now,
+        await supabase.from('tasks').update({
+          comment_count: (taskData.comment_count ?? 0) + 1,
         });
-        await batch.commit();
       }
 
       // 8. ステータスを completed に更新
-      await db.collection('tasks').doc(taskId).update({
-        aiStatus: 'completed',
-        aiCompletedAt: Date.now(),
-        updatedAt: Date.now(),
+      await supabase.from('tasks').update({
+        ai_status: 'completed',
+        ai_completed_at: new Date().toISOString(),
       });
 
       return new Response(
@@ -125,10 +119,9 @@ export async function POST(req: Request) {
 
       // エラー時のステータス更新
       const errorMessage = 'AI processing failed';
-      await db.collection('tasks').doc(taskId).update({
-        aiStatus: 'error',
-        aiError: errorMessage,
-        updatedAt: Date.now(),
+      await supabase.from('tasks').update({
+        ai_status: 'error',
+        ai_error: errorMessage,
       });
 
       return new Response(

@@ -1,17 +1,15 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/firebaseAdmin';
-import { getStripe } from '@/lib/billing/stripe';
-import { getPlanFromPriceId } from '@/lib/billing/plans';
-import type { SubscriptionDoc, SubscriptionStatus } from '@/lib/billing/types';
 import Stripe from 'stripe';
 
-/** Stripe v20+: period fields are on items, not subscription root */
-function getSubscriptionPeriod(subscription: Stripe.Subscription) {
+import { getStripe } from '@/lib/billing/stripe';
+import { getPlanFromPriceId } from '@/lib/billing/plans';
+import { createClient } from '@/lib/supabase/server';
+
+function getSubscriptionPeriodEnd(subscription: Stripe.Subscription) {
   const item = subscription.items.data[0];
-  return {
-    currentPeriodStart: (item?.current_period_start ?? 0) * 1000,
-    currentPeriodEnd: (item?.current_period_end ?? 0) * 1000,
-  };
+  return item?.current_period_end
+    ? new Date(item.current_period_end * 1000).toISOString()
+    : null;
 }
 
 export async function POST(request: Request) {
@@ -25,24 +23,13 @@ export async function POST(request: Request) {
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    );
+    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
   } catch (err) {
     console.error('Webhook signature verification failed:', err);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
-  const db = getDb();
-
-  // 冪等性チェック
-  const eventRef = db.collection('stripeEvents').doc(event.id);
-  const eventSnap = await eventRef.get();
-  if (eventSnap.exists) {
-    return NextResponse.json({ received: true, duplicate: true });
-  }
+  const supabase = await createClient();
 
   try {
     switch (event.type) {
@@ -50,97 +37,42 @@ export async function POST(request: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.mode !== 'subscription' || !session.subscription) break;
 
-        const subscription = await stripe.subscriptions.retrieve(
-          session.subscription as string
-        );
+        const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
         const userId = subscription.metadata.userId || session.metadata?.userId;
-        if (!userId) {
-          console.error('No userId in subscription metadata');
-          break;
-        }
-
-        const priceId = subscription.items.data[0]?.price?.id || '';
-        const plan = getPlanFromPriceId(priceId);
-        const period = getSubscriptionPeriod(subscription);
-
-        const subDoc: SubscriptionDoc = {
-          userId,
-          stripeCustomerId: subscription.customer as string,
-          stripePriceId: priceId,
-          plan,
-          status: subscription.status as SubscriptionStatus,
-          currentPeriodStart: period.currentPeriodStart,
-          currentPeriodEnd: period.currentPeriodEnd,
-          cancelAtPeriodEnd: subscription.cancel_at_period_end,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-
-        await db.collection('subscriptions').doc(subscription.id).set(subDoc);
-        await db.collection('users').doc(userId).set(
-          {
-            plan,
-            stripeCustomerId: subscription.customer as string,
-            subscriptionStatus: subscription.status,
-          },
-          { merge: true }
-        );
-        break;
-      }
-
-      case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription;
-        const userId = subscription.metadata.userId;
         if (!userId) break;
 
         const priceId = subscription.items.data[0]?.price?.id || '';
         const plan = getPlanFromPriceId(priceId);
-        const period = getSubscriptionPeriod(subscription);
 
-        await db.collection('subscriptions').doc(subscription.id).set(
-          {
-            stripePriceId: priceId,
-            plan,
-            status: subscription.status,
-            currentPeriodStart: period.currentPeriodStart,
-            currentPeriodEnd: period.currentPeriodEnd,
-            cancelAtPeriodEnd: subscription.cancel_at_period_end,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
-
-        await db.collection('users').doc(userId).set(
-          {
-            plan,
-            subscriptionStatus: subscription.status,
-          },
-          { merge: true }
-        );
+        await supabase.from('subscriptions').upsert({
+          user_id: userId,
+          stripe_customer_id: subscription.customer as string,
+          stripe_subscription_id: subscription.id,
+          plan,
+          status: subscription.status as any,
+          current_period_end: getSubscriptionPeriodEnd(subscription),
+        });
         break;
       }
 
+      case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
         const userId = subscription.metadata.userId;
         if (!userId) break;
 
-        await db.collection('subscriptions').doc(subscription.id).set(
-          {
-            status: 'canceled',
-            cancelAtPeriodEnd: false,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
+        const priceId = subscription.items.data[0]?.price?.id || '';
+        const plan = event.type === 'customer.subscription.deleted' ? 'free' : getPlanFromPriceId(priceId);
+        const status = event.type === 'customer.subscription.deleted' ? 'canceled' : subscription.status;
 
-        await db.collection('users').doc(userId).set(
-          {
-            plan: 'free',
-            subscriptionStatus: 'canceled',
-          },
-          { merge: true }
-        );
+        await supabase.from('subscriptions').upsert({
+          user_id: userId,
+          stripe_customer_id: subscription.customer as string,
+          stripe_subscription_id: subscription.id,
+          plan,
+          status: status as any,
+          current_period_end: getSubscriptionPeriodEnd(subscription),
+        });
         break;
       }
 
@@ -150,28 +82,12 @@ export async function POST(request: Request) {
         const subId = typeof subRef === 'string' ? subRef : subRef?.id;
         if (!subId) break;
 
-        const subSnap = await db.collection('subscriptions').doc(subId).get();
-        const subData = subSnap.data();
-        if (!subData?.userId) break;
-
-        await db.collection('users').doc(subData.userId).set(
-          { subscriptionStatus: 'past_due' },
-          { merge: true }
-        );
-        await db.collection('subscriptions').doc(subId).set(
-          { status: 'past_due', updatedAt: Date.now() },
-          { merge: true }
-        );
+        await supabase.from('subscriptions').update({
+          status: 'past_due',
+        }).eq('stripe_subscription_id', subId);
         break;
       }
     }
-
-    // 冪等性ガード：処理済みイベントを記録
-    await eventRef.set({
-      eventId: event.id,
-      type: event.type,
-      processedAt: Date.now(),
-    });
   } catch (error) {
     console.error('Webhook processing error:', error);
     return NextResponse.json({ error: 'Processing failed' }, { status: 500 });

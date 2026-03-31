@@ -30,34 +30,13 @@ if (fs.existsSync(envPath)) {
     console.warn('.env.local NOT FOUND at:', envPath);
 }
 
-import { getDb } from '../lib/firebaseAdmin';
 import { google } from '@ai-sdk/google';
 import { streamText } from 'ai';
 
 async function check() {
     console.log('==== Configuration Check ====');
 
-    // 1. Firebase Check
-    console.log('[Firebase] Initializing...');
-
-    // Simulate Next.js env (remove GOOGLE_APPLICATION_CREDENTIALS if exists)
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        console.log('[Test Info] Removing GOOGLE_APPLICATION_CREDENTIALS to test Private Key path...');
-        delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    }
-
-    try {
-        const db = getDb();
-        console.log('[Firebase] getDb() success.');
-
-        // Try to verify connection (optional, just init for now)
-        // const snapshot = await db.collection('test').limit(1).get();
-        // console.log('[Firebase] Connection Verified.');
-    } catch (e) {
-        console.error('[Firebase] Initialization FAILED:', e);
-    }
-
-    // 2. Google AI Check
+    // 1. Google AI Check
     console.log('[Google AI] Checking API Key...');
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (apiKey) {
@@ -69,7 +48,7 @@ async function check() {
     console.log('[Google AI] Initializing Model...');
     // Note: We don't initialize a single model here anymore.
 
-    // 3. Stream Text Check (Try multiple models)
+    // 2. Stream Text Check (Try multiple models)
     const modelsToTry = [
         'gemini-2.0-flash',
         'gemini-2.0-flash-lite',

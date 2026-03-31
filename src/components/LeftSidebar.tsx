@@ -4,8 +4,6 @@ import { useStore } from '@/store/useStore';
 import { X, Calendar, Repeat, LogOut, Trash2, Settings, Briefcase, BarChart, ListTodo, CalendarRange, CalendarDays } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { auth, db } from '@/lib/firebase';
-import { collection, query, getDocs, writeBatch } from 'firebase/firestore';
 import clsx from 'clsx';
 import UserGuideButton from './UserGuideButton';
 import ProductSwitcher from './ProductSwitcher';
@@ -27,25 +25,7 @@ export default function LeftSidebar() {
     );
 
     const handleDeleteAccount = async () => {
-        if (!user) return;
-        if (!window.confirm("Are you sure you want to delete your account? This cannot be undone.")) return;
-
-        try {
-            const batch = writeBatch(db);
-            // Delete all tasks
-            const q = query(collection(db, 'users', user.uid, 'tasks'));
-            const snapshot = await getDocs(q);
-            snapshot.docs.forEach((doc) => {
-                batch.delete(doc.ref);
-            });
-            await batch.commit();
-            await user.delete();
-            router.push('/');
-            toggleLeftSidebar(); // Close sidebar
-        } catch (e) {
-            console.error("Error deleting account", e);
-            alert("Failed to delete account. You might need to re-login.");
-        }
+        alert('Supabase Auth のアカウント削除フローは未実装です。');
     };
 
     return (

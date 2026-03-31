@@ -1,22 +1,15 @@
-// Taskel AI Workspace スライス
-// コメント管理、タスク詳細モーダル、AI処理トリガーを担当
-
 import { StateCreator } from 'zustand';
-import { StoreState } from '../types';
+
+import { createClient } from '@/lib/supabase/client';
+import { mapTaskComment } from '@/lib/supabase/mappers';
 import { TaskComment } from '@/types';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { StoreState } from '../types';
 
 export interface WorkspaceSlice {
-  // コメント管理
   taskComments: Record<string, TaskComment[]>;
   commentsLoading: Record<string, boolean>;
   aiProcessing: Record<string, boolean>;
-
-  // タスク詳細モーダル
   activeDetailTaskId: string | null;
-
-  // Actions
   fetchComments: (taskId: string) => Promise<void>;
   addUserComment: (taskId: string, content: string) => Promise<void>;
   triggerAIProcess: (taskId: string) => Promise<void>;
@@ -33,29 +26,22 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
   activeDetailTaskId: null,
 
   fetchComments: async (taskId: string) => {
-    set(state => ({
+    set((state) => ({
       commentsLoading: { ...state.commentsLoading, [taskId]: true },
     }));
 
     try {
-      const user = get().user;
-      if (!user) return;
-
-      const token = await user.getIdToken();
-      const res = await fetch(`/api/tasks/${taskId}/comments`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      const res = await fetch(`/api/tasks/${taskId}/comments`);
       if (!res.ok) throw new Error('Failed to fetch comments');
 
       const { comments } = await res.json();
-      set(state => ({
+      set((state) => ({
         taskComments: { ...state.taskComments, [taskId]: comments },
         commentsLoading: { ...state.commentsLoading, [taskId]: false },
       }));
     } catch (error) {
       console.error('fetchComments error:', error);
-      set(state => ({
+      set((state) => ({
         commentsLoading: { ...state.commentsLoading, [taskId]: false },
       }));
     }
@@ -66,12 +52,10 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
       const user = get().user;
       if (!user) return;
 
-      const token = await user.getIdToken();
       const res = await fetch(`/api/tasks/${taskId}/comments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           content,
@@ -82,7 +66,7 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
       if (!res.ok) throw new Error('Failed to add comment');
 
       const { comment } = await res.json();
-      set(state => ({
+      set((state) => ({
         taskComments: {
           ...state.taskComments,
           [taskId]: [...(state.taskComments[taskId] || []), comment],
@@ -94,20 +78,15 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
   },
 
   triggerAIProcess: async (taskId: string) => {
-    set(state => ({
+    set((state) => ({
       aiProcessing: { ...state.aiProcessing, [taskId]: true },
     }));
 
     try {
-      const user = get().user;
-      if (!user) return;
-
-      const token = await user.getIdToken();
       const res = await fetch('/api/ai/workspace/process', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ taskId }),
       });
@@ -117,32 +96,26 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
         throw new Error(err.error || 'AI processing failed');
       }
 
-      // 処理完了後、コメントを再取得
       await get().fetchComments(taskId);
     } catch (error) {
       console.error('triggerAIProcess error:', error);
     } finally {
-      set(state => ({
+      set((state) => ({
         aiProcessing: { ...state.aiProcessing, [taskId]: false },
       }));
     }
   },
 
   triggerAIReply: async (taskId: string) => {
-    set(state => ({
+    set((state) => ({
       aiProcessing: { ...state.aiProcessing, [taskId]: true },
     }));
 
     try {
-      const user = get().user;
-      if (!user) return;
-
-      const token = await user.getIdToken();
       const res = await fetch('/api/ai/workspace/reply', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ taskId }),
       });
@@ -152,33 +125,67 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
         throw new Error(err.error || 'AI reply failed');
       }
 
-      // 処理完了後、コメントを再取得
       await get().fetchComments(taskId);
     } catch (error) {
       console.error('triggerAIReply error:', error);
     } finally {
-      set(state => ({
+      set((state) => ({
         aiProcessing: { ...state.aiProcessing, [taskId]: false },
       }));
     }
   },
 
   subscribeToComments: (taskId: string) => {
-    const commentsRef = collection(db, 'tasks', taskId, 'comments');
-    const q = query(commentsRef, orderBy('createdAt', 'asc'));
+    const supabase = createClient();
+    const channel = supabase.channel(`task-comments:${taskId}`);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const comments: TaskComment[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as TaskComment[];
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'task_comments', filter: `task_id=eq.${taskId}` },
+      async () => {
+        const { data, error } = await supabase
+          .from('task_comments')
+          .select('*')
+          .eq('task_id', taskId)
+          .order('created_at', { ascending: true });
 
-      set(state => ({
-        taskComments: { ...state.taskComments, [taskId]: comments },
+        if (error) {
+          console.error('subscribeToComments error:', error);
+          return;
+        }
+
+        set((state) => ({
+          taskComments: {
+            ...state.taskComments,
+            [taskId]: data.map(mapTaskComment),
+          },
+        }));
+      }
+    );
+
+    channel.subscribe(async () => {
+      const { data, error } = await supabase
+        .from('task_comments')
+        .select('*')
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('subscribeToComments init error:', error);
+        return;
+      }
+
+      set((state) => ({
+        taskComments: {
+          ...state.taskComments,
+          [taskId]: data.map(mapTaskComment),
+        },
       }));
     });
 
-    return unsubscribe;
+    return () => {
+      supabase.removeChannel(channel);
+    };
   },
 
   openTaskDetail: (taskId: string) => {

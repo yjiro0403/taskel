@@ -1,16 +1,12 @@
-import { StateCreator } from 'zustand';
-import { StoreState, TaskSlice } from '../types';
-import { Task } from '@/types';
-import {
-    collection, doc, setDoc, deleteDoc,
-    writeBatch, getDocs
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { sanitizeData } from '../helpers/sanitize';
-import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
 import { parseISO, isBefore, isSameDay } from 'date-fns';
+import { StateCreator } from 'zustand';
 
-// タスクCRUD + 仮想タスク生成 + マイグレーション スライス
+import { createClient } from '@/lib/supabase/client';
+import { upsertTask, updateTaskRow } from '@/lib/supabase/data';
+import { Task } from '@/types';
+import { StoreState, TaskSlice } from '../types';
+import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
+
 export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set, get) => ({
     tasks: [],
     selectedTaskIds: [],
@@ -20,301 +16,250 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     addTask: async (task) => {
         const { user } = get();
-        if (user) {
-            // 楽観的更新
-            const oldTasks = get().tasks;
+        if (!user) {
             set((state) => ({ tasks: [...state.tasks, task] }));
+            return;
+        }
 
-            try {
-                // BFFパターン: API経由でタスク作成
-                const token = await user.getIdToken();
-                const response = await fetch('/api/tasks', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ task: { ...task, userId: user.uid }, action: 'create' })
-                });
+        const oldTasks = get().tasks;
+        set((state) => ({ tasks: [...state.tasks, task] }));
 
-                if (!response.ok) {
-                    throw new Error('Failed to create task via API');
-                }
-            } catch (error) {
-                console.error("Error adding task via API: ", error);
-                // 楽観的更新のロールバック
-                set({ tasks: oldTasks });
-                alert("Failed to add task. Please check your connection.");
-            }
-        } else {
-            set((state) => ({ tasks: [...state.tasks, task] }));
+        try {
+            await upsertTask(createClient(), { ...task, userId: user.uid }, user.uid);
+        } catch (error) {
+            console.error('Error adding task:', error);
+            set({ tasks: oldTasks });
+            alert('Failed to add task. Please check your connection.');
         }
     },
 
     updateTask: async (taskId, updates) => {
         const { user, tasks, getMergedTasks } = get();
-        if (user) {
-            const oldTasks = tasks;
-            // 楽観的更新中はFirestoreリスナーの上書きを防止
-            addPendingTask(taskId);
-            // 楽観的更新
+        if (!user) {
             set((state) => ({
-                tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
+                tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
             }));
+            return;
+        }
 
-            try {
-                const task = tasks.find(t => t.id === taskId);
-                let isVirtual = false;
-                let fullTaskForCreation: Task | null = null;
+        const oldTasks = tasks;
+        addPendingTask(taskId);
+        set((state) => ({
+            tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
+        }));
 
-                // 仮想タスクのインスタンス化ロジック
-                if (!task) {
-                    const dateStr = taskId.split('-').slice(-3).join('-');
-                    const merged = getMergedTasks(dateStr);
-                    const virtualTask = merged.find(t => t.id === taskId);
+        try {
+            const currentTask = tasks.find((task) => task.id === taskId);
+            let isVirtual = false;
+            let fullTaskForCreation: Task | null = null;
 
-                    if (virtualTask) {
-                        isVirtual = true;
-                        fullTaskForCreation = {
-                            ...virtualTask,
-                            ...updates,
-                            userId: user.uid,
-                        };
-                        set((state) => ({ tasks: [...state.tasks, fullTaskForCreation as Task] }));
-                    }
-                }
+            if (!currentTask) {
+                const dateStr = taskId.split('-').slice(-3).join('-');
+                const virtualTask = getMergedTasks(dateStr).find((task) => task.id === taskId);
 
-                if (isVirtual && fullTaskForCreation) {
-                    const token = await user.getIdToken();
-                    const response = await fetch('/api/tasks', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify({ task: fullTaskForCreation, action: 'create' })
-                    });
-                    if (!response.ok) throw new Error('Failed to instantiate task via API');
-                    return;
-                }
-
-                if (!task && !isVirtual) {
-                    console.error("Task not found for update:", taskId);
-                    return;
-                }
-
-                // プロジェクト移動の検出
-                const isProjectChange = updates.projectId !== undefined && updates.projectId !== task?.projectId;
-                const payloadAction = isProjectChange ? 'create' : 'update';
-
-                let payloadTask: any = {
-                    id: taskId,
-                    userId: user.uid,
-                    projectId: task?.projectId,
-                    ...updates
-                };
-
-                if (isProjectChange && task) {
-                    payloadTask = {
-                        ...task,
+                if (virtualTask) {
+                    isVirtual = true;
+                    fullTaskForCreation = {
+                        ...virtualTask,
                         ...updates,
-                        userId: user.uid
+                        userId: user.uid,
                     };
+                    set((state) => ({ tasks: [...state.tasks, fullTaskForCreation as Task] }));
                 }
-
-                // BFFパターン: API経由で更新
-                const token = await user.getIdToken();
-                const response = await fetch('/api/tasks', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        task: payloadTask,
-                        action: payloadAction
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to update task via API');
-                }
-            } catch (error) {
-                console.error("Error updating task via API: ", error);
-                set({ tasks: oldTasks });
-                alert("Failed to update task. Please check your connection.");
-            } finally {
-                removePendingTask(taskId);
             }
-        } else {
-            set((state) => ({
-                tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
-            }));
+
+            if (isVirtual && fullTaskForCreation) {
+                await upsertTask(createClient(), fullTaskForCreation, user.uid);
+                return;
+            }
+
+            if (!currentTask) {
+                console.error('Task not found for update:', taskId);
+                return;
+            }
+
+            const client = createClient();
+            const isProjectChange = updates.projectId !== undefined && updates.projectId !== currentTask.projectId;
+
+            if (isProjectChange) {
+                await upsertTask(client, { ...currentTask, ...updates, userId: user.uid }, user.uid);
+            } else {
+                await updateTaskRow(client, taskId, updates, user.uid);
+            }
+        } catch (error) {
+            console.error('Error updating task:', error);
+            set({ tasks: oldTasks });
+            alert('Failed to update task. Please check your connection.');
+        } finally {
+            removePendingTask(taskId);
         }
     },
 
     duplicateTask: async (taskId: string) => {
         const { tasks, addTask, getMergedTasks, currentDate } = get();
-        let task = tasks.find(t => t.id === taskId);
+        let task = tasks.find((entry) => entry.id === taskId);
 
-        // フォールバック: 仮想タスクのチェック
         if (!task) {
-            const mergedTasks = getMergedTasks(currentDate);
-            task = mergedTasks.find(t => t.id === taskId);
+            task = getMergedTasks(currentDate).find((entry) => entry.id === taskId);
         }
 
-        if (task) {
-            // 同セクション内で元タスクの直後にあるタスクを探してmidpointを算出
-            const sectionTasks = tasks
-                .filter(t => t.sectionId === task.sectionId && t.date === task.date)
-                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-            const taskIndex = sectionTasks.findIndex(t => t.id === task.id);
-            const nextTask = taskIndex >= 0 ? sectionTasks[taskIndex + 1] : undefined;
-            const newOrder = nextTask
-                ? ((task.order ?? 0) + (nextTask.order ?? 0)) / 2
-                : (task.order ?? 0) + 1;
-
-            const newTask: Task = {
-                ...task,
-                id: crypto.randomUUID(),
-                title: `${task.title} (copy)`,
-                status: 'open',
-                actualMinutes: 0,
-                startedAt: undefined,
-                completedAt: undefined,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                order: newOrder,
-            };
-            await addTask(newTask);
+        if (!task) {
+            return;
         }
+
+        const sectionTasks = tasks
+            .filter((entry) => entry.sectionId === task.sectionId && entry.date === task.date)
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        const taskIndex = sectionTasks.findIndex((entry) => entry.id === task.id);
+        const nextTask = taskIndex >= 0 ? sectionTasks[taskIndex + 1] : undefined;
+        const newOrder = nextTask
+            ? ((task.order ?? 0) + (nextTask.order ?? 0)) / 2
+            : (task.order ?? 0) + 1;
+
+        const newTask: Task = {
+            ...task,
+            id: crypto.randomUUID(),
+            title: `${task.title} (copy)`,
+            status: 'open',
+            actualMinutes: 0,
+            startedAt: undefined,
+            completedAt: undefined,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            order: newOrder,
+        };
+
+        await addTask(newTask);
     },
 
     deleteTask: async (taskId) => {
-        const { user, getMergedTasks } = get();
-        if (user) {
-            try {
-                // ルーティン由来の仮想タスクの処理
-                if (taskId.startsWith('routine-')) {
-                    const dateStr = taskId.split('-').slice(-3).join('-');
-                    const merged = getMergedTasks(dateStr);
-                    const virtualTask = merged.find(t => t.id === taskId);
+        const { user, tasks, getMergedTasks } = get();
+        if (!user) {
+            set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
+            return;
+        }
 
-                    if (virtualTask) {
-                        const skippedTask = {
-                            ...virtualTask,
-                            userId: user.uid,
-                            status: 'skipped' as const,
-                            updatedAt: Date.now()
-                        };
-                        const ref = doc(db, 'tasks', taskId);
-                        await setDoc(ref, sanitizeData(skippedTask));
-                    }
-                } else {
-                    const ref = doc(db, 'tasks', taskId);
-                    await deleteDoc(ref);
+        const oldTasks = tasks;
+        set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
+
+        try {
+            if (taskId.startsWith('routine-')) {
+                const dateStr = taskId.split('-').slice(-3).join('-');
+                const virtualTask = getMergedTasks(dateStr).find((task) => task.id === taskId);
+
+                if (virtualTask) {
+                    await upsertTask(createClient(), {
+                        ...virtualTask,
+                        userId: user.uid,
+                        status: 'skipped',
+                        updatedAt: Date.now(),
+                    }, user.uid);
                 }
-            } catch (error) {
-                console.error("Error deleting task: ", error);
+                return;
             }
-        } else {
-            set((state) => ({
-                tasks: state.tasks.filter((t) => t.id !== taskId),
-            }));
+
+            const { error } = await createClient().from('tasks').delete().eq('id', taskId);
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error deleting task:', error);
+            set({ tasks: oldTasks });
         }
     },
 
     bulkUpdateTasks: async (taskIds, updates) => {
-        const { user } = get();
-        if (user) {
-            try {
-                const batch = writeBatch(db);
-                taskIds.forEach((id) => {
-                    const ref = doc(db, 'tasks', id);
-                    batch.update(ref, sanitizeData({
-                        ...updates,
-                        updatedAt: Date.now()
-                    }));
-                });
-                await batch.commit();
-                set({ selectedTaskIds: [] });
-            } catch (error) {
-                console.error("Error bulk updating tasks: ", error);
-            }
-        } else {
+        const { user, tasks } = get();
+        if (!user) {
             set((state) => ({
-                tasks: state.tasks.map((t) => (taskIds.includes(t.id) ? { ...t, ...updates } : t)),
+                tasks: state.tasks.map((task) => (taskIds.includes(task.id) ? { ...task, ...updates } : task)),
                 selectedTaskIds: [],
             }));
+            return;
+        }
+
+        const oldTasks = tasks;
+        set((state) => ({
+            tasks: state.tasks.map((task) => (taskIds.includes(task.id) ? { ...task, ...updates } : task)),
+            selectedTaskIds: [],
+        }));
+
+        try {
+            await Promise.all(taskIds.map((taskId) => updateTaskRow(createClient(), taskId, updates, user.uid)));
+        } catch (error) {
+            console.error('Error bulk updating tasks:', error);
+            set({ tasks: oldTasks });
         }
     },
 
     bulkDeleteTasks: async (taskIds: string[]) => {
-        const { user, getMergedTasks } = get();
-        if (user) {
-            try {
-                const batch = writeBatch(db);
-
-                for (const id of taskIds) {
-                    if (id.startsWith('routine-')) {
-                        const parts = id.split('-');
-                        if (parts.length >= 5) {
-                            const dateStr = parts.slice(-3).join('-');
-                            const merged = getMergedTasks(dateStr);
-                            const virtualTask = merged.find(t => t.id === id);
-
-                            if (virtualTask) {
-                                const skippedTask = {
-                                    ...virtualTask,
-                                    userId: user.uid,
-                                    status: 'skipped' as const,
-                                    updatedAt: Date.now()
-                                };
-                                const ref = doc(db, 'tasks', id);
-                                batch.set(ref, sanitizeData(skippedTask));
-                            }
-                        }
-                    } else {
-                        const ref = doc(db, 'tasks', id);
-                        batch.delete(ref);
-                    }
-                }
-
-                await batch.commit();
-                set({ selectedTaskIds: [] });
-            } catch (error) {
-                console.error("Error bulk deleting tasks: ", error);
-            }
-        } else {
+        const { user, tasks, getMergedTasks } = get();
+        if (!user) {
             set((state) => ({
-                tasks: state.tasks.filter((t) => !taskIds.includes(t.id)),
+                tasks: state.tasks.filter((task) => !taskIds.includes(task.id)),
                 selectedTaskIds: [],
             }));
+            return;
+        }
+
+        const oldTasks = tasks;
+        set((state) => ({
+            tasks: state.tasks.filter((task) => !taskIds.includes(task.id)),
+            selectedTaskIds: [],
+        }));
+
+        try {
+            const client = createClient();
+
+            for (const id of taskIds) {
+                if (id.startsWith('routine-')) {
+                    const dateStr = id.split('-').slice(-3).join('-');
+                    const virtualTask = getMergedTasks(dateStr).find((task) => task.id === id);
+
+                    if (virtualTask) {
+                        await upsertTask(client, {
+                            ...virtualTask,
+                            userId: user.uid,
+                            status: 'skipped',
+                            updatedAt: Date.now(),
+                        }, user.uid);
+                    }
+                    continue;
+                }
+
+                const { error } = await client.from('tasks').delete().eq('id', id);
+                if (error) {
+                    throw error;
+                }
+            }
+        } catch (error) {
+            console.error('Error bulk deleting tasks:', error);
+            set({ tasks: oldTasks });
         }
     },
 
     bulkAddTasks: async (tasksToAdd) => {
         const { user } = get();
-        if (user) {
-            try {
-                const batch = writeBatch(db);
-                tasksToAdd.forEach(task => {
-                    const ref = doc(db, 'tasks', task.id || crypto.randomUUID());
-                    batch.set(ref, sanitizeData({
+        if (!user) {
+            set((state) => ({ tasks: [...state.tasks, ...tasksToAdd] }));
+            return;
+        }
+
+        try {
+            await Promise.all(
+                tasksToAdd.map((task) =>
+                    upsertTask(createClient(), {
                         ...task,
-                        id: ref.id,
+                        id: task.id || crypto.randomUUID(),
                         userId: user.uid,
                         createdAt: task.createdAt || Date.now(),
-                        updatedAt: Date.now()
-                    }));
-                });
-                await batch.commit();
-            } catch (error) {
-                console.error("Error bulk adding tasks: ", error);
-                throw error;
-            }
-        } else {
-            set((state) => ({ tasks: [...state.tasks, ...tasksToAdd] }));
+                        updatedAt: Date.now(),
+                    }, user.uid)
+                )
+            );
+        } catch (error) {
+            console.error('Error bulk adding tasks:', error);
+            throw error;
         }
     },
 
@@ -329,45 +274,39 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     reorderTasks: async (taskIds: string[]) => {
         const { user, tasks } = get();
-        // 楽観的更新
-        const newTasks = tasks.map(t => {
-            const newIndex = taskIds.indexOf(t.id);
-            if (newIndex >= 0) {
-                return { ...t, order: newIndex };
-            }
-            return t;
+        const newTasks = tasks.map((task) => {
+            const newIndex = taskIds.indexOf(task.id);
+            return newIndex >= 0 ? { ...task, order: newIndex } : task;
         });
         set({ tasks: newTasks });
 
-        if (user) {
-            try {
-                const batch = writeBatch(db);
-                taskIds.forEach((id, index) => {
-                    const ref = doc(db, 'tasks', id);
-                    batch.update(ref, { order: index, updatedAt: Date.now() });
-                });
-                await batch.commit();
-            } catch (error) {
-                console.error("Error reordering tasks: ", error);
-            }
+        if (!user) {
+            return;
+        }
+
+        try {
+            await Promise.all(
+                taskIds.map((id, index) =>
+                    updateTaskRow(createClient(), id, { order: index }, user.uid)
+                )
+            );
+        } catch (error) {
+            console.error('Error reordering tasks:', error);
         }
     },
 
     getMergedTasks: (dateStr: string) => {
         const { tasks, routines } = get();
-        // 1. 該当日のDBタスクを取得（skipped含む）
-        const dbTasks = tasks.filter(t => t.date === dateStr);
-
-        // 2. 対象日を設定
+        const dbTasks = tasks.filter((task) => task.date === dateStr);
         const targetDate = parseISO(dateStr);
         const virtualTasks: Task[] = [];
 
-        routines.forEach(routine => {
+        routines.forEach((routine) => {
             if (!routine.active) return;
+
             const startDate = parseISO(routine.startDate || routine.nextRun);
             if (isBefore(targetDate, startDate) && !isSameDay(targetDate, startDate)) return;
 
-            // 頻度のチェック
             let matches = false;
             if (routine.frequency === 'daily') {
                 matches = true;
@@ -384,77 +323,50 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 matches = diffDays >= 0 && diffDays % routine.interval === 0;
             }
 
-            if (matches) {
-                const deterministicId = `routine-${routine.id}-${dateStr}`;
-                const exists = dbTasks.some(t => t.id === deterministicId || t.routineId === routine.id);
-
-                if (!exists) {
-                    // 同セクション内の既存タスク+仮想タスクから最大orderを算出
-                    const sectionPeers = [
-                        ...dbTasks.filter(t => t.sectionId === routine.sectionId),
-                        ...virtualTasks.filter(t => t.sectionId === routine.sectionId),
-                    ];
-                    const maxPeerOrder = sectionPeers.length > 0
-                        ? Math.max(...sectionPeers.map(t => t.order ?? 0))
-                        : 0;
-
-                    virtualTasks.push({
-                        id: deterministicId,
-                        userId: routine.userId,
-                        title: routine.title,
-                        sectionId: routine.sectionId,
-                        date: dateStr,
-                        status: 'open',
-                        estimatedMinutes: routine.estimatedMinutes,
-                        actualMinutes: 0,
-                        scheduledStart: routine.startTime,
-                        order: maxPeerOrder + 1,
-                        projectId: routine.projectId,
-                        routineId: routine.id,
-                        tags: routine.tags,
-                        memo: routine.memo
-                    });
-                }
+            if (!matches) {
+                return;
             }
+
+            const deterministicId = `routine-${routine.id}-${dateStr}`;
+            const exists = dbTasks.some((task) => task.id === deterministicId || task.routineId === routine.id);
+            if (exists) {
+                return;
+            }
+
+            const sectionPeers = [
+                ...dbTasks.filter((task) => task.sectionId === routine.sectionId),
+                ...virtualTasks.filter((task) => task.sectionId === routine.sectionId),
+            ];
+            const maxPeerOrder = sectionPeers.length > 0
+                ? Math.max(...sectionPeers.map((task) => task.order ?? 0))
+                : 0;
+
+            virtualTasks.push({
+                id: deterministicId,
+                userId: routine.userId,
+                title: routine.title,
+                sectionId: routine.sectionId,
+                date: dateStr,
+                status: 'open',
+                estimatedMinutes: routine.estimatedMinutes,
+                actualMinutes: 0,
+                scheduledStart: routine.startTime,
+                order: maxPeerOrder + 1,
+                projectId: routine.projectId,
+                routineId: routine.id,
+                tags: routine.tags,
+                memo: routine.memo,
+            });
         });
 
-        // 3. skippedを除外して返却
-        return [...dbTasks, ...virtualTasks].filter(t => t.status !== 'skipped');
+        return [...dbTasks, ...virtualTasks].filter((task) => task.status !== 'skipped');
     },
 
     migrateTasks: async () => {
-        const { user } = get();
-        if (!user) return { success: false, message: 'Not logged in', count: 0 };
-
-        try {
-            const batch = writeBatch(db);
-            let count = 0;
-
-            // プライベートサブコレクションからグローバルコレクションへの移行
-            const privateTasksRef = collection(db, 'users', user.uid, 'tasks');
-            const taskSnapshot = await getDocs(privateTasksRef);
-
-            if (!taskSnapshot.empty) {
-                taskSnapshot.forEach(docSnap => {
-                    const data = docSnap.data();
-                    const newRef = doc(db, 'tasks', docSnap.id);
-                    batch.set(newRef, {
-                        ...data,
-                        id: docSnap.id,
-                        userId: user.uid,
-                        updatedAt: Date.now()
-                    });
-                    count++;
-                });
-            }
-
-            if (count > 0) {
-                await batch.commit();
-            }
-            return { success: true, message: `Migrated ${count} tasks`, count };
-        } catch (error) {
-            console.error("Migration failed", error);
-            return { success: false, message: 'Migration failed', count: 0 };
-        }
+        return {
+            success: true,
+            message: 'Legacy Firestore task migration is no longer required.',
+            count: 0,
+        };
     },
 });

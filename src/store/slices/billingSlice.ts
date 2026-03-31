@@ -1,7 +1,7 @@
 import { StateCreator } from 'zustand';
-import { StoreState } from '../types';
+
 import type { PlanId } from '@/lib/billing/types';
-import { auth } from '@/lib/firebase';
+import { StoreState } from '../types';
 
 export interface BillingSlice {
   billingPlan: PlanId;
@@ -17,13 +17,7 @@ export interface BillingSlice {
   createPortalSession: () => Promise<string | null>;
 }
 
-async function getIdToken(): Promise<string | null> {
-  const user = auth.currentUser;
-  if (!user) return null;
-  return user.getIdToken();
-}
-
-export const createBillingSlice: StateCreator<StoreState, [], [], BillingSlice> = (set) => ({
+export const createBillingSlice: StateCreator<StoreState, [], [], BillingSlice> = (set, get) => ({
   billingPlan: 'free',
   subscriptionStatus: 'none',
   usageRequestCount: 0,
@@ -34,14 +28,11 @@ export const createBillingSlice: StateCreator<StoreState, [], [], BillingSlice> 
   isBillingLoading: false,
 
   fetchBillingInfo: async () => {
-    const token = await getIdToken();
-    if (!token) return;
+    if (!get().user) return;
 
     set({ isBillingLoading: true });
     try {
-      const res = await fetch('/api/billing/usage', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch('/api/billing/usage');
       if (!res.ok) throw new Error('Failed to fetch billing info');
       const data = await res.json();
       set({
@@ -61,15 +52,13 @@ export const createBillingSlice: StateCreator<StoreState, [], [], BillingSlice> 
   },
 
   createCheckoutSession: async (priceId: string) => {
-    const token = await getIdToken();
-    if (!token) return null;
+    if (!get().user) return null;
 
     try {
       const res = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ priceId }),
       });
@@ -83,15 +72,13 @@ export const createBillingSlice: StateCreator<StoreState, [], [], BillingSlice> 
   },
 
   createPortalSession: async () => {
-    const token = await getIdToken();
-    if (!token) return null;
+    if (!get().user) return null;
 
     try {
       const res = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
       });
       if (!res.ok) throw new Error('Failed to create portal session');

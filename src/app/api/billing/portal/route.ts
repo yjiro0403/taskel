@@ -1,16 +1,20 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/firebaseAdmin';
 import { getStripe } from '@/lib/billing/stripe';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
+import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
   try {
-    const { uid } = await requireAuth(request);
+    const user = await requireAuth();
+    const uid = user.id;
 
-    const db = getDb();
-    const userSnap = await db.collection('users').doc(uid).get();
-    const stripeCustomerId = userSnap.data()?.stripeCustomerId;
+    const { data: subscription } = await (await createClient())
+      .from('subscriptions')
+      .select('stripe_customer_id')
+      .eq('user_id', uid)
+      .maybeSingle();
+    const stripeCustomerId = subscription?.stripe_customer_id;
 
     if (!stripeCustomerId) {
       return NextResponse.json({ error: 'No billing account found' }, { status: 404 });

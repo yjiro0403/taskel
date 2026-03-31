@@ -20,7 +20,8 @@ function normalizeMessages(messages: any[]) {
 export async function POST(req: Request) {
   console.log('==== AI Chat API Called ====');
   try {
-    const { uid } = await requireAuth(req);
+    const user = await requireAuth();
+    const uid = user.id;
 
     // 2. クォータチェック
     const quota = await checkQuota(uid);

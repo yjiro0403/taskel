@@ -26,6 +26,7 @@ import {
     verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { AIChatPanel } from './AIChatPanel';
+import { createClient } from '@/lib/supabase/client';
 
 export default function TaskList() {
     const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
@@ -64,20 +65,29 @@ export default function TaskList() {
         setIsSyncing(true);
 
         try {
-            const { googleProvider, auth } = await import('@/lib/firebase');
-            const { signInWithPopup, GoogleAuthProvider } = await import('firebase/auth');
-
-            // Force re-consent
-            googleProvider.setCustomParameters({ prompt: 'consent' });
-
-            const result = await signInWithPopup(auth, googleProvider);
-            const credential = GoogleAuthProvider.credentialFromResult(result);
-            const accessToken = credential?.accessToken;
+            const supabase = createClient();
+            const { data } = await supabase.auth.getSession();
+            const accessToken = data.session?.provider_token;
 
             if (accessToken) {
                 await syncGoogleCalendar(accessToken, currentDate);
             } else {
-                alert("Could not get access token.");
+                localStorage.setItem('pending_google_calendar_sync', currentDate);
+                const redirectTo = `${window.location.origin}/auth/callback?next=/tasks`;
+                const { error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        redirectTo,
+                        scopes: 'https://www.googleapis.com/auth/calendar.readonly',
+                        queryParams: {
+                            access_type: 'offline',
+                            prompt: 'consent',
+                        },
+                    },
+                });
+                if (error) {
+                    throw error;
+                }
             }
         } catch (e) {
             console.error("Sync failed", e);
@@ -86,6 +96,22 @@ export default function TaskList() {
             setIsSyncing(false);
         }
     };
+
+    useEffect(() => {
+        const pendingDate = localStorage.getItem('pending_google_calendar_sync');
+        if (!pendingDate || !user) return;
+
+        const syncPending = async () => {
+            const { data } = await createClient().auth.getSession();
+            const accessToken = data.session?.provider_token;
+            if (!accessToken) return;
+
+            localStorage.removeItem('pending_google_calendar_sync');
+            await syncGoogleCalendar(accessToken, pendingDate);
+        };
+
+        void syncPending();
+    }, [syncGoogleCalendar, user]);
 
     const handleEditTask = (task: Task) => {
         setEditingTask(task);

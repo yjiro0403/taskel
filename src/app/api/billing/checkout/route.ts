@@ -7,9 +7,9 @@ import { billingCheckoutRequestSchema } from '@/lib/validations/ai';
 
 export async function POST(request: Request) {
   try {
-    const decoded = await requireAuth(request);
-    const uid = decoded.uid;
-    const email = decoded.email || '';
+    const user = await requireAuth();
+    const uid = user.id;
+    const email = user.email || '';
     const { priceId } = await parseJsonBody(request, billingCheckoutRequestSchema);
 
     const customerId = await getOrCreateStripeCustomer(uid, email);

@@ -1,61 +1,54 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/firebaseAdmin';
-import { Invitation } from '@/types';
+
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
 import { getAppUrl } from '@/lib/api/url';
+import { createClient } from '@/lib/supabase/server';
 import { invitationCreateRequestSchema } from '@/lib/validations/invitation';
 
 export async function POST(request: Request) {
-  try {
-    const { uid } = await requireAuth(request);
-    const { projectId, email, role } = await parseJsonBody(request, invitationCreateRequestSchema);
-    const db = getDb();
+    try {
+        const user = await requireAuth();
+        const { projectId, email, role } = await parseJsonBody(request, invitationCreateRequestSchema);
+        const supabase = await createClient();
 
-    const projectRef = db.collection('projects').doc(projectId);
-    const projectSnap = await projectRef.get();
-    if (!projectSnap.exists) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+        const { data: canManageProject, error: permissionError } = await supabase.rpc('can_manage_project', {
+            project_uuid: projectId,
+        });
+
+        if (permissionError) {
+            throw permissionError;
+        }
+
+        if (!canManageProject) {
+            return NextResponse.json({ error: 'Insufficient permissions to invite' }, { status: 403 });
+        }
+
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        const isReusable = !email;
+
+        const { data: invitation, error: insertError } = await supabase
+            .from('invitations')
+            .insert({
+                project_id: projectId,
+                email: email ?? null,
+                role: role || 'member',
+                inviter_id: user.id,
+                status: 'pending',
+                expires_at: expiresAt,
+                is_reusable: isReusable,
+            })
+            .select('id')
+            .single();
+
+        if (insertError) {
+            throw insertError;
+        }
+
+        const joinLink = `${getAppUrl()}/join?token=${invitation.id}`;
+        return NextResponse.json({ success: true, joinLink });
+    } catch (error) {
+        return handleApiError('Error generating invitation', error);
     }
-
-    const projectData = projectSnap.data();
-    if (!projectData) {
-      return NextResponse.json({ error: 'Project data missing' }, { status: 500 });
-    }
-
-    const userRole = projectData.roles?.[uid];
-    const isOwner = projectData.ownerId === uid;
-
-    if (!isOwner && userRole !== 'owner' && userRole !== 'admin') {
-      return NextResponse.json({ error: 'Insufficient permissions to invite' }, { status: 403 });
-    }
-
-    const inviteId = crypto.randomUUID();
-    const now = Date.now();
-    const expiresAt = now + 7 * 24 * 60 * 60 * 1000;
-    const isReusable = !email;
-
-    const invitation: Invitation = {
-      id: inviteId,
-      projectId,
-      role: role || 'member',
-      inviterId: uid,
-      status: 'pending',
-      createdAt: now,
-      expiresAt,
-      isReusable,
-    };
-
-    if (email) {
-      invitation.email = email;
-    }
-
-    await db.collection('invitations').doc(inviteId).set(invitation);
-
-    const joinLink = `${getAppUrl()}/join?token=${inviteId}`;
-    return NextResponse.json({ success: true, joinLink });
-  } catch (error) {
-    return handleApiError('Error generating invitation', error);
-  }
 }

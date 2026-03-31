@@ -2,9 +2,6 @@ import { useState } from 'react';
 import { Users, Link as LinkIcon, Copy, Loader2, Trash2, Mail, Check, AlertTriangle, User, Send } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { HubRole } from '@/types';
-import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-
 interface ProjectInviteModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -71,12 +68,10 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
 
         try {
             // Use API instead of direct Firestore query to avoid permission issues
-            const token = await user?.getIdToken();
             const response = await fetch('/api/users/lookup', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({ email: email.trim(), projectId })
             });

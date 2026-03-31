@@ -1,55 +1,38 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/firebaseAdmin';
 import { PLAN_LIMITS } from '@/lib/billing/plans';
-import type { PlanId, MonthlyUsageDoc, SubscriptionStatus } from '@/lib/billing/types';
+import type { PlanId, SubscriptionStatus } from '@/lib/billing/types';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
+import { createClient } from '@/lib/supabase/server';
 
 export async function GET(request: Request) {
   try {
-    const { uid } = await requireAuth(request);
+    const user = await requireAuth();
+    const uid = user.id;
 
-    const db = getDb();
+    const supabase = await createClient();
     const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthKey = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
 
-    const [userSnap, usageSnap] = await Promise.all([
-      db.collection('users').doc(uid).get(),
-      db.collection('usage').doc(uid).collection('monthly').doc(monthKey).get(),
+    const [subscriptionRes, usageRes] = await Promise.all([
+      supabase.from('subscriptions').select('*').eq('user_id', uid).maybeSingle(),
+      supabase.from('usage_monthly').select('*').eq('user_id', uid).eq('month', monthKey).maybeSingle(),
     ]);
 
-    const userData = userSnap.data();
-    const plan: PlanId = userData?.plan || 'free';
-    const subscriptionStatus: SubscriptionStatus = userData?.subscriptionStatus || 'none';
-    const usageData = usageSnap.data() as MonthlyUsageDoc | undefined;
-
-    // subscription情報を取得（cancelAtPeriodEnd, currentPeriodEnd用）
-    let billingPeriodEnd: number | null = null;
-    let cancelAtPeriodEnd = false;
-
-    if (subscriptionStatus !== 'none') {
-      const subsQuery = await db
-        .collection('subscriptions')
-        .where('userId', '==', uid)
-        .orderBy('createdAt', 'desc')
-        .limit(1)
-        .get();
-
-      if (!subsQuery.empty) {
-        const subData = subsQuery.docs[0].data();
-        billingPeriodEnd = subData.currentPeriodEnd || null;
-        cancelAtPeriodEnd = subData.cancelAtPeriodEnd || false;
-      }
-    }
+    const subData = subscriptionRes.data;
+    const usageData = usageRes.data;
+    const plan: PlanId = (subData?.plan as PlanId | null) || 'free';
+    const subscriptionStatus: SubscriptionStatus = (subData?.status as SubscriptionStatus | null) || 'none';
+    const billingPeriodEnd = subData?.current_period_end ? new Date(subData.current_period_end).getTime() : null;
 
     return NextResponse.json({
       plan,
       subscriptionStatus,
-      requestCount: usageData?.requestCount || 0,
+      requestCount: usageData?.ai_messages_count || 0,
       requestLimit: PLAN_LIMITS[plan].monthlyRequestLimit,
-      totalTokens: usageData?.totalTokens || 0,
+      totalTokens: 0,
       billingPeriodEnd,
-      cancelAtPeriodEnd,
+      cancelAtPeriodEnd: false,
     });
   } catch (error) {
     return handleApiError('Usage API error', error);

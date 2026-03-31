@@ -1,95 +1,103 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/firebaseAdmin';
-import admin from 'firebase-admin';
+
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
+import { createClient } from '@/lib/supabase/server';
+import { mapTaskComment } from '@/lib/supabase/mappers';
 import { commentCreateSchema } from '@/lib/validations/comment';
 
-/**
- * GET /api/tasks/[taskId]/comments
- * タスクのコメント一覧を取得
- */
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const { uid } = await requireAuth(req);
-
+    const user = await requireAuth();
     const { taskId } = await params;
-    const db = getDb();
+    const supabase = await createClient();
 
-    // タスクの所有権チェック
-    const taskDoc = await db.collection('tasks').doc(taskId).get();
-    if (!taskDoc.exists || taskDoc.data()?.userId !== uid) {
+    const { data: task, error: taskError } = await supabase
+      .from('tasks')
+      .select('id, user_id')
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (taskError) {
+      throw taskError;
+    }
+
+    if (!task || task.user_id !== user.id) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // コメント取得（createdAt昇順）
-    const commentsSnapshot = await db
-      .collection('tasks')
-      .doc(taskId)
-      .collection('comments')
-      .orderBy('createdAt', 'asc')
-      .get();
+    const { data: comments, error: commentError } = await supabase
+      .from('task_comments')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true });
 
-    const comments = commentsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    if (commentError) {
+      throw commentError;
+    }
 
-    return NextResponse.json({ comments });
+    return NextResponse.json({ comments: comments.map(mapTaskComment) });
   } catch (error) {
     return handleApiError('GET comments error', error, 'Internal server error');
   }
 }
 
-/**
- * POST /api/tasks/[taskId]/comments
- * 新しいコメントを追加
- */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const { uid } = await requireAuth(req);
-
+    const user = await requireAuth();
     const { taskId } = await params;
     const { content, authorName } = await parseJsonBody(req, commentCreateSchema);
+    const supabase = await createClient();
 
-    const db = getDb();
+    const { data: task, error: taskError } = await supabase
+      .from('tasks')
+      .select('id, user_id, comment_count')
+      .eq('id', taskId)
+      .maybeSingle();
 
-    // タスクの所有権チェック
-    const taskDoc = await db.collection('tasks').doc(taskId).get();
-    if (!taskDoc.exists || taskDoc.data()?.userId !== uid) {
+    if (taskError) {
+      throw taskError;
+    }
+
+    if (!task || task.user_id !== user.id) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    const now = Date.now();
-    const commentRef = db.collection('tasks').doc(taskId).collection('comments').doc();
-    const comment = {
-      id: commentRef.id,
-      taskId,
-      userId: uid,
-      authorType: 'user' as const,
-      authorName,
-      content,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const { data: insertedComment, error: insertError } = await supabase
+      .from('task_comments')
+      .insert({
+        task_id: taskId,
+        user_id: user.id,
+        author_type: 'user',
+        author_name: authorName ?? null,
+        content,
+      })
+      .select('*')
+      .single();
 
-    // コメント作成 + タスクのcommentCountインクリメント（バッチ）
-    const batch = db.batch();
-    batch.set(commentRef, comment);
-    batch.update(db.collection('tasks').doc(taskId), {
-      commentCount: admin.firestore.FieldValue.increment(1),
-      updatedAt: now,
-    });
-    await batch.commit();
+    if (insertError) {
+      throw insertError;
+    }
 
-    return NextResponse.json({ comment });
+    const { error: updateError } = await supabase
+      .from('tasks')
+      .update({
+        comment_count: (task.comment_count ?? 0) + 1,
+      })
+      .eq('id', taskId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return NextResponse.json({ comment: mapTaskComment(insertedComment) });
   } catch (error) {
     return handleApiError('POST comment error', error, 'Internal server error');
   }

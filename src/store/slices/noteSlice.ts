@@ -1,11 +1,27 @@
 import { StateCreator } from 'zustand';
-import { StoreState, NoteSlice } from '../types';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { sanitizeData } from '../helpers/sanitize';
-import { saveNoteGeneric } from '../helpers/saveNoteGeneric';
 
-// ノート管理スライス（日次/週次/月次/年次）
+import { createClient } from '@/lib/supabase/client';
+import type { Database } from '@/types/supabase';
+import { StoreState, NoteSlice } from '../types';
+
+async function saveNote(
+    userId: string,
+    type: Database['public']['Enums']['note_type'],
+    periodKey: string,
+    content: string
+) {
+    const { error } = await createClient().from('notes').upsert({
+        user_id: userId,
+        type,
+        period_key: periodKey,
+        content,
+    });
+
+    if (error) {
+        throw error;
+    }
+}
+
 export const createNoteSlice: StateCreator<StoreState, [], [], NoteSlice> = (set, get) => ({
     dailyNotes: [],
     weeklyNotes: [],
@@ -15,43 +31,44 @@ export const createNoteSlice: StateCreator<StoreState, [], [], NoteSlice> = (set
     saveDailyNote: async (date: string, content: string) => {
         const { user } = get();
         if (!user) return;
-        const noteId = date;
-        const noteRef = doc(db, 'users', user.uid, 'dailyNotes', noteId);
+
         try {
-            await setDoc(noteRef, sanitizeData({
-                id: noteId,
-                userId: user.uid,
-                content,
-                updatedAt: Date.now()
-            }), { merge: true });
-        } catch (e) {
-            console.error("Error saving daily note:", e);
+            await saveNote(user.uid, 'daily', date, content);
+        } catch (error) {
+            console.error('Error saving daily note:', error);
         }
     },
 
     saveWeeklyNote: async (weekId: string, content: string) => {
         const { user } = get();
         if (!user) return;
-        const noteRef = doc(db, 'users', user.uid, 'weeklyNotes', weekId);
+
         try {
-            await setDoc(noteRef, sanitizeData({
-                id: weekId,
-                userId: user.uid,
-                content,
-                updatedAt: Date.now()
-            }), { merge: true });
-        } catch (e) {
-            console.error("Error saving weekly note:", e);
+            await saveNote(user.uid, 'weekly', weekId, content);
+        } catch (error) {
+            console.error('Error saving weekly note:', error);
         }
     },
 
     saveMonthlyNote: async (monthId: string, content: string) => {
         const { user } = get();
-        await saveNoteGeneric('monthlyNotes', monthId, content, user, set, get);
+        if (!user) return;
+
+        try {
+            await saveNote(user.uid, 'monthly', monthId, content);
+        } catch (error) {
+            console.error('Error saving monthly note:', error);
+        }
     },
 
     saveYearlyNote: async (yearId: string, content: string) => {
         const { user } = get();
-        await saveNoteGeneric('yearlyNotes', yearId, content, user, set, get);
+        if (!user) return;
+
+        try {
+            await saveNote(user.uid, 'yearly', yearId, content);
+        } catch (error) {
+            console.error('Error saving yearly note:', error);
+        }
     },
 });

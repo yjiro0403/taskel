@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { format, addDays, parseISO } from 'date-fns';
 import { resolveDate } from './dateResolver';
 import { getSectionForTime } from '@/lib/sectionUtils';
-import { getDb } from '@/lib/firebaseAdmin';
+import { createClient } from '@/lib/supabase/server';
 import type { Section } from '@/types';
 import type { TodayTasksSummary, GoalSummary, GoalBreakdownContext, CalibrationData, GoalsSummaryResult, DailyReviewData } from './types';
 
@@ -95,24 +95,26 @@ export function createAITools(context: ToolContext) {
       execute: async (): Promise<TodayTasksSummary> => {
         // BUG-002修正: エラーハンドリング追加
         try {
-          const db = getDb();
-          const snapshot = await db
-            .collection('tasks')
-            .where('userId', '==', context.userId)
-            .where('date', '==', context.currentDate)
-            .get();
+          const supabase = await createClient();
+          const { data, error } = await supabase
+            .from('tasks')
+            .select('*')
+            .eq('user_id', context.userId)
+            .eq('date', context.currentDate);
+          if (error) {
+            throw error;
+          }
 
-          const tasks = snapshot.docs.map((doc) => {
-            const data = doc.data();
+          const tasks = data.map((row) => {
             return {
-              id: doc.id,
-              title: data.title,
-              status: data.status,
-              estimatedMinutes: data.estimatedMinutes || 0,
-              actualMinutes: data.actualMinutes || 0,
-              scheduledStart: data.scheduledStart || undefined,
-              sectionId: data.sectionId || 'unplanned',
-              parentGoalId: data.parentGoalId || undefined,
+              id: row.id,
+              title: row.title,
+              status: row.status,
+              estimatedMinutes: row.estimated_minutes || 0,
+              actualMinutes: row.actual_minutes || 0,
+              scheduledStart: row.scheduled_start || undefined,
+              sectionId: row.section_id || 'unplanned',
+              parentGoalId: row.parent_goal_id || undefined,
             };
           });
 
@@ -166,33 +168,34 @@ export function createAITools(context: ToolContext) {
       // @ts-ignore
       execute: async (args: any): Promise<GoalsSummaryResult> => {
         try {
-          const db = getDb();
+          const supabase = await createClient();
+          let goalsQuery = supabase
+            .from('goals')
+            .select('*')
+            .eq('user_id', context.userId);
 
-          // Firestoreからgoalsを取得
-          let goalsQuery = db
-            .collection('goals')
-            .where('userId', '==', context.userId);
-
-          // typeフィルタ（Firestoreクエリレベル）
           if (args.type !== 'all') {
-            goalsQuery = goalsQuery.where('type', '==', args.type);
+            goalsQuery = goalsQuery.eq('type', args.type);
           }
 
-          const snapshot = await goalsQuery.get();
-          let goals = snapshot.docs.map((doc) => {
-            const data = doc.data();
+          const { data, error } = await goalsQuery;
+          if (error) {
+            throw error;
+          }
+
+          let goals = data.map((row) => {
             return {
-              id: doc.id,
-              title: data.title,
-              type: data.type as 'yearly' | 'monthly' | 'weekly',
-              status: data.status,
-              progress: data.progress || 0,
-              assignedYear: data.assignedYear,
-              assignedMonth: data.assignedMonth,
-              assignedWeek: data.assignedWeek,
-              parentGoalId: data.parentGoalId,
-              aiSuggestedBreakdown: data.aiAnalysis?.suggestedBreakdown,
-              keyResults: data.aiAnalysis?.keyResults,
+              id: row.id,
+              title: row.title,
+              type: row.type as 'yearly' | 'monthly' | 'weekly',
+              status: row.status,
+              progress: row.progress || 0,
+              assignedYear: row.assigned_year,
+              assignedMonth: row.assigned_month || undefined,
+              assignedWeek: row.assigned_week || undefined,
+              parentGoalId: row.parent_goal_id || undefined,
+              aiSuggestedBreakdown: (row.ai_analysis as any)?.suggestedBreakdown,
+              keyResults: (row.ai_analysis as any)?.keyResults,
             };
           });
 
@@ -216,7 +219,7 @@ export function createAITools(context: ToolContext) {
             });
           }
 
-          // 紐づけタスク数の取得（Firestoreの`in`クエリ: 最大30件バッチ）
+          // 紐づけタスク数の取得
           const goalIds = goals.map(g => g.id);
           const linkedTaskCounts: Record<string, number> = {};
 
@@ -227,14 +230,18 @@ export function createAITools(context: ToolContext) {
             }
 
             for (const batch of batches) {
-              const taskSnapshot = await db
-                .collection('tasks')
-                .where('userId', '==', context.userId)
-                .where('parentGoalId', 'in', batch)
-                .get();
+              const { data: taskRows, error: taskError } = await supabase
+                .from('tasks')
+                .select('parent_goal_id')
+                .eq('user_id', context.userId)
+                .in('parent_goal_id', batch);
+              if (taskError) {
+                throw taskError;
+              }
 
-              taskSnapshot.docs.forEach((doc) => {
-                const goalId = doc.data().parentGoalId;
+              taskRows.forEach((row) => {
+                const goalId = row.parent_goal_id;
+                if (!goalId) return;
                 linkedTaskCounts[goalId] = (linkedTaskCounts[goalId] || 0) + 1;
               });
             }
@@ -286,11 +293,18 @@ export function createAITools(context: ToolContext) {
         // breakdownGoalは「コンテキスト収集」のみを行う。
         // 実際のタスク分解はAIモデルが後続のsuggestTask複数呼び出しで行う。
         try {
-          const db = getDb();
+          const supabase = await createClient();
 
           // 対象Goalの詳細を取得
-          const goalDoc = await db.collection('goals').doc(args.goalId).get();
-          if (!goalDoc.exists) {
+          const { data: goalData, error: goalError } = await supabase
+            .from('goals')
+            .select('*')
+            .eq('id', args.goalId)
+            .maybeSingle();
+          if (goalError) {
+            throw goalError;
+          }
+          if (!goalData) {
             return {
               type: 'goal_breakdown_context' as const,
               sourceGoal: { id: args.goalId, title: args.goalTitle, type: 'unknown' },
@@ -301,16 +315,17 @@ export function createAITools(context: ToolContext) {
             };
           }
 
-          const goalData = goalDoc.data()!;
-
           // 既存の紐づけタスクを取得（重複提案を避けるため）
-          const existingTasks = await db
-            .collection('tasks')
-            .where('userId', '==', context.userId)
-            .where('parentGoalId', '==', args.goalId)
-            .get();
+          const { data: existingTasks, error: existingTaskError } = await supabase
+            .from('tasks')
+            .select('title')
+            .eq('user_id', context.userId)
+            .eq('parent_goal_id', args.goalId);
+          if (existingTaskError) {
+            throw existingTaskError;
+          }
 
-          const existingTaskTitles = existingTasks.docs.map(d => d.data().title);
+          const existingTaskTitles = existingTasks.map((task) => task.title);
 
           // 日付範囲の設定（省略時は今日から6日後=1週間）
           const startDate = args.dateRange?.start || context.currentDate;
@@ -322,12 +337,12 @@ export function createAITools(context: ToolContext) {
           return {
             type: 'goal_breakdown_context' as const,
             sourceGoal: {
-              id: goalDoc.id,
+              id: goalData.id,
               title: goalData.title,
               type: goalData.type,
-              description: goalData.description,
+              description: goalData.description ?? undefined,
               progress: goalData.progress,
-              aiAnalysis: goalData.aiAnalysis,
+              aiAnalysis: (goalData.ai_analysis as any) ?? undefined,
             },
             existingTaskTitles,
             dateRange: { start: startDate, end: endDate },
@@ -364,7 +379,7 @@ export function createAITools(context: ToolContext) {
       // @ts-ignore
       execute: async (args: any): Promise<CalibrationData> => {
         try {
-          const db = getDb();
+          const supabase = await createClient();
           const daysBack = args.daysBack || 14;
 
           // 期間の計算
@@ -375,26 +390,28 @@ export function createAITools(context: ToolContext) {
           );
 
           // 完了タスクを取得（見積もりと実績の両方がある）
-          const snapshot = await db
-            .collection('tasks')
-            .where('userId', '==', context.userId)
-            .where('status', '==', 'done')
-            .where('date', '>=', startDate)
-            .where('date', '<=', endDate)
-            .get();
+          const { data, error } = await supabase
+            .from('tasks')
+            .select('*')
+            .eq('user_id', context.userId)
+            .eq('status', 'done')
+            .gte('date', startDate)
+            .lte('date', endDate);
+          if (error) {
+            throw error;
+          }
 
-          const tasks = snapshot.docs
-            .map((doc) => {
-              const data = doc.data();
+          const tasks = data
+            .map((row) => {
               return {
-                title: data.title,
-                estimated: data.estimatedMinutes || 0,
-                actual: data.actualMinutes || 0,
-                date: data.date,
-                tags: data.aiTags || data.tags || [],
+                title: row.title,
+                estimated: row.estimated_minutes || 0,
+                actual: row.actual_minutes || 0,
+                date: row.date,
+                tags: row.ai_tags || [],
               };
             })
-            .filter(t => t.estimated > 0 && t.actual > 0); // 両方の値がある
+            .filter((t) => t.estimated > 0 && t.actual > 0);
 
           if (tasks.length === 0) {
             return {
@@ -420,7 +437,7 @@ export function createAITools(context: ToolContext) {
           const accuracyRatio = totalActual / totalEstimated;
 
           // 各タスクの乖離率を計算
-          const tasksWithDeviation = tasks.map(t => ({
+          const tasksWithDeviation = tasks.map((t) => ({
             ...t,
             deviationPercent: ((t.actual - t.estimated) / t.estimated) * 100,
           }));
@@ -433,7 +450,7 @@ export function createAITools(context: ToolContext) {
           const worstEstimates = [...tasksWithDeviation]
             .sort((a, b) => Math.abs(b.deviationPercent) - Math.abs(a.deviationPercent))
             .slice(0, 5)
-            .map(t => ({
+            .map((t) => ({
               title: t.title,
               estimated: t.estimated,
               actual: t.actual,
@@ -443,7 +460,7 @@ export function createAITools(context: ToolContext) {
 
           // タグ別統計（タグがあるタスクのみ）
           const tagMap: Record<string, { count: number; totalEst: number; totalAct: number }> = {};
-          tasksWithDeviation.forEach(t => {
+          tasksWithDeviation.forEach((t) => {
             t.tags.forEach((tag: string) => {
               if (!tagMap[tag]) tagMap[tag] = { count: 0, totalEst: 0, totalAct: 0 };
               tagMap[tag].count++;
@@ -525,25 +542,27 @@ export function createAITools(context: ToolContext) {
       // @ts-ignore
       execute: async (args: any): Promise<DailyReviewData> => {
         try {
-          const db = getDb();
+          const supabase = await createClient();
           const targetDate = resolveDate(args.dateHint || 'today', context.currentDate);
 
           // 対象日のタスクを全取得
-          const snapshot = await db
-            .collection('tasks')
-            .where('userId', '==', context.userId)
-            .where('date', '==', targetDate)
-            .get();
+          const { data: taskRows, error: taskError } = await supabase
+            .from('tasks')
+            .select('*')
+            .eq('user_id', context.userId)
+            .eq('date', targetDate);
+          if (taskError) {
+            throw taskError;
+          }
 
-          const allTasks = snapshot.docs.map((doc) => {
-            const data = doc.data();
+          const allTasks = taskRows.map((row) => {
             return {
-              id: doc.id,
-              title: data.title as string,
-              status: data.status as string,
-              estimatedMinutes: (data.estimatedMinutes || 0) as number,
-              actualMinutes: (data.actualMinutes || 0) as number,
-              parentGoalId: data.parentGoalId as string | undefined,
+              id: row.id,
+              title: row.title as string,
+              status: row.status as string,
+              estimatedMinutes: (row.estimated_minutes || 0) as number,
+              actualMinutes: (row.actual_minutes || 0) as number,
+              parentGoalId: row.parent_goal_id as string | undefined,
             };
           });
 
@@ -570,14 +589,14 @@ export function createAITools(context: ToolContext) {
           }
 
           // ステータス別に分類
-          const completed = allTasks.filter(t => t.status === 'done');
-          const incomplete = allTasks.filter(t => t.status === 'open' || t.status === 'in_progress');
-          const skipped = allTasks.filter(t => t.status === 'skipped');
+          const completed = allTasks.filter((t) => t.status === 'done');
+          const incomplete = allTasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
+          const skipped = allTasks.filter((t) => t.status === 'skipped');
 
           // 目標IDを収集してGoalタイトルをバッチ取得（最大30件）
-          const goalIds = [...new Set(
+          const goalIds = [...new Set<string>(
             allTasks
-              .map(t => t.parentGoalId)
+              .map((t) => t.parentGoalId)
               .filter((id): id is string => !!id)
           )];
 
@@ -588,18 +607,21 @@ export function createAITools(context: ToolContext) {
               batches.push(goalIds.slice(i, i + 30));
             }
             for (const batch of batches) {
-              const goalSnapshot = await db
-                .collection('goals')
-                .where('__name__', 'in', batch)
-                .get();
-              goalSnapshot.docs.forEach((doc) => {
-                goalTitles[doc.id] = doc.data().title;
+              const { data: goalRows, error: goalError } = await supabase
+                .from('goals')
+                .select('id, title')
+                .in('id', batch);
+              if (goalError) {
+                throw goalError;
+              }
+              goalRows.forEach((goal) => {
+                goalTitles[goal.id] = goal.title;
               });
             }
           }
 
           // 完了タスク一覧
-          const completedTasks = completed.map(t => ({
+          const completedTasks = completed.map((t) => ({
             title: t.title,
             estimatedMinutes: t.estimatedMinutes,
             actualMinutes: t.actualMinutes,
@@ -608,14 +630,14 @@ export function createAITools(context: ToolContext) {
           }));
 
           // 未完了タスク一覧
-          const incompleteTasks = incomplete.map(t => ({
+          const incompleteTasks = incomplete.map((t) => ({
             title: t.title,
             status: t.status,
             estimatedMinutes: t.estimatedMinutes,
           }));
 
           // スキップタスク一覧
-          const skippedTasks = skipped.map(t => ({ title: t.title }));
+          const skippedTasks = skipped.map((t) => ({ title: t.title }));
 
           // 統計計算
           const totalEstimated = allTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
@@ -627,7 +649,7 @@ export function createAITools(context: ToolContext) {
 
           // 目標別進捗
           const goalProgressMap: Record<string, { goalTitle: string; completed: number; total: number }> = {};
-          allTasks.forEach(t => {
+          allTasks.forEach((t) => {
             if (t.parentGoalId && goalTitles[t.parentGoalId]) {
               if (!goalProgressMap[t.parentGoalId]) {
                 goalProgressMap[t.parentGoalId] = {
