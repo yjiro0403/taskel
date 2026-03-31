@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 
 import { getStripe } from '@/lib/billing/stripe';
 import { getPlanFromPriceId } from '@/lib/billing/plans';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 function getSubscriptionPeriodEnd(subscription: Stripe.Subscription) {
   const item = subscription.items.data[0];
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   try {
     switch (event.type) {

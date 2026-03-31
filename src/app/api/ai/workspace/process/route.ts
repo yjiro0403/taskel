@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     if (taskError) {
       throw taskError;
     }
-    if (!taskData || taskData.user_id !== uid) {
+    if (!taskData) {
       return jsonError('Task not found', 404);
     }
 

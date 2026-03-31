@@ -1,5 +1,4 @@
 import { addDays, format, subDays, startOfWeek, endOfWeek, eachDayOfInterval, getISOWeek } from 'date-fns';
-import { v4 as uuidv4 } from 'uuid';
 
 // --- Types ---
 interface TaskTemplate {
@@ -353,7 +352,7 @@ export const generateGoals = (userId: string, baseDate: Date = new Date()) => {
 export const generateRoutines = (userId: string) => {
     const today = format(new Date(), 'yyyy-MM-dd');
     return demoScenario.routines.map(r => ({
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         userId,
         ...r,
         active: true,
@@ -415,7 +414,7 @@ export const generateTasks = (userId: string, baseDate: Date = new Date(), scale
             const parentGoalId = taskGoalMapping[title] || undefined;
 
             tasks.push({
-                id: uuidv4(),
+                id: crypto.randomUUID(),
                 userId,
                 title,
                 sectionId,

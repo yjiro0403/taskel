@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { PLAN_LIMITS } from './plans';
 import type { PlanId } from './types';
 
@@ -19,7 +19,7 @@ export async function checkQuota(userId: string): Promise<{
     return { allowed: true, plan: 'business', used: 0, limit: Infinity };
   }
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const month = getCurrentMonthStart();
 
   const [{ data: subscription }, { data: usage }] = await Promise.all([
@@ -40,7 +40,7 @@ export async function checkQuota(userId: string): Promise<{
 }
 
 export async function incrementRequestCount(userId: string): Promise<void> {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const month = getCurrentMonthStart();
 
   const { data: usage } = await supabase

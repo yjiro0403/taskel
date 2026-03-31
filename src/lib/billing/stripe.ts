@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 let stripeInstance: Stripe | null = null;
 
@@ -17,7 +17,7 @@ export async function getOrCreateStripeCustomer(
   userId: string,
   email: string
 ): Promise<string> {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data: subscription } = await supabase
     .from('subscriptions')
     .select('stripe_customer_id')

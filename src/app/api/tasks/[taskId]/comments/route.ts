@@ -12,13 +12,12 @@ export async function GET(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const user = await requireAuth();
     const { taskId } = await params;
     const supabase = await createClient();
 
     const { data: task, error: taskError } = await supabase
       .from('tasks')
-      .select('id, user_id')
+      .select('id')
       .eq('id', taskId)
       .maybeSingle();
 
@@ -26,7 +25,7 @@ export async function GET(
       throw taskError;
     }
 
-    if (!task || task.user_id !== user.id) {
+    if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
@@ -58,7 +57,7 @@ export async function POST(
 
     const { data: task, error: taskError } = await supabase
       .from('tasks')
-      .select('id, user_id, comment_count')
+      .select('id, comment_count')
       .eq('id', taskId)
       .maybeSingle();
 
@@ -66,7 +65,7 @@ export async function POST(
       throw taskError;
     }
 
-    if (!task || task.user_id !== user.id) {
+    if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
