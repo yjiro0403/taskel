@@ -17,17 +17,6 @@ function normalizeMessages(messages: any[]) {
   }));
 }
 
-// 使用可能なモデルのホワイトリスト
-const ALLOWED_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-3-flash',
-  'gemini-2.5-pro',
-  'gemini-3-pro',
-  'gemini-1.5-pro',
-  'gemini-1.5-flash',
-];
-
 export async function POST(req: Request) {
   console.log('==== AI Chat API Called ====');
   try {
@@ -63,8 +52,7 @@ export async function POST(req: Request) {
       calibrationHint,
     } = json;
 
-    // 要求されたモデルが許可されていない場合はデフォルトを使用
-    const modelName = ALLOWED_MODELS.includes(requestedModel) ? requestedModel : 'gemini-2.5-flash';
+    const modelName = requestedModel ?? 'gemini-2.5-flash';
     console.log(`Using model: ${modelName}`);
 
     const today = currentDate || format(new Date(), 'yyyy-MM-dd');
