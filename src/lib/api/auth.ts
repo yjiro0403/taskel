@@ -1,22 +1,16 @@
-import type { DecodedIdToken } from 'firebase-admin/auth';
-import { getAuth } from '@/lib/firebaseAdmin';
+import type { User } from '@supabase/supabase-js';
+
+import { createClient } from '@/lib/supabase/server';
 import { ApiError } from '@/lib/api/errors';
 
-export async function requireAuth(request: Request): Promise<DecodedIdToken> {
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    throw new ApiError(401, 'Unauthorized');
-  }
+export async function requireAuth(): Promise<User> {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getUser();
 
-  const token = authHeader.slice('Bearer '.length).trim();
-  if (!token) {
-    throw new ApiError(401, 'Unauthorized');
-  }
+    if (error || !data.user) {
+        console.error('Auth verification failed:', error);
+        throw new ApiError(401, 'Unauthorized');
+    }
 
-  try {
-    return await getAuth().verifyIdToken(token);
-  } catch (error) {
-    console.error('Auth verification failed:', error);
-    throw new ApiError(401, 'Invalid token');
-  }
+    return data.user;
 }

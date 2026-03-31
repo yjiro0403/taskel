@@ -579,6 +579,12 @@ export type Database = {
         };
         Views: Record<string, never>;
         Functions: {
+            accept_invitation: {
+                Args: {
+                    invite_token: string;
+                };
+                Returns: string;
+            };
             can_access_project: {
                 Args: {
                     project_uuid: string;

@@ -2,7 +2,7 @@
 // 各スライスのインターフェースをここで統合
 
 import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
-import type { User } from 'firebase/auth';
+import type { AppUser } from '@/types/auth';
 import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
 import type { BillingSlice } from './slices/billingSlice';
@@ -74,9 +74,9 @@ export interface NoteSlice {
 }
 
 export interface AuthSlice {
-    user: User | null;
+    user: AppUser | null;
     unsubscribe: (() => void) | null;
-    setUser: (user: User | null) => void;
+    setUser: (user: AppUser | null) => void;
 }
 
 export interface UISlice {

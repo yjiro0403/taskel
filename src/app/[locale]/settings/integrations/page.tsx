@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import SettingsLayout from '@/components/SettingsLayout';
-import { auth } from '@/lib/firebase';
+import { createClient } from '@/lib/supabase/client';
 import {
     Plug,
     Copy,
@@ -23,8 +23,8 @@ const CONFIG_SAMPLE = `{
       "command": "node",
       "args": ["/path/to/taskel-mcp-server/dist/index.js"],
       "env": {
-        "FIREBASE_PROJECT_ID": "your-firebase-project-id",
-        "TASKEL_ID_TOKEN": "YOUR_ID_TOKEN_HERE"
+        "SUPABASE_URL": "your-project-url",
+        "TASKEL_ACCESS_TOKEN": "YOUR_ACCESS_TOKEN_HERE"
       }
     }
   }
@@ -58,8 +58,8 @@ export default function IntegrationsSettingsPage() {
 
     // トークン取得（オンデマンド、forceRefresh: true）
     const fetchToken = useCallback(async () => {
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
+        const { data, error } = await createClient().auth.getSession();
+        if (error || !data.session) {
             setTokenError('ログインが必要です。');
             return;
         }
@@ -67,7 +67,7 @@ export default function IntegrationsSettingsPage() {
         setTokenError(null);
         setIsVisible(false);
         try {
-            const token = await currentUser.getIdToken(true);
+            const token = data.session.access_token;
             setIdToken(token);
             setFetchedAt(new Date());
             setElapsedMinutes(0);
@@ -152,7 +152,7 @@ export default function IntegrationsSettingsPage() {
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <label className="text-sm font-medium text-gray-700">
-                                    Firebase ID トークン
+                                    Supabase Access Token
                                 </label>
                                 {fetchedAt && (
                                     <div className="flex items-center gap-1.5 text-xs text-gray-400">

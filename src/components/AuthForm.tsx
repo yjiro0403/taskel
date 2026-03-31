@@ -1,17 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Mail, Lock, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, Lock, Mail } from 'lucide-react';
+
+import { createClient } from '@/lib/supabase/client';
 import { Link, useRouter } from '@/i18n/routing';
-import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signInWithPopup,
-    getAdditionalUserInfo,
-    User
-} from 'firebase/auth';
-import { auth, googleProvider, db } from '@/lib/firebase';
-import { doc, writeBatch, collection } from 'firebase/firestore';
 import { useStore } from '@/store/useStore';
 
 interface AuthFormProps {
@@ -30,97 +23,49 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
         if (user) {
             router.push('/tasks');
         }
-    }, [user, router]);
-
-    const createDefaultSections = async (user: User) => {
-        const batch = writeBatch(db);
-        const sectionsRef = collection(db, 'users', user.uid, 'sections');
-
-        const defaultSections = [
-            { name: 'Morning', startTime: '06:00', order: 0 },
-            { name: 'Lunch', startTime: '12:00', order: 1 },
-            { name: 'Afternoon', startTime: '13:00', order: 2 },
-            { name: 'Evening', startTime: '18:00', order: 3 },
-            { name: 'Night', startTime: '21:00', order: 4 },
-        ];
-
-        // セクションを作成し、IDをキャプチャする
-        const createdSectionIds: string[] = [];
-        defaultSections.forEach((section) => {
-            const newSectionRef = doc(sectionsRef);
-            batch.set(newSectionRef, {
-                ...section,
-                id: newSectionRef.id,
-                userId: user.uid,
-            });
-            createdSectionIds.push(newSectionRef.id);
-        });
-
-        // チュートリアル用のシードタスクをトップレベルのtasksコレクションに追加
-        // ストアは collection(db, 'tasks') を購読するため、users/{uid}/tasks ではなくここに書く
-        if (createdSectionIds.length > 0) {
-            const tasksRef = collection(db, 'tasks'); // トップレベル
-            const today = new Date().toISOString().split('T')[0];
-
-            const task1Ref = doc(tasksRef);
-            batch.set(task1Ref, {
-                id: task1Ref.id,
-                title: '【チュートリアル】このタスクの再生ボタンを押してみよう（1分）',
-                estimatedMinutes: 1,
-                actualMinutes: 0,
-                sectionId: createdSectionIds[0],
-                userId: user.uid,
-                status: 'open',
-                order: 0,
-                date: today,
-                assignedDate: today,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-            });
-
-            const task2Ref = doc(tasksRef);
-            batch.set(task2Ref, {
-                id: task2Ref.id,
-                title: '【チュートリアル】完了したらチェックボタンを押す',
-                estimatedMinutes: 5,
-                actualMinutes: 0,
-                sectionId: createdSectionIds[0],
-                userId: user.uid,
-                status: 'open',
-                order: 1,
-                date: today,
-                assignedDate: today,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-            });
-        }
-
-        await batch.commit();
-    };
+    }, [router, user]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
         setError(null);
 
+        const supabase = createClient();
+
         try {
             if (isLogin) {
-                await signInWithEmailAndPassword(auth, email, password);
+                const { error: signInError } = await supabase.auth.signInWithPassword({
+                    email,
+                    password,
+                });
+
+                if (signInError) {
+                    throw signInError;
+                }
             } else {
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                await createDefaultSections(userCredential.user);
+                const { error: signUpError } = await supabase.auth.signUp({
+                    email,
+                    password,
+                });
+
+                if (signUpError) {
+                    throw signUpError;
+                }
             }
+
             router.push('/tasks');
         } catch (err: any) {
             console.error(err);
+
             let message = 'An error occurred during authentication.';
-            if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+            if (err.message?.toLowerCase().includes('invalid login credentials')) {
                 message = 'Invalid email or password.';
-            } else if (err.code === 'auth/email-already-in-use') {
+            } else if (err.message?.toLowerCase().includes('already registered')) {
                 message = 'Email is already in use.';
-            } else if (err.code === 'auth/weak-password') {
+            } else if (err.message?.toLowerCase().includes('password should be at least')) {
                 message = 'Password should be at least 6 characters.';
             }
+
             setError(message);
         } finally {
             setIsLoading(false);
@@ -130,25 +75,33 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
     const handleGoogleSignIn = async () => {
         setIsLoading(true);
         setError(null);
+
         try {
-            const result = await signInWithPopup(auth, googleProvider);
-            const additionalUserInfo = getAdditionalUserInfo(result);
+            const supabase = createClient();
+            const redirectTo = `${window.location.origin}/auth/callback?next=/tasks`;
+            const { error: oauthError } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo,
+                    queryParams: {
+                        access_type: 'offline',
+                        prompt: 'consent',
+                    },
+                },
+            });
 
-            if (additionalUserInfo?.isNewUser) {
-                await createDefaultSections(result.user);
+            if (oauthError) {
+                throw oauthError;
             }
-
-            router.push('/tasks');
-        } catch (err: any) {
+        } catch (err) {
             console.error(err);
             setError('Google Sign In failed.');
-        } finally {
             setIsLoading(false);
         }
     };
 
     return (
-        <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+        <div className="w-full max-w-md space-y-6 rounded-xl border border-zinc-200 bg-white p-8 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
             <div className="space-y-2 text-center">
                 <h1 className="text-3xl font-bold tracking-tighter text-zinc-900 dark:text-zinc-50">
                     {isLogin ? 'Welcome Back' : 'Create Account'}
@@ -162,14 +115,14 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
 
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                    <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="email">
+                    <label className="text-sm font-medium leading-none" htmlFor="email">
                         Email
                     </label>
                     <div className="relative">
                         <Mail className="absolute left-3 top-3 h-4 w-4 text-zinc-500" />
                         <input
                             id="email"
-                            className="flex h-10 w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 pl-9 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:ring-offset-zinc-950 dark:placeholder:text-zinc-400 dark:focus:ring-zinc-300"
+                            className="flex h-10 w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 pl-9 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:placeholder:text-zinc-400 dark:focus:ring-zinc-300 dark:focus:ring-offset-zinc-950"
                             placeholder="m@example.com"
                             type="email"
                             value={email}
@@ -179,14 +132,14 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
                     </div>
                 </div>
                 <div className="space-y-2">
-                    <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="password">
+                    <label className="text-sm font-medium leading-none" htmlFor="password">
                         Password
                     </label>
                     <div className="relative">
                         <Lock className="absolute left-3 top-3 h-4 w-4 text-zinc-500" />
                         <input
                             id="password"
-                            className="flex h-10 w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 pl-9 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:ring-offset-zinc-950 dark:placeholder:text-zinc-400 dark:focus:ring-zinc-300"
+                            className="flex h-10 w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:focus:ring-zinc-300 dark:focus:ring-offset-zinc-950"
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
@@ -195,14 +148,10 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
                     </div>
                 </div>
 
-                {error && (
-                    <div className="text-sm text-red-500 text-center font-medium">
-                        {error}
-                    </div>
-                )}
+                {error && <div className="text-center text-sm font-medium text-red-500">{error}</div>}
 
                 <button
-                    className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:ring-offset-zinc-950 dark:focus-visible:ring-zinc-300 bg-zinc-900 text-zinc-50 hover:bg-zinc-900/90 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-50/90 h-10 px-4 py-2 w-full shadow-sm"
+                    className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-50 shadow-sm transition-colors hover:bg-zinc-900/90 disabled:pointer-events-none disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-50/90"
                     type="submit"
                     disabled={isLoading}
                 >
@@ -216,35 +165,33 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
                     <span className="w-full border-t border-zinc-300 dark:border-zinc-800" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-2 text-zinc-500 dark:bg-zinc-900">
-                        Or continue with
-                    </span>
+                    <span className="bg-white px-2 text-zinc-500 dark:bg-zinc-900">Or continue with</span>
                 </div>
             </div>
 
             <button
                 onClick={handleGoogleSignIn}
                 type="button"
-                className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:ring-offset-zinc-950 dark:focus-visible:ring-zinc-300 border border-zinc-200 bg-white hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 h-10 px-4 py-2 w-full"
+                className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-md border border-zinc-200 bg-white px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-100 hover:text-zinc-900 disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
                 disabled={isLoading}
             >
                 {isLoading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
-                    <svg className=" mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
-                        <path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path>
+                    <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" viewBox="0 0 488 512">
+                        <path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z" />
                     </svg>
                 )}
                 Google
             </button>
 
             <div className="text-center text-sm text-zinc-500 dark:text-zinc-400">
-                {isLogin ? "Don't have an account? " : "Already have an account? "}
+                {isLogin ? "Don't have an account? " : 'Already have an account? '}
                 <Link
-                    href={isLogin ? "/signup" : "/login"}
+                    href={isLogin ? '/signup' : '/login'}
                     className="font-medium text-zinc-900 underline-offset-4 hover:underline dark:text-zinc-50"
                 >
-                    {isLogin ? "Sign Up" : "Log In"}
+                    {isLogin ? 'Sign Up' : 'Log In'}
                 </Link>
             </div>
         </div>

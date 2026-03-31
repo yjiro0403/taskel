@@ -4,12 +4,12 @@ import { useState, useEffect, useRef } from 'react';
 import { User as UserIcon, LogOut, Trash2, Check, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
 import { useRouter, usePathname } from 'next/navigation';
-import { auth } from '@/lib/firebase';
-import { User } from 'firebase/auth';
+import { createClient } from '@/lib/supabase/client';
 import { useStore } from '@/store/useStore';
+import type { AppUser } from '@/types/auth';
 
 interface ProductSwitcherProps {
-    user: User | null;
+    user: AppUser | null;
     onDeleteAccount: () => Promise<void>;
 }
 
@@ -41,7 +41,7 @@ export default function ProductSwitcher({ user, onDeleteAccount }: ProductSwitch
     };
 
     const handleLogout = async () => {
-        await auth.signOut();
+        await createClient().auth.signOut();
         router.push('/');
         toggleLeftSidebar();
         setIsOpen(false);
