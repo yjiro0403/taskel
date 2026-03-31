@@ -1,25 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
+import { getDb } from '@/lib/firebaseAdmin';
 import { PLAN_LIMITS } from '@/lib/billing/plans';
 import type { PlanId, MonthlyUsageDoc, SubscriptionStatus } from '@/lib/billing/types';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
 
 export async function GET(request: Request) {
   try {
-    // Bearer トークン認証
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
+    const { uid } = await requireAuth(request);
 
     const db = getDb();
     const now = new Date();
@@ -64,7 +52,6 @@ export async function GET(request: Request) {
       cancelAtPeriodEnd,
     });
   } catch (error) {
-    console.error('Usage API error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return handleApiError('Usage API error', error);
   }
 }

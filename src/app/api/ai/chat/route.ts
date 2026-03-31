@@ -3,8 +3,11 @@ import { google } from '@ai-sdk/google';
 import { format } from 'date-fns';
 import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
-import { getAuth } from '@/lib/firebaseAdmin';
 import { checkQuota, incrementRequestCount, recordTokenUsage } from '@/lib/billing/usage';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { parseJsonBody } from '@/lib/api/request';
+import { aiChatRequestSchema } from '@/lib/validations/ai';
 
 // メッセージの正規化ヘルパー
 function normalizeMessages(messages: any[]) {
@@ -28,26 +31,7 @@ const ALLOWED_MODELS = [
 export async function POST(req: Request) {
   console.log('==== AI Chat API Called ====');
   try {
-    // 1. Bearer トークン認証
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    const { uid } = await requireAuth(req);
 
     // 2. クォータチェック
     const quota = await checkQuota(uid);
@@ -69,7 +53,7 @@ export async function POST(req: Request) {
     // 3. リクエストカウントを事前インクリメント（並行リクエスト対策）
     await incrementRequestCount(uid);
 
-    const json = await req.json();
+    const json = await parseJsonBody(req, aiChatRequestSchema);
     const {
       messages,
       currentDate,
@@ -109,11 +93,6 @@ export async function POST(req: Request) {
     // ai SDK v6: useChat互換のUIMessageStreamResponseを使用
     return result.toUIMessageStreamResponse();
   } catch (error: unknown) {
-    console.error('AI Chat API Error:', error);
-    const message = error instanceof Error ? error.message : 'Internal Server Error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return handleApiError('AI Chat API Error', error);
   }
 }

@@ -1,37 +1,22 @@
 import { generateText, stepCountIs } from 'ai';
 import { google } from '@ai-sdk/google';
 import { format } from 'date-fns';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
+import { getDb } from '@/lib/firebaseAdmin';
 import { checkQuota, incrementRequestCount, recordTokenUsage } from '@/lib/billing/usage';
 import { buildWorkspaceReplyPrompt } from '@/lib/ai/workspacePrompts';
 import { createWorkspaceTools } from '@/lib/ai/workspaceTools';
 import admin from 'firebase-admin';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError, jsonError } from '@/lib/api/errors';
+import { parseJsonBody } from '@/lib/api/request';
+import { taskIdRequestSchema } from '@/lib/validations/task';
 
 const MODEL = 'gemini-2.5-flash';
 
 export async function POST(req: Request) {
   console.log('==== AI Workspace Reply API Called ====');
   try {
-    // 1. Bearer token認証
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    const { uid } = await requireAuth(req);
 
     // 2. クォータチェック
     const quota = await checkQuota(uid);
@@ -49,23 +34,14 @@ export async function POST(req: Request) {
 
     await incrementRequestCount(uid);
 
-    const { taskId } = await req.json();
-    if (!taskId) {
-      return new Response(JSON.stringify({ error: 'taskId is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    const { taskId } = await parseJsonBody(req, taskIdRequestSchema);
 
     const db = getDb();
 
     // 3. タスク取得 + 所有権チェック
     const taskDoc = await db.collection('tasks').doc(taskId).get();
     if (!taskDoc.exists || taskDoc.data()?.userId !== uid) {
-      return new Response(JSON.stringify({ error: 'Task not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return jsonError('Task not found', 404);
     }
 
     const taskData = taskDoc.data()!;
@@ -158,11 +134,6 @@ export async function POST(req: Request) {
       { headers: { 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Workspace Reply API Error:', error);
-    const message = error instanceof Error ? error.message : 'Internal Server Error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return handleApiError('Workspace Reply API Error', error);
   }
 }
