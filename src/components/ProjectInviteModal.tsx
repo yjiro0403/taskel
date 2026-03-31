@@ -78,7 +78,7 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ email: email.trim() })
+                body: JSON.stringify({ email: email.trim(), projectId })
             });
 
             if (!response.ok) {

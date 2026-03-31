@@ -156,9 +156,13 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
 
                     // サーバーサイドオンボーディングAPI（BFFパターン）
                     try {
+                        const token = await user.getIdToken();
                         await fetch('/api/onboarding', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
                             body: JSON.stringify({ userId: user.uid })
                         });
                     } catch (error) {

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
+import { getDb } from '@/lib/firebaseAdmin';
 import admin from 'firebase-admin';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { parseJsonBody } from '@/lib/api/request';
+import { commentCreateSchema } from '@/lib/validations/comment';
 
 /**
  * GET /api/tasks/[taskId]/comments
@@ -11,19 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
+    const { uid } = await requireAuth(req);
 
     const { taskId } = await params;
     const db = getDb();
@@ -49,8 +41,7 @@ export async function GET(
 
     return NextResponse.json({ comments });
   } catch (error) {
-    console.error('GET comments error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError('GET comments error', error, 'Internal server error');
   }
 }
 
@@ -63,26 +54,10 @@ export async function POST(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
+    const { uid } = await requireAuth(req);
 
     const { taskId } = await params;
-    const { content, authorType, authorName } = await req.json();
-
-    if (!content || !authorType) {
-      return NextResponse.json({ error: 'content and authorType are required' }, { status: 400 });
-    }
+    const { content, authorName } = await parseJsonBody(req, commentCreateSchema);
 
     const db = getDb();
 
@@ -98,8 +73,8 @@ export async function POST(
       id: commentRef.id,
       taskId,
       userId: uid,
-      authorType,
-      authorName: authorName || (authorType === 'ai' ? 'Taskel AI' : undefined),
+      authorType: 'user' as const,
+      authorName,
       content,
       createdAt: now,
       updatedAt: now,
@@ -116,7 +91,6 @@ export async function POST(
 
     return NextResponse.json({ comment });
   } catch (error) {
-    console.error('POST comment error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError('POST comment error', error, 'Internal server error');
   }
 }

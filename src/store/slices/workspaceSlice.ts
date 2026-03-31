@@ -75,7 +75,6 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
         },
         body: JSON.stringify({
           content,
-          authorType: 'user',
           authorName: user.displayName || undefined,
         }),
       });
