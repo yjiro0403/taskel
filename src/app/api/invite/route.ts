@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
+import { escapeHtml } from '@/lib/email/escape';
 import { sendInvitationEmailSchema } from '@/lib/validations/invitation';
 
 export async function POST(request: Request) {
@@ -13,6 +14,10 @@ export async function POST(request: Request) {
       request,
       sendInvitationEmailSchema
     );
+    const safeEmail = escapeHtml(email);
+    const safeProjectTitle = escapeHtml(projectTitle);
+    const safeInviterName = escapeHtml(inviterName);
+    const safeInviteLink = escapeHtml(inviteLink);
 
     const smtpConfig = {
       host: process.env.SMTP_HOST,
@@ -62,14 +67,14 @@ export async function POST(request: Request) {
       html: `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
               <h2>You've been invited!</h2>
-              <p><strong>${inviterName}</strong> has invited you to collaborate on the project <strong>"${projectTitle}"</strong> using Taskel.</p>
-              <p>To accept the invitation, please log in or sign up with this email address (${email}).</p>
+              <p><strong>${safeInviterName}</strong> has invited you to collaborate on the project <strong>"${safeProjectTitle}"</strong> using Taskel.</p>
+              <p>To accept the invitation, please log in or sign up with this email address (${safeEmail}).</p>
               <div style="margin: 32px 0;">
-                  <a href="${inviteLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                  <a href="${safeInviteLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
                       Join Project
                   </a>
               </div>
-              <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${inviteLink}</p>
+              <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${safeInviteLink}</p>
           </div>
       `,
     });

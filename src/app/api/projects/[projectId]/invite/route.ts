@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
 import { getAppUrl } from '@/lib/api/url';
+import { escapeHtml } from '@/lib/email/escape';
 import { createClient } from '@/lib/supabase/server';
 import { projectInviteRequestSchema } from '@/lib/validations/project';
 
@@ -64,6 +65,10 @@ export async function POST(request: Request, props: { params: Promise<{ projectI
 
         const joinLink = `${getAppUrl()}/join?token=${invitation.id}`;
         const projectTitle = project.title || 'Untitled Project';
+        const safeInviterName = escapeHtml(inviterName);
+        const safeProjectTitle = escapeHtml(projectTitle);
+        const safeEmail = escapeHtml(email);
+        const safeJoinLink = escapeHtml(joinLink);
         const smtpConfig = {
             host: process.env.SMTP_HOST,
             port: Number(process.env.SMTP_PORT) || 587,
@@ -91,14 +96,15 @@ export async function POST(request: Request, props: { params: Promise<{ projectI
                 html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>You've been invited!</h2>
-                <p><strong>${inviterName}</strong> has invited you to collaborate on the project <strong>"${projectTitle}"</strong> using Taskel.</p>
+                <p><strong>${safeInviterName}</strong> has invited you to collaborate on the project <strong>"${safeProjectTitle}"</strong> using Taskel.</p>
                 <p>To accept the invitation, please click the button below:</p>
                 <div style="margin: 32px 0;">
-                    <a href="${joinLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    <a href="${safeJoinLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
                         Join Project
                     </a>
                 </div>
-                <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${joinLink}</p>
+                <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${safeJoinLink}</p>
+                <p style="color: #666; font-size: 14px;">Please sign in or sign up with this email address: ${safeEmail}</p>
             </div>
         `,
             });
