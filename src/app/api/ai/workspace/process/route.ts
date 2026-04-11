@@ -43,6 +43,7 @@ export async function POST(req: Request) {
       .from('tasks')
       .select('*')
       .eq('id', taskId)
+      .eq('user_id', uid)
       .maybeSingle();
     if (taskError) {
       throw taskError;
@@ -52,7 +53,11 @@ export async function POST(req: Request) {
     }
 
     // 4. ステータスを processing に更新
-    await supabase.from('tasks').update({ ai_status: 'processing' }).eq('id', taskId);
+    await supabase
+      .from('tasks')
+      .update({ ai_status: 'processing' })
+      .eq('id', taskId)
+      .eq('user_id', uid);
 
     const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -99,16 +104,17 @@ export async function POST(req: Request) {
           author_name: 'Taskel AI',
           content: result.text,
         });
-        await supabase.from('tasks').update({
-          comment_count: (taskData.comment_count ?? 0) + 1,
-        });
       }
 
       // 8. ステータスを completed に更新
-      await supabase.from('tasks').update({
-        ai_status: 'completed',
-        ai_completed_at: new Date().toISOString(),
-      });
+      await supabase
+        .from('tasks')
+        .update({
+          ai_status: 'completed',
+          ai_completed_at: new Date().toISOString(),
+        })
+        .eq('id', taskId)
+        .eq('user_id', uid);
 
       return new Response(
         JSON.stringify({ status: 'completed', taskId }),
@@ -119,10 +125,14 @@ export async function POST(req: Request) {
 
       // エラー時のステータス更新
       const errorMessage = 'AI processing failed';
-      await supabase.from('tasks').update({
-        ai_status: 'error',
-        ai_error: errorMessage,
-      });
+      await supabase
+        .from('tasks')
+        .update({
+          ai_status: 'error',
+          ai_error: errorMessage,
+        })
+        .eq('id', taskId)
+        .eq('user_id', uid);
 
       return new Response(
         JSON.stringify({ status: 'error', error: errorMessage }),
