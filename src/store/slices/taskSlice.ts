@@ -4,6 +4,7 @@ import { StateCreator } from 'zustand';
 import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
 import {
     bulkCreateTaskRecords,
+    bulkReplaceTaskRecords,
     bulkUpdateTaskRecords,
     createTaskRecord,
     deleteTaskRecord,
@@ -179,13 +180,20 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }
 
         const oldTasks = tasks;
+        const updatedTasks = tasks
+            .filter((task) => taskIds.includes(task.id))
+            .map((task) => ({ ...task, ...updates }));
         set((state) => ({
             tasks: state.tasks.map((task) => (taskIds.includes(task.id) ? { ...task, ...updates } : task)),
             selectedTaskIds: [],
         }));
 
         try {
-            await bulkUpdateTaskRecords(taskIds, updates, user.uid);
+            if (updates.tags !== undefined) {
+                await bulkReplaceTaskRecords(updatedTasks, user.uid);
+            } else {
+                await bulkUpdateTaskRecords(taskIds, updates, user.uid);
+            }
         } catch (error) {
             console.error('Error bulk updating tasks:', error);
             set({ tasks: oldTasks });
@@ -277,7 +285,11 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }
 
         try {
-            await Promise.all(taskIds.map((id, index) => updateTaskRecord(id, { order: index }, user.uid)));
+            const reorderedTasks = newTasks
+                .filter((task) => taskIds.includes(task.id))
+                .map((task) => ({ ...task }));
+
+            await bulkReplaceTaskRecords(reorderedTasks, user.uid);
         } catch (error) {
             console.error('Error reordering tasks:', error);
         }
@@ -349,14 +361,6 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         });
 
         return [...dbTasks, ...virtualTasks].filter((task) => task.status !== 'skipped');
-    },
-
-    migrateTasks: async () => {
-        return {
-            success: true,
-            message: 'Legacy Firestore task migration is no longer required.',
-            count: 0,
-        };
     },
 
     resetTaskSlice: () => set({

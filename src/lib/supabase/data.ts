@@ -18,6 +18,45 @@ import {
 type Client = SupabaseClient<Database>;
 type Tables = Database['public']['Tables'];
 
+function toNullable<T>(value: T | undefined) {
+    return value === undefined ? undefined : value ?? null;
+}
+
+function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
+    return {
+        id: task.id,
+        user_id: userId,
+        title: task.title,
+        assignee_id: task.assigneeId ?? null,
+        reporter_id: task.reporterId ?? null,
+        section_id: task.sectionId,
+        date: task.date,
+        status: task.status,
+        estimated_minutes: task.estimatedMinutes,
+        actual_minutes: task.actualMinutes,
+        started_at: millisToIso(task.startedAt),
+        completed_at: millisToIso(task.completedAt),
+        scheduled_start: task.scheduledStart ?? null,
+        external_link: task.externalLink ?? null,
+        parent_goal_id: task.parentGoalId ?? null,
+        project_id: task.projectId ?? null,
+        milestone_id: task.milestoneId ?? null,
+        routine_id: task.routineId ?? null,
+        assigned_week: task.assignedWeek ?? null,
+        assigned_month: task.assignedMonth ?? null,
+        assigned_year: task.assignedYear ?? null,
+        assigned_date: task.assignedDate ?? null,
+        score: task.score ?? null,
+        order: task.order,
+        memo: task.memo ?? null,
+        ai_tags: task.aiTags ?? [],
+        ai_status: task.aiStatus ?? null,
+        ai_error: task.aiError ?? null,
+        ai_completed_at: millisToIso(task.aiCompletedAt),
+        created_at: millisToIso(task.createdAt) ?? undefined,
+    };
+}
+
 function requireData<T>(data: T | null, error: { message: string } | null): T {
     if (error) {
         throw new Error(error.message);
@@ -309,40 +348,7 @@ export async function fetchNotes(client: Client) {
 }
 
 export async function upsertTask(client: Client, task: Task, userId: string) {
-    const payload: Tables['tasks']['Insert'] = {
-        id: task.id,
-        user_id: userId,
-        title: task.title,
-        assignee_id: task.assigneeId ?? null,
-        reporter_id: task.reporterId ?? null,
-        section_id: task.sectionId,
-        date: task.date,
-        status: task.status,
-        estimated_minutes: task.estimatedMinutes,
-        actual_minutes: task.actualMinutes,
-        started_at: millisToIso(task.startedAt),
-        completed_at: millisToIso(task.completedAt),
-        scheduled_start: task.scheduledStart ?? null,
-        external_link: task.externalLink ?? null,
-        parent_goal_id: task.parentGoalId ?? null,
-        project_id: task.projectId ?? null,
-        milestone_id: task.milestoneId ?? null,
-        routine_id: task.routineId ?? null,
-        assigned_week: task.assignedWeek ?? null,
-        assigned_month: task.assignedMonth ?? null,
-        assigned_year: task.assignedYear ?? null,
-        assigned_date: task.assignedDate ?? null,
-        score: task.score ?? null,
-        order: task.order,
-        memo: task.memo ?? null,
-        ai_tags: task.aiTags ?? [],
-        ai_status: task.aiStatus ?? null,
-        ai_error: task.aiError ?? null,
-        ai_completed_at: millisToIso(task.aiCompletedAt),
-        created_at: millisToIso(task.createdAt) ?? undefined,
-    };
-
-    const { error } = await client.from('tasks').upsert(payload);
+    const { error } = await client.from('tasks').upsert(buildTaskInsertPayload(task, userId));
     if (error) {
         throw new Error(error.message);
     }
@@ -350,11 +356,31 @@ export async function upsertTask(client: Client, task: Task, userId: string) {
     await syncTaskTags(client, task.id, userId, task.tags ?? []);
 }
 
+export async function bulkUpsertTasks(client: Client, tasks: Task[], userId: string, syncTags = false) {
+    if (tasks.length === 0) {
+        return;
+    }
+
+    const { error } = await client
+        .from('tasks')
+        .upsert(tasks.map((task) => buildTaskInsertPayload(task, userId)));
+
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    if (!syncTags) {
+        return;
+    }
+
+    await Promise.all(tasks.map((task) => syncTaskTags(client, task.id, userId, task.tags ?? [])));
+}
+
 export async function updateTaskRow(client: Client, taskId: string, updates: Partial<Task>, userId: string) {
     const payload: Tables['tasks']['Update'] = {
         title: updates.title,
-        assignee_id: updates.assigneeId === undefined ? undefined : updates.assigneeId ?? null,
-        reporter_id: updates.reporterId === undefined ? undefined : updates.reporterId ?? null,
+        assignee_id: toNullable(updates.assigneeId),
+        reporter_id: toNullable(updates.reporterId),
         section_id: updates.sectionId,
         date: updates.date,
         status: updates.status,
@@ -362,22 +388,22 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         actual_minutes: updates.actualMinutes,
         started_at: updates.startedAt === undefined ? undefined : millisToIso(updates.startedAt),
         completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
-        scheduled_start: updates.scheduledStart === undefined ? undefined : updates.scheduledStart ?? null,
-        external_link: updates.externalLink === undefined ? undefined : updates.externalLink ?? null,
-        parent_goal_id: updates.parentGoalId === undefined ? undefined : updates.parentGoalId ?? null,
-        project_id: updates.projectId === undefined ? undefined : updates.projectId ?? null,
-        milestone_id: updates.milestoneId === undefined ? undefined : updates.milestoneId ?? null,
-        routine_id: updates.routineId === undefined ? undefined : updates.routineId ?? null,
-        assigned_week: updates.assignedWeek === undefined ? undefined : updates.assignedWeek ?? null,
-        assigned_month: updates.assignedMonth === undefined ? undefined : updates.assignedMonth ?? null,
-        assigned_year: updates.assignedYear === undefined ? undefined : updates.assignedYear ?? null,
-        assigned_date: updates.assignedDate === undefined ? undefined : updates.assignedDate ?? null,
-        score: updates.score === undefined ? undefined : updates.score ?? null,
+        scheduled_start: toNullable(updates.scheduledStart),
+        external_link: toNullable(updates.externalLink),
+        parent_goal_id: toNullable(updates.parentGoalId),
+        project_id: toNullable(updates.projectId),
+        milestone_id: toNullable(updates.milestoneId),
+        routine_id: toNullable(updates.routineId),
+        assigned_week: toNullable(updates.assignedWeek),
+        assigned_month: toNullable(updates.assignedMonth),
+        assigned_year: toNullable(updates.assignedYear),
+        assigned_date: toNullable(updates.assignedDate),
+        score: toNullable(updates.score),
         order: updates.order,
-        memo: updates.memo === undefined ? undefined : updates.memo ?? null,
+        memo: toNullable(updates.memo),
         ai_tags: updates.aiTags,
-        ai_status: updates.aiStatus === undefined ? undefined : updates.aiStatus ?? null,
-        ai_error: updates.aiError === undefined ? undefined : updates.aiError ?? null,
+        ai_status: toNullable(updates.aiStatus),
+        ai_error: toNullable(updates.aiError),
         ai_completed_at: updates.aiCompletedAt === undefined ? undefined : millisToIso(updates.aiCompletedAt),
     };
 
@@ -389,6 +415,58 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
     if (updates.tags) {
         await syncTaskTags(client, taskId, userId, updates.tags);
     }
+}
+
+export async function bulkUpdateTaskRows(client: Client, taskIds: string[], updates: Partial<Task>, userId: string) {
+    if (taskIds.length === 0) {
+        return;
+    }
+
+    const payload: Tables['tasks']['Update'] = {
+        title: updates.title,
+        assignee_id: toNullable(updates.assigneeId),
+        reporter_id: toNullable(updates.reporterId),
+        section_id: updates.sectionId,
+        date: updates.date,
+        status: updates.status,
+        estimated_minutes: updates.estimatedMinutes,
+        actual_minutes: updates.actualMinutes,
+        started_at: updates.startedAt === undefined ? undefined : millisToIso(updates.startedAt),
+        completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
+        scheduled_start: toNullable(updates.scheduledStart),
+        external_link: toNullable(updates.externalLink),
+        parent_goal_id: toNullable(updates.parentGoalId),
+        project_id: toNullable(updates.projectId),
+        milestone_id: toNullable(updates.milestoneId),
+        routine_id: toNullable(updates.routineId),
+        assigned_week: toNullable(updates.assignedWeek),
+        assigned_month: toNullable(updates.assignedMonth),
+        assigned_year: toNullable(updates.assignedYear),
+        assigned_date: toNullable(updates.assignedDate),
+        score: toNullable(updates.score),
+        order: updates.order,
+        memo: toNullable(updates.memo),
+        ai_tags: updates.aiTags,
+        ai_status: toNullable(updates.aiStatus),
+        ai_error: toNullable(updates.aiError),
+        ai_completed_at: updates.aiCompletedAt === undefined ? undefined : millisToIso(updates.aiCompletedAt),
+    };
+
+    const { error } = await client
+        .from('tasks')
+        .update(payload)
+        .in('id', taskIds)
+        .eq('user_id', userId);
+
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    if (!updates.tags) {
+        return;
+    }
+
+    await Promise.all(taskIds.map((taskId) => syncTaskTags(client, taskId, userId, updates.tags ?? [])));
 }
 
 export async function syncTaskTags(client: Client, taskId: string, userId: string, tagNames: string[]) {

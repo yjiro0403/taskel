@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
-import { upsertTask, updateTaskRow } from '@/lib/supabase/data';
+import { bulkUpdateTaskRows, bulkUpsertTasks, upsertTask, updateTaskRow } from '@/lib/supabase/data';
 import type { Task } from '@/types';
 
 export async function createTaskRecord(task: Task, userId: string) {
@@ -22,9 +22,13 @@ export async function deleteTaskRecord(taskId: string) {
 }
 
 export async function bulkUpdateTaskRecords(taskIds: string[], updates: Partial<Task>, userId: string) {
-    await Promise.all(taskIds.map((taskId) => updateTaskRecord(taskId, updates, userId)));
+    await bulkUpdateTaskRows(createClient(), taskIds, updates, userId);
 }
 
 export async function bulkCreateTaskRecords(tasks: Task[], userId: string) {
-    await Promise.all(tasks.map((task) => createTaskRecord(task, userId)));
+    await bulkUpsertTasks(createClient(), tasks, userId, true);
+}
+
+export async function bulkReplaceTaskRecords(tasks: Task[], userId: string) {
+    await bulkUpsertTasks(createClient(), tasks, userId);
 }

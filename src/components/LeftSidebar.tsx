@@ -102,22 +102,6 @@ export default function LeftSidebar() {
                             <BarChart size={18} />
                             <span>{t('analytics')}</span>
                         </Link>
-
-                        {/* 
-                        <button
-                            onClick={async () => {
-                                if (!confirm("Migrate your private tasks to the new unified storage? This is safe and copies data.")) return;
-                                const { migrateTasks } = useStore.getState();
-                                const result = await migrateTasks();
-                                alert(result.message);
-                            }}
-                            className="w-full flex items-center gap-3 text-amber-600 hover:text-amber-700 hover:bg-amber-50 p-2 rounded-lg transition-colors text-left"
-                        >
-                            <Settings size={18} />
-                            <span>Migrate Data (Fix)</span>
-                        </button>
-                        */}
-
                         <Link
                             href="/settings/general"
                             className={getLinkClass('/settings')}

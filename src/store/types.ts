@@ -26,7 +26,6 @@ export interface TaskSlice {
     clearSelection: () => void;
     reorderTasks: (taskIds: string[]) => Promise<void>;
     getMergedTasks: (date: string) => Task[];
-    migrateTasks: () => Promise<{ success: boolean; message: string; count: number }>;
     resetTaskSlice: () => void;
 }
 
