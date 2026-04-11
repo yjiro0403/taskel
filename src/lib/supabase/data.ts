@@ -1,4 +1,7 @@
-import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
+import type {
+    RealtimeChannel,
+    SupabaseClient,
+} from '@supabase/supabase-js';
 
 import type { DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
 import type { Database } from '@/types/supabase';
@@ -175,6 +178,29 @@ export async function fetchProjects(client: Client) {
     );
 }
 
+export async function fetchProjectById(client: Client, projectId: string) {
+    const { data: project, error: projectError } = await client
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .maybeSingle();
+
+    if (projectError) {
+        throw new Error(projectError.message);
+    }
+
+    if (!project) {
+        return null;
+    }
+
+    const { data: members, error: membersError } = await client
+        .from('project_members')
+        .select('*')
+        .eq('project_id', projectId);
+
+    return mapProject(project, requireData(members, membersError));
+}
+
 function buildTaskTags(
     tasks: Tables['tasks']['Row'][],
     taskTagRows: Tables['task_tags']['Row'][],
@@ -213,6 +239,42 @@ export async function fetchTasks(client: Client, tags: Tag[]) {
     }
 
     return buildTaskTags(taskRows, taskTagRows, tags);
+}
+
+export async function fetchTaskById(client: Client, taskId: string) {
+    const { data: task, error: taskError } = await client
+        .from('tasks')
+        .select('*')
+        .eq('id', taskId)
+        .maybeSingle();
+
+    if (taskError) {
+        throw new Error(taskError.message);
+    }
+
+    if (!task) {
+        return null;
+    }
+
+    const { data: taskTags, error: taskTagsError } = await client
+        .from('task_tags')
+        .select('*')
+        .eq('task_id', taskId);
+
+    const taskTagRows = requireData(taskTags, taskTagsError);
+    const tagIds = taskTagRows.map((row) => row.tag_id);
+
+    let tags: Tables['tags']['Row'][] = [];
+    if (tagIds.length > 0) {
+        const { data: selectedTags, error: tagsError } = await client
+            .from('tags')
+            .select('*')
+            .in('id', tagIds);
+
+        tags = requireData(selectedTags, tagsError);
+    }
+
+    return mapTask(task, tags.map(mapTag));
 }
 
 export async function fetchNotes(client: Client) {
@@ -386,12 +448,17 @@ export function subscribeTable(
     client: Client,
     channelName: string,
     table: keyof Tables,
-    onChange: () => void
+    onChange: (payload: {
+        eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+        new: Record<string, unknown>;
+        old: Record<string, unknown>;
+    }) => void,
+    filter?: string
 ) {
     const channel = client.channel(channelName);
     channel.on(
         'postgres_changes',
-        { event: '*', schema: 'public', table },
+        { event: '*', schema: 'public', table, filter },
         onChange
     );
 

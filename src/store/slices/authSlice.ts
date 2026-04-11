@@ -4,16 +4,39 @@ import { createClient } from '@/lib/supabase/client';
 import {
     fetchGoals,
     fetchNotes,
+    fetchProjectById,
     fetchProjects,
     fetchRoutines,
     fetchSections,
     fetchTags,
+    fetchTaskById,
     fetchTasks,
     subscribeTable,
     unsubscribeChannels,
 } from '@/lib/supabase/data';
+import { mapGoal, mapRoutine, mapSection, mapTag } from '@/lib/supabase/mappers';
+import type { DailyNote, Goal, MonthlyNote, Routine, Section, Tag, WeeklyNote, YearlyNote } from '@/types';
+import type { Database } from '@/types/supabase';
 import { StoreState, AuthSlice } from '../types';
 import { isPendingTask } from '../helpers/pendingTasks';
+
+type Tables = Database['public']['Tables'];
+
+function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
+    const nextItems = items.filter((item) => item.id !== nextItem.id);
+    nextItems.push(nextItem);
+    return nextItems;
+}
+
+function sortSections(sections: Section[]) {
+    return [...sections].sort(
+        (a, b) => (a.startTime || '').localeCompare(b.startTime || '') || a.order - b.order
+    );
+}
+
+function upsertNote<T extends { id: string }>(items: T[], nextItem: T) {
+    return upsertById(items, nextItem);
+}
 
 export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set, get) => ({
     user: null,
@@ -45,9 +68,8 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
 
         const supabase = createClient();
         let disposed = false;
-        let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-        const refreshAll = async () => {
+        const refreshInitialState = async () => {
             try {
                 const tags = await fetchTags(supabase);
                 const [tasks, routines, sections, projects, goals, notes] = await Promise.all([
@@ -72,7 +94,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                         tasks: Array.from(taskMap.values()),
                         tags,
                         routines,
-                        sections: sections.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '') || a.order - b.order),
+                        sections: sortSections(sections),
                         projects,
                         goals,
                         dailyNotes: notes.dailyNotes,
@@ -91,7 +113,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({}),
                         });
-                        await refreshAll();
+                        await refreshInitialState();
                     }
                 }
             } catch (error) {
@@ -99,42 +121,246 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
         };
 
-        const scheduleRefresh = () => {
+        const syncTask = async (taskId: string, eventType: 'INSERT' | 'UPDATE' | 'DELETE') => {
             if (disposed) {
                 return;
             }
 
-            if (refreshTimer) {
-                clearTimeout(refreshTimer);
+            if (eventType === 'DELETE') {
+                set((state) => ({
+                    tasks: state.tasks.filter((task) => task.id !== taskId),
+                }));
+                return;
             }
 
-            refreshTimer = setTimeout(() => {
-                void refreshAll();
-            }, 50);
+            try {
+                const task = await fetchTaskById(supabase, taskId);
+                if (!task || disposed) {
+                    return;
+                }
+
+                set((state) => ({
+                    tasks: upsertById(
+                        state.tasks.filter((entry) => !isPendingTask(entry.id) || entry.id === task.id),
+                        task
+                    ),
+                }));
+            } catch (error) {
+                console.error('Failed to sync task:', error);
+            }
         };
 
-        void refreshAll();
+        const syncProject = async (projectId: string, eventType: 'INSERT' | 'UPDATE' | 'DELETE') => {
+            if (disposed) {
+                return;
+            }
+
+            if (eventType === 'DELETE') {
+                set((state) => ({
+                    projects: state.projects.filter((project) => project.id !== projectId),
+                }));
+                return;
+            }
+
+            try {
+                const project = await fetchProjectById(supabase, projectId);
+                if (!project || disposed) {
+                    return;
+                }
+
+                set((state) => ({
+                    projects: upsertById(state.projects, project),
+                }));
+            } catch (error) {
+                console.error('Failed to sync project:', error);
+            }
+        };
+
+        const syncCollectionItem = <T extends { id: string }>(
+            key: 'tags' | 'sections' | 'routines' | 'goals',
+            mapper: (row: any) => T,
+            payload: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; new: any; old: any }
+        ) => {
+            const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
+            if (!row?.id) {
+                return;
+            }
+
+            if (key === 'tags') {
+                const mapped = mapper(row) as Tag;
+                set((state) => ({
+                    tags:
+                        payload.eventType === 'DELETE'
+                            ? state.tags.filter((tag) => tag.id !== row.id)
+                            : upsertById(state.tags, mapped),
+                }));
+                return;
+            }
+
+            if (key === 'sections') {
+                const mapped = mapper(row) as Section;
+                set((state) => ({
+                    sections:
+                        payload.eventType === 'DELETE'
+                            ? state.sections.filter((section) => section.id !== row.id)
+                            : sortSections(upsertById(state.sections, mapped)),
+                }));
+                return;
+            }
+
+            if (key === 'routines') {
+                const mapped = mapper(row) as Routine;
+                set((state) => ({
+                    routines:
+                        payload.eventType === 'DELETE'
+                            ? state.routines.filter((routine) => routine.id !== row.id)
+                            : upsertById(state.routines, mapped),
+                }));
+                return;
+            }
+
+            const mapped = mapper(row) as Goal;
+            set((state) => ({
+                goals:
+                    payload.eventType === 'DELETE'
+                        ? state.goals.filter((goal) => goal.id !== row.id)
+                        : upsertById(state.goals, mapped),
+            }));
+        };
+
+        const syncNote = (
+            payload: {
+                eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+                new: Tables['notes']['Row'];
+                old: Tables['notes']['Row'];
+            }
+        ) => {
+            const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
+            if (!row?.period_key) {
+                return;
+            }
+
+            const mapped = {
+                id: row.period_key,
+                userId: row.user_id,
+                content: row.content,
+                updatedAt: new Date(row.updated_at).getTime(),
+            };
+
+            set((state) => {
+                if (row.type === 'daily') {
+                    return {
+                        dailyNotes:
+                            payload.eventType === 'DELETE'
+                                ? state.dailyNotes.filter((note) => note.id !== mapped.id)
+                                : upsertNote<DailyNote>(state.dailyNotes, mapped),
+                    };
+                }
+                if (row.type === 'weekly') {
+                    return {
+                        weeklyNotes:
+                            payload.eventType === 'DELETE'
+                                ? state.weeklyNotes.filter((note) => note.id !== mapped.id)
+                                : upsertNote<WeeklyNote>(state.weeklyNotes, mapped),
+                    };
+                }
+                if (row.type === 'monthly') {
+                    return {
+                        monthlyNotes:
+                            payload.eventType === 'DELETE'
+                                ? state.monthlyNotes.filter((note) => note.id !== mapped.id)
+                                : upsertNote<MonthlyNote>(state.monthlyNotes, mapped),
+                    };
+                }
+
+                return {
+                    yearlyNotes:
+                        payload.eventType === 'DELETE'
+                            ? state.yearlyNotes.filter((note) => note.id !== mapped.id)
+                            : upsertNote<YearlyNote>(state.yearlyNotes, mapped),
+                };
+            });
+        };
+
+        void refreshInitialState();
         void get().fetchBillingInfo();
 
         const channels = [
-            subscribeTable(supabase, `tags:${user.uid}`, 'tags', scheduleRefresh),
-            subscribeTable(supabase, `tasks:${user.uid}`, 'tasks', scheduleRefresh),
-            subscribeTable(supabase, `task-tags:${user.uid}`, 'task_tags', scheduleRefresh),
-            subscribeTable(supabase, `projects:${user.uid}`, 'projects', scheduleRefresh),
-            subscribeTable(supabase, `project-members:${user.uid}`, 'project_members', scheduleRefresh),
-            subscribeTable(supabase, `routines:${user.uid}`, 'routines', scheduleRefresh),
-            subscribeTable(supabase, `sections:${user.uid}`, 'sections', scheduleRefresh),
-            subscribeTable(supabase, `goals:${user.uid}`, 'goals', scheduleRefresh),
-            subscribeTable(supabase, `notes:${user.uid}`, 'notes', scheduleRefresh),
-            subscribeTable(supabase, `invitations:${user.uid}`, 'invitations', scheduleRefresh),
+            subscribeTable(
+                supabase,
+                `tags:${user.uid}`,
+                'tags',
+                (payload) => syncCollectionItem('tags', mapTag, payload as any),
+                `user_id=eq.${user.uid}`
+            ),
+            subscribeTable(
+                supabase,
+                `tasks:${user.uid}`,
+                'tasks',
+                (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                `user_id=eq.${user.uid}`
+            ),
+            subscribeTable(
+                supabase,
+                `projects:${user.uid}`,
+                'projects',
+                (payload) => void syncProject((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                `owner_id=eq.${user.uid}`
+            ),
+            subscribeTable(
+                supabase,
+                `project-members:${user.uid}`,
+                'project_members',
+                (payload) => {
+                    const projectId = (payload.new?.project_id ?? payload.old?.project_id) as string | undefined;
+                    if (!projectId) {
+                        return;
+                    }
+
+                    if (payload.eventType === 'DELETE') {
+                        set((state) => ({
+                            projects: state.projects.filter((project) => project.id !== projectId),
+                        }));
+                        return;
+                    }
+
+                    void syncProject(projectId, 'UPDATE');
+                },
+                `user_id=eq.${user.uid}`
+            ),
+            subscribeTable(
+                supabase,
+                `routines:${user.uid}`,
+                'routines',
+                (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
+                `user_id=eq.${user.uid}`
+            ),
+            subscribeTable(
+                supabase,
+                `sections:${user.uid}`,
+                'sections',
+                (payload) => syncCollectionItem('sections', mapSection, payload as any),
+                `user_id=eq.${user.uid}`
+            ),
+            subscribeTable(
+                supabase,
+                `goals:${user.uid}`,
+                'goals',
+                (payload) => syncCollectionItem('goals', mapGoal, payload as any),
+                `user_id=eq.${user.uid}`
+            ),
+            subscribeTable(
+                supabase,
+                `notes:${user.uid}`,
+                'notes',
+                (payload) => syncNote(payload as any),
+                `user_id=eq.${user.uid}`
+            ),
         ];
 
         set({
             unsubscribe: () => {
                 disposed = true;
-                if (refreshTimer) {
-                    clearTimeout(refreshTimer);
-                }
                 unsubscribeChannels(supabase, channels);
             },
         });
