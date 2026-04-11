@@ -6,6 +6,7 @@ import { createAITools } from '@/lib/ai/tools';
 import { checkQuota, incrementRequestCount, recordTokenUsage } from '@/lib/billing/usage';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
 import { parseJsonBody } from '@/lib/api/request';
 import { aiChatRequestSchema } from '@/lib/validations/ai';
 
@@ -20,6 +21,15 @@ function normalizeMessages(messages: any[]) {
 export async function POST(req: Request) {
   console.log('==== AI Chat API Called ====');
   try {
+    const rateLimitResponse = applyRateLimit(req, {
+      key: '/api/ai/chat',
+      limit: 20,
+      windowMs: 60_000,
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const user = await requireAuth();
     const uid = user.id;
 

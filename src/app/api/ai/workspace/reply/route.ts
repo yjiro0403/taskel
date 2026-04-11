@@ -6,6 +6,7 @@ import { buildWorkspaceReplyPrompt } from '@/lib/ai/workspacePrompts';
 import { createWorkspaceTools } from '@/lib/ai/workspaceTools';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError, jsonError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
 import { parseJsonBody } from '@/lib/api/request';
 import { createClient } from '@/lib/supabase/server';
 import { taskIdRequestSchema } from '@/lib/validations/task';
@@ -15,6 +16,15 @@ const MODEL = 'gemini-2.5-flash';
 export async function POST(req: Request) {
   console.log('==== AI Workspace Reply API Called ====');
   try {
+    const rateLimitResponse = applyRateLimit(req, {
+      key: '/api/ai/workspace/reply',
+      limit: 15,
+      windowMs: 60_000,
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const user = await requireAuth();
     const uid = user.id;
 

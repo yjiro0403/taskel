@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
 import { parseJsonBody } from '@/lib/api/request';
 import { getAppUrl } from '@/lib/api/url';
 import { createClient } from '@/lib/supabase/server';
@@ -9,6 +10,15 @@ import { invitationCreateRequestSchema } from '@/lib/validations/invitation';
 
 export async function POST(request: Request) {
     try {
+        const rateLimitResponse = applyRateLimit(request, {
+            key: '/api/invitations',
+            limit: 10,
+            windowMs: 60_000,
+        });
+        if (rateLimitResponse) {
+            return rateLimitResponse;
+        }
+
         const user = await requireAuth();
         const { projectId, email, role } = await parseJsonBody(request, invitationCreateRequestSchema);
         const supabase = await createClient();

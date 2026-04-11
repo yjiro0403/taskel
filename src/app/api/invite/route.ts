@@ -2,12 +2,22 @@ import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
 import { parseJsonBody } from '@/lib/api/request';
 import { escapeHtml } from '@/lib/email/escape';
 import { sendInvitationEmailSchema } from '@/lib/validations/invitation';
 
 export async function POST(request: Request) {
   try {
+    const rateLimitResponse = applyRateLimit(request, {
+      key: '/api/invite',
+      limit: 5,
+      windowMs: 60_000,
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     await requireAuth();
 
     const { email, projectTitle, inviterName, inviteLink } = await parseJsonBody(
