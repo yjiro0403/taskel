@@ -152,36 +152,34 @@ export async function fetchGoals(client: Client) {
 }
 
 export async function fetchProjects(client: Client) {
-    const { data: projects, error: projectError } = await client
-        .from('projects')
-        .select('*')
+    const { data: projects, error: projectError } = await (client
+        .from('projects') as any)
+        .select('*, project_members(user_id, role)')
         .order('created_at', { ascending: true });
 
-    const projectRows = requireData(projects, projectError);
-    const projectIds = projectRows.map((project) => project.id);
-
-    let memberRows: Tables['project_members']['Row'][] = [];
-    if (projectIds.length > 0) {
-        const { data, error } = await client
-            .from('project_members')
-            .select('*')
-            .in('project_id', projectIds);
-
-        memberRows = requireData(data, error);
-    }
+    const projectRows = requireData(projects, projectError) as Array<
+        Tables['projects']['Row'] & {
+            project_members: Array<Pick<Tables['project_members']['Row'], 'user_id' | 'role'>> | null;
+        }
+    >;
 
     return projectRows.map((project) =>
         mapProject(
             project,
-            memberRows.filter((member) => member.project_id === project.id)
+            (project.project_members ?? []).map((member) => ({
+                project_id: project.id,
+                user_id: member.user_id,
+                role: member.role,
+                created_at: project.created_at,
+            }))
         )
     );
 }
 
 export async function fetchProjectById(client: Client, projectId: string) {
-    const { data: project, error: projectError } = await client
-        .from('projects')
-        .select('*')
+    const { data: project, error: projectError } = await (client
+        .from('projects') as any)
+        .select('*, project_members(user_id, role)')
         .eq('id', projectId)
         .maybeSingle();
 
@@ -193,12 +191,19 @@ export async function fetchProjectById(client: Client, projectId: string) {
         return null;
     }
 
-    const { data: members, error: membersError } = await client
-        .from('project_members')
-        .select('*')
-        .eq('project_id', projectId);
+    const projectWithMembers = project as Tables['projects']['Row'] & {
+        project_members: Array<Pick<Tables['project_members']['Row'], 'user_id' | 'role'>> | null;
+    };
 
-    return mapProject(project, requireData(members, membersError));
+    return mapProject(
+        projectWithMembers,
+        (projectWithMembers.project_members ?? []).map((member) => ({
+            project_id: projectId,
+            user_id: member.user_id,
+            role: member.role,
+            created_at: projectWithMembers.created_at,
+        }))
+    );
 }
 
 function buildTaskTags(
