@@ -38,6 +38,14 @@ function upsertNote<T extends { id: string }>(items: T[], nextItem: T) {
     return upsertById(items, nextItem);
 }
 
+function buildInFilter(column: string, ids: string[]) {
+    if (ids.length === 0) {
+        return null;
+    }
+
+    return `${column}=in.(${ids.join(',')})`;
+}
+
 export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set, get) => ({
     user: null,
     unsubscribe: null,
@@ -68,6 +76,8 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
 
         const supabase = createClient();
         let disposed = false;
+        let dataChannels = [] as ReturnType<typeof subscribeTable>[];
+        let membershipChannel: ReturnType<typeof subscribeTable> | null = null;
 
         const refreshInitialState = async () => {
             try {
@@ -84,6 +94,11 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 if (disposed) {
                     return;
                 }
+
+                rebuildDataSubscriptions(
+                    projects.map((project) => project.id),
+                    tasks.map((task) => task.id)
+                );
 
                 set((state) => {
                     const localPendingTasks = state.tasks.filter((task) => isPendingTask(task.id));
@@ -121,6 +136,13 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
         };
 
+        const replaceDataChannels = (nextChannels: ReturnType<typeof subscribeTable>[]) => {
+            if (dataChannels.length > 0) {
+                unsubscribeChannels(supabase, dataChannels);
+            }
+            dataChannels = nextChannels;
+        };
+
         const syncTask = async (taskId: string, eventType: 'INSERT' | 'UPDATE' | 'DELETE') => {
             if (disposed) {
                 return;
@@ -130,6 +152,10 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 set((state) => ({
                     tasks: state.tasks.filter((task) => task.id !== taskId),
                 }));
+                rebuildDataSubscriptions(
+                    get().projects.map((project) => project.id),
+                    get().tasks.filter((task) => task.id !== taskId).map((task) => task.id)
+                );
                 return;
             }
 
@@ -145,6 +171,13 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                         task
                     ),
                 }));
+                rebuildDataSubscriptions(
+                    get().projects.map((project) => project.id),
+                    upsertById(
+                        get().tasks.filter((entry) => !isPendingTask(entry.id) || entry.id === task.id),
+                        task
+                    ).map((entry) => entry.id)
+                );
             } catch (error) {
                 console.error('Failed to sync task:', error);
             }
@@ -282,86 +315,151 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             });
         };
 
+        const rebuildDataSubscriptions = (projectIds: string[], taskIds: string[]) => {
+            const projectFilter = buildInFilter('id', projectIds);
+            const projectScopedFilter = buildInFilter('project_id', projectIds);
+            const taskTagFilter = buildInFilter('task_id', taskIds);
+
+            const nextChannels = [
+                subscribeTable(
+                    supabase,
+                    `tags:${user.uid}`,
+                    'tags',
+                    (payload) => syncCollectionItem('tags', mapTag, payload as any),
+                    `user_id=eq.${user.uid}`
+                ),
+                subscribeTable(
+                    supabase,
+                    `tasks:personal:${user.uid}`,
+                    'tasks',
+                    (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                    `user_id=eq.${user.uid}`
+                ),
+                ...(projectScopedFilter ? [
+                    subscribeTable(
+                        supabase,
+                        `tasks:projects:${user.uid}`,
+                        'tasks',
+                        (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                        projectScopedFilter
+                    ),
+                ] : []),
+                ...(projectFilter ? [
+                    subscribeTable(
+                        supabase,
+                        `projects:${user.uid}`,
+                        'projects',
+                        (payload) => void syncProject((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                        projectFilter
+                    ),
+                ] : []),
+                subscribeTable(
+                    supabase,
+                    `routines:personal:${user.uid}`,
+                    'routines',
+                    (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
+                    `user_id=eq.${user.uid}`
+                ),
+                ...(projectScopedFilter ? [
+                    subscribeTable(
+                        supabase,
+                        `routines:projects:${user.uid}`,
+                        'routines',
+                        (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
+                        projectScopedFilter
+                    ),
+                ] : []),
+                subscribeTable(
+                    supabase,
+                    `sections:${user.uid}`,
+                    'sections',
+                    (payload) => syncCollectionItem('sections', mapSection, payload as any),
+                    `user_id=eq.${user.uid}`
+                ),
+                subscribeTable(
+                    supabase,
+                    `goals:personal:${user.uid}`,
+                    'goals',
+                    (payload) => syncCollectionItem('goals', mapGoal, payload as any),
+                    `user_id=eq.${user.uid}`
+                ),
+                ...(projectScopedFilter ? [
+                    subscribeTable(
+                        supabase,
+                        `goals:projects:${user.uid}`,
+                        'goals',
+                        (payload) => syncCollectionItem('goals', mapGoal, payload as any),
+                        projectScopedFilter
+                    ),
+                ] : []),
+                subscribeTable(
+                    supabase,
+                    `notes:${user.uid}`,
+                    'notes',
+                    (payload) => syncNote(payload as any),
+                    `user_id=eq.${user.uid}`
+                ),
+                subscribeTable(
+                    supabase,
+                    `task-tags:${user.uid}`,
+                    'task_tags',
+                    (payload) => {
+                        const taskId = (payload.new?.task_id ?? payload.old?.task_id) as string | undefined;
+                        if (!taskId) {
+                            return;
+                        }
+                        void syncTask(taskId, payload.eventType === 'DELETE' ? 'UPDATE' : payload.eventType);
+                    },
+                    taskTagFilter ?? undefined
+                ),
+            ];
+
+            replaceDataChannels(nextChannels);
+        };
+
         void refreshInitialState();
         void get().fetchBillingInfo();
+        rebuildDataSubscriptions(
+            get().projects.map((project) => project.id),
+            get().tasks.map((task) => task.id)
+        );
 
-        const channels = [
-            subscribeTable(
-                supabase,
-                `tags:${user.uid}`,
-                'tags',
-                (payload) => syncCollectionItem('tags', mapTag, payload as any),
-                `user_id=eq.${user.uid}`
-            ),
-            subscribeTable(
-                supabase,
-                `tasks:${user.uid}`,
-                'tasks',
-                (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
-                `user_id=eq.${user.uid}`
-            ),
-            subscribeTable(
-                supabase,
-                `projects:${user.uid}`,
-                'projects',
-                (payload) => void syncProject((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
-                `owner_id=eq.${user.uid}`
-            ),
-            subscribeTable(
-                supabase,
-                `project-members:${user.uid}`,
-                'project_members',
-                (payload) => {
-                    const projectId = (payload.new?.project_id ?? payload.old?.project_id) as string | undefined;
-                    if (!projectId) {
-                        return;
-                    }
+        membershipChannel = subscribeTable(
+            supabase,
+            `project-members:${user.uid}`,
+            'project_members',
+            async (payload) => {
+                const projectId = (payload.new?.project_id ?? payload.old?.project_id) as string | undefined;
+                if (!projectId) {
+                    return;
+                }
 
-                    if (payload.eventType === 'DELETE') {
-                        set((state) => ({
-                            projects: state.projects.filter((project) => project.id !== projectId),
-                        }));
-                        return;
-                    }
+                if (payload.eventType === 'DELETE') {
+                    set((state) => ({
+                        projects: state.projects.filter((project) => project.id !== projectId),
+                        tasks: state.tasks.filter((task) => task.projectId !== projectId),
+                        routines: state.routines.filter((routine) => routine.projectId !== projectId),
+                        goals: state.goals.filter((goal) => goal.projectId !== projectId),
+                    }));
+                } else {
+                    await syncProject(projectId, 'UPDATE');
+                }
 
-                    void syncProject(projectId, 'UPDATE');
-                },
-                `user_id=eq.${user.uid}`
-            ),
-            subscribeTable(
-                supabase,
-                `routines:${user.uid}`,
-                'routines',
-                (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
-                `user_id=eq.${user.uid}`
-            ),
-            subscribeTable(
-                supabase,
-                `sections:${user.uid}`,
-                'sections',
-                (payload) => syncCollectionItem('sections', mapSection, payload as any),
-                `user_id=eq.${user.uid}`
-            ),
-            subscribeTable(
-                supabase,
-                `goals:${user.uid}`,
-                'goals',
-                (payload) => syncCollectionItem('goals', mapGoal, payload as any),
-                `user_id=eq.${user.uid}`
-            ),
-            subscribeTable(
-                supabase,
-                `notes:${user.uid}`,
-                'notes',
-                (payload) => syncNote(payload as any),
-                `user_id=eq.${user.uid}`
-            ),
-        ];
+                rebuildDataSubscriptions(
+                    get().projects.map((project) => project.id),
+                    get().tasks.map((task) => task.id)
+                );
+            },
+            `user_id=eq.${user.uid}`
+        );
 
         set({
             unsubscribe: () => {
                 disposed = true;
-                unsubscribeChannels(supabase, channels);
+                if (membershipChannel) {
+                    unsubscribeChannels(supabase, [membershipChannel]);
+                }
+                replaceDataChannels([]);
             },
         });
     },

@@ -334,7 +334,6 @@ export async function upsertTask(client: Client, task: Task, userId: string) {
         ai_status: task.aiStatus ?? null,
         ai_error: task.aiError ?? null,
         ai_completed_at: millisToIso(task.aiCompletedAt),
-        comment_count: task.commentCount ?? 0,
         created_at: millisToIso(task.createdAt) ?? undefined,
     };
 
@@ -375,7 +374,6 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         ai_status: updates.aiStatus === undefined ? undefined : updates.aiStatus ?? null,
         ai_error: updates.aiError === undefined ? undefined : updates.aiError ?? null,
         ai_completed_at: updates.aiCompletedAt === undefined ? undefined : millisToIso(updates.aiCompletedAt),
-        comment_count: updates.commentCount,
     };
 
     const { error } = await client.from('tasks').update(payload).eq('id', taskId);
