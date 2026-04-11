@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
+import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
 import { sendInvitationEmailSchema } from '@/lib/validations/invitation';
 
 export async function POST(request: Request) {
   try {
+    await requireAuth();
+
     const { email, projectTitle, inviterName, inviteLink } = await parseJsonBody(
       request,
       sendInvitationEmailSchema
