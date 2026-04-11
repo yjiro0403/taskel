@@ -122,4 +122,6 @@ export const createProjectSlice: StateCreator<StoreState, [], [], ProjectSlice> 
             return { success: false, message: 'Network error' };
         }
     },
+
+    resetProjectSlice: () => _set({ projects: [] }),
 });

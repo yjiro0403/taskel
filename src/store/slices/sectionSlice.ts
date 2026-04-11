@@ -136,4 +136,6 @@ export const createSectionSlice: StateCreator<StoreState, [], [], SectionSlice> 
             console.error('Error rebuilding sections:', insertError);
         }
     },
+
+    resetSectionSlice: () => set({ sections: [] }),
 });

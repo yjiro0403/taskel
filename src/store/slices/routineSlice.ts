@@ -65,4 +65,6 @@ export const createRoutineSlice: StateCreator<StoreState, [], [], RoutineSlice> 
             console.error('Error deleting routine:', error);
         }
     },
+
+    resetRoutineSlice: () => set({ routines: [] }),
 });

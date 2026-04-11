@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { User as UserIcon, LogOut, Trash2, Check, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
 import { useRouter, usePathname } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { useStore } from '@/store/useStore';
 import type { AppUser } from '@/types/auth';
 
@@ -15,7 +14,7 @@ interface ProductSwitcherProps {
 
 export default function ProductSwitcher({ user, onDeleteAccount }: ProductSwitcherProps) {
     const [isOpen, setIsOpen] = useState(false);
-    const { toggleLeftSidebar } = useStore();
+    const { toggleLeftSidebar, signOut } = useStore();
     const router = useRouter();
     const pathname = usePathname();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -41,7 +40,7 @@ export default function ProductSwitcher({ user, onDeleteAccount }: ProductSwitch
     };
 
     const handleLogout = async () => {
-        await createClient().auth.signOut();
+        await signOut();
         router.push('/');
         toggleLeftSidebar();
         setIsOpen(false);

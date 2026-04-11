@@ -71,4 +71,11 @@ export const createNoteSlice: StateCreator<StoreState, [], [], NoteSlice> = (set
             console.error('Error saving yearly note:', error);
         }
     },
+
+    resetNoteSlice: () => set({
+        dailyNotes: [],
+        weeklyNotes: [],
+        monthlyNotes: [],
+        yearlyNotes: [],
+    }),
 });

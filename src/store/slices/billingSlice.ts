@@ -15,6 +15,7 @@ export interface BillingSlice {
   fetchBillingInfo: () => Promise<void>;
   createCheckoutSession: (priceId: string) => Promise<string | null>;
   createPortalSession: () => Promise<string | null>;
+  resetBillingSlice: () => void;
 }
 
 export const createBillingSlice: StateCreator<StoreState, [], [], BillingSlice> = (set, get) => ({
@@ -89,4 +90,15 @@ export const createBillingSlice: StateCreator<StoreState, [], [], BillingSlice> 
       return null;
     }
   },
+
+  resetBillingSlice: () => set({
+    billingPlan: 'free',
+    subscriptionStatus: 'none',
+    usageRequestCount: 0,
+    usageRequestLimit: 20,
+    usageTotalTokens: 0,
+    billingPeriodEnd: null,
+    cancelAtPeriodEnd: false,
+    isBillingLoading: false,
+  }),
 });

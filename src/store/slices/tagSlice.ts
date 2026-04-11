@@ -57,4 +57,6 @@ export const createTagSlice: StateCreator<StoreState, [], [], TagSlice> = (set, 
 
         return Array.from(tagSet).sort();
     },
+
+    resetTagSlice: () => set({ tags: [] }),
 });

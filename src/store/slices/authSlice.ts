@@ -50,6 +50,31 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
     user: null,
     unsubscribe: null,
 
+    resetStore: () => {
+        get().resetTaskSlice();
+        get().resetSectionSlice();
+        get().resetProjectSlice();
+        get().resetRoutineSlice();
+        get().resetTagSlice();
+        get().resetNoteSlice();
+        get().resetGoalSlice();
+        get().resetAISlice();
+        get().resetBillingSlice();
+        get().resetWorkspaceSlice();
+        get().resetUISlice();
+    },
+
+    signOut: async () => {
+        const existingUnsubscribe = get().unsubscribe;
+        if (existingUnsubscribe) {
+            existingUnsubscribe();
+        }
+
+        await createClient().auth.signOut();
+        set({ user: null, unsubscribe: null });
+        get().resetStore();
+    },
+
     setUser: (user) => {
         const existingUnsubscribe = get().unsubscribe;
         if (existingUnsubscribe) {
@@ -59,18 +84,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         set({ user, unsubscribe: null });
 
         if (!user) {
-            set({
-                tasks: [],
-                routines: [],
-                tags: [],
-                sections: [],
-                projects: [],
-                goals: [],
-                dailyNotes: [],
-                weeklyNotes: [],
-                monthlyNotes: [],
-                yearlyNotes: [],
-            });
+            get().resetStore();
             return;
         }
 

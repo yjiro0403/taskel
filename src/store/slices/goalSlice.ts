@@ -11,6 +11,7 @@ export interface GoalSlice {
     updateGoal: (id: string, updates: Partial<import('@/types').Goal>) => Promise<void>;
     deleteGoal: (id: string) => Promise<void>;
     getGoalsByPeriod: (type: GoalType, periodId: string) => import('@/types').Goal[];
+    resetGoalSlice: () => void;
 }
 
 export const createGoalSlice: StateCreator<StoreState, [], [], GoalSlice> = (set, get) => ({
@@ -102,4 +103,6 @@ export const createGoalSlice: StateCreator<StoreState, [], [], GoalSlice> = (set
         if (type === 'weekly') return goals.filter((goal) => goal.type === 'weekly' && goal.assignedWeek === periodId);
         return [];
     },
+
+    resetGoalSlice: () => set({ goals: [] }),
 });

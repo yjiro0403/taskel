@@ -17,9 +17,13 @@ export interface WorkspaceSlice {
   subscribeToComments: (taskId: string) => () => void;
   openTaskDetail: (taskId: string) => void;
   closeTaskDetail: () => void;
+  resetWorkspaceSlice: () => void;
 }
 
-export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSlice> = (set, get) => ({
+export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSlice> = (set, get) => {
+  const commentSubscriptions = new Map<string, () => void>();
+
+  return ({
   taskComments: {},
   commentsLoading: {},
   aiProcessing: {},
@@ -136,6 +140,8 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
   },
 
   subscribeToComments: (taskId: string) => {
+    commentSubscriptions.get(taskId)?.();
+
     const supabase = createClient();
     const channel = supabase.channel(`task-comments:${taskId}`);
 
@@ -183,9 +189,13 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
       }));
     });
 
-    return () => {
+    const unsubscribe = () => {
+      commentSubscriptions.delete(taskId);
       supabase.removeChannel(channel);
     };
+
+    commentSubscriptions.set(taskId, unsubscribe);
+    return unsubscribe;
   },
 
   openTaskDetail: (taskId: string) => {
@@ -195,4 +205,16 @@ export const createWorkspaceSlice: StateCreator<StoreState, [], [], WorkspaceSli
   closeTaskDetail: () => {
     set({ activeDetailTaskId: null });
   },
+
+  resetWorkspaceSlice: () => {
+    commentSubscriptions.forEach((unsubscribe) => unsubscribe());
+    commentSubscriptions.clear();
+    set({
+      taskComments: {},
+      commentsLoading: {},
+      aiProcessing: {},
+      activeDetailTaskId: null,
+    });
+  },
 });
+};
