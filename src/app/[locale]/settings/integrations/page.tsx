@@ -91,8 +91,8 @@ export default function IntegrationsSettingsPage() {
 
     // リフレッシュトークン取得
     const fetchRefreshToken = useCallback(async () => {
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
+        const { data, error } = await createClient().auth.getSession();
+        if (error || !data.session) {
             setRefreshTokenError('ログインが必要です。');
             return;
         }
@@ -100,7 +100,7 @@ export default function IntegrationsSettingsPage() {
         setRefreshTokenError(null);
         setIsRefreshVisible(false);
         try {
-            const token = currentUser.refreshToken;
+            const token = data.session.refresh_token;
             if (!token) {
                 setRefreshTokenError('リフレッシュトークンを取得できませんでした。再ログインを試してください。');
                 return;
@@ -285,13 +285,13 @@ export default function IntegrationsSettingsPage() {
                                                 </div>
                                             )}
                                         </div>
-                                    ) : (
-                                        <div className="flex items-center justify-center h-12 bg-gray-50 border border-dashed border-gray-300 rounded-lg text-sm text-gray-400">
-                                            「取得」ボタンを押してリフレッシュトークンを取得してください
-                                        </div>
-                                    )
+	                                    ) : (
+	                                        <div className="flex items-center justify-center h-12 bg-gray-50 border border-dashed border-gray-300 rounded-lg text-sm text-gray-400">
+	                                            「取得」ボタンを押してリフレッシュトークンを取得してください
+	                                        </div>
+	                                    )}
 
-                                    <button
+	                                    <button
                                         onClick={fetchRefreshToken}
                                         disabled={isLoadingRefresh}
                                         className="mt-3 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"

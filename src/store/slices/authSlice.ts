@@ -187,7 +187,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'tags') {
-                const mapped = mapper(row) as Tag;
+                const mapped = mapper(row) as unknown as Tag;
                 set((state) => ({
                     tags:
                         payload.eventType === 'DELETE'
@@ -198,7 +198,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'sections') {
-                const mapped = mapper(row) as Section;
+                const mapped = mapper(row) as unknown as Section;
                 set((state) => ({
                     sections:
                         payload.eventType === 'DELETE'
@@ -209,7 +209,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'routines') {
-                const mapped = mapper(row) as Routine;
+                const mapped = mapper(row) as unknown as Routine;
                 set((state) => ({
                     routines:
                         payload.eventType === 'DELETE'
@@ -219,7 +219,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 return;
             }
 
-            const mapped = mapper(row) as Goal;
+            const mapped = mapper(row) as unknown as Goal;
             set((state) => ({
                 goals:
                     payload.eventType === 'DELETE'
