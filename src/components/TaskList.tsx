@@ -17,10 +17,11 @@ import DailyGoalList from './DailyGoalList';
 import { SortableTaskItem } from './SortableTaskItem';
 import { TaskContextProvider } from '@/contexts/TaskContext';
 import { useTour } from '@/hooks/useTour';
+import { BottomDropZone } from './BottomDropZone';
 
 // DnD Imports
 // DnD Imports removed (lifted to wrapper), but useDroppable is needed for SectionContainer
-import { useDroppable, useDndContext } from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
 import {
     SortableContext,
     verticalListSortingStrategy
@@ -446,24 +447,7 @@ function SectionContainer({
                     </div>
                 )}
             </div>
-
-            {/* Bottom Drop Zone Indicator */}
-            {(() => {
-                // eslint-disable-next-line react-hooks/rules-of-hooks
-                const { active, over } = useDndContext();
-                const isOverSection = over?.id === section.id && active?.id !== over?.id;
-
-                return (
-                    <div className={clsx(
-                        "transition-all duration-200 mx-2 mb-2 rounded border-2 border-dashed flex items-center justify-center text-sm font-medium",
-                        isOverSection
-                            ? "h-12 bg-blue-50 border-blue-400 text-blue-600 opacity-100"
-                            : "h-2 border-transparent text-transparent opacity-0"
-                    )}>
-                        {isOverSection && "Drop here to add to end"}
-                    </div>
-                );
-            })()}
+            <BottomDropZone sectionId={section.id} />
         </div>
     );
 }
