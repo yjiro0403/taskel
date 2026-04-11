@@ -1,9 +1,15 @@
 import { parseISO, isBefore, isSameDay } from 'date-fns';
 import { StateCreator } from 'zustand';
 
-import { createClient } from '@/lib/supabase/client';
-import { upsertTask, updateTaskRow } from '@/lib/supabase/data';
 import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
+import {
+    bulkCreateTaskRecords,
+    bulkUpdateTaskRecords,
+    createTaskRecord,
+    deleteTaskRecord,
+    replaceTaskRecord,
+    updateTaskRecord,
+} from '@/lib/supabase/repositories/taskRepository';
 import { Task } from '@/types';
 import { StoreState, TaskSlice } from '../types';
 import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
@@ -26,7 +32,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         set((state) => ({ tasks: [...state.tasks, task] }));
 
         try {
-            await upsertTask(createClient(), { ...task, userId: user.uid }, user.uid);
+            await createTaskRecord({ ...task, userId: user.uid }, user.uid);
         } catch (error) {
             console.error('Error adding task:', error);
             set({ tasks: oldTasks });
@@ -69,7 +75,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             }
 
             if (isVirtual && fullTaskForCreation) {
-                await upsertTask(createClient(), fullTaskForCreation, user.uid);
+                await replaceTaskRecord(fullTaskForCreation, user.uid);
                 return;
             }
 
@@ -78,13 +84,12 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 return;
             }
 
-            const client = createClient();
             const isProjectChange = updates.projectId !== undefined && updates.projectId !== currentTask.projectId;
 
             if (isProjectChange) {
-                await upsertTask(client, { ...currentTask, ...updates, userId: user.uid }, user.uid);
+                await replaceTaskRecord({ ...currentTask, ...updates, userId: user.uid }, user.uid);
             } else {
-                await updateTaskRow(client, taskId, updates, user.uid);
+                await updateTaskRecord(taskId, updates, user.uid);
             }
         } catch (error) {
             console.error('Error updating task:', error);
@@ -146,7 +151,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             const virtualTask = getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
             if (virtualTask) {
 
-                await upsertTask(createClient(), {
+                await replaceTaskRecord({
                     ...virtualTask,
                     userId: user.uid,
                     status: 'skipped',
@@ -156,10 +161,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 return;
             }
 
-            const { error } = await createClient().from('tasks').delete().eq('id', taskId);
-            if (error) {
-                throw error;
-            }
+            await deleteTaskRecord(taskId);
         } catch (error) {
             console.error('Error deleting task:', error);
             set({ tasks: oldTasks });
@@ -183,7 +185,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }));
 
         try {
-            await Promise.all(taskIds.map((taskId) => updateTaskRow(createClient(), taskId, updates, user.uid)));
+            await bulkUpdateTaskRecords(taskIds, updates, user.uid);
         } catch (error) {
             console.error('Error bulk updating tasks:', error);
             set({ tasks: oldTasks });
@@ -207,13 +209,11 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }));
 
         try {
-            const client = createClient();
-
             for (const id of taskIds) {
                 const virtualTask = getMergedTasks(currentDate).find((task) => task.id === id && task.isVirtual);
 
                 if (virtualTask) {
-                    await upsertTask(client, {
+                    await replaceTaskRecord({
                         ...virtualTask,
                         userId: user.uid,
                         status: 'skipped',
@@ -223,10 +223,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                     continue;
                 }
 
-                const { error } = await client.from('tasks').delete().eq('id', id);
-                if (error) {
-                    throw error;
-                }
+                await deleteTaskRecord(id);
             }
         } catch (error) {
             console.error('Error bulk deleting tasks:', error);
@@ -242,16 +239,15 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }
 
         try {
-            await Promise.all(
-                tasksToAdd.map((task) =>
-                    upsertTask(createClient(), {
-                        ...task,
-                        id: task.id || crypto.randomUUID(),
-                        userId: user.uid,
-                        createdAt: task.createdAt || Date.now(),
-                        updatedAt: Date.now(),
-                    }, user.uid)
-                )
+            await bulkCreateTaskRecords(
+                tasksToAdd.map((task) => ({
+                    ...task,
+                    id: task.id || crypto.randomUUID(),
+                    userId: user.uid,
+                    createdAt: task.createdAt || Date.now(),
+                    updatedAt: Date.now(),
+                })),
+                user.uid
             );
         } catch (error) {
             console.error('Error bulk adding tasks:', error);
@@ -281,11 +277,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }
 
         try {
-            await Promise.all(
-                taskIds.map((id, index) =>
-                    updateTaskRow(createClient(), id, { order: index }, user.uid)
-                )
-            );
+            await Promise.all(taskIds.map((id, index) => updateTaskRecord(id, { order: index }, user.uid)));
         } catch (error) {
             console.error('Error reordering tasks:', error);
         }
@@ -366,4 +358,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             count: 0,
         };
     },
+
+    resetTaskSlice: () => set({
+        tasks: [],
+        selectedTaskIds: [],
+        currentDate: new Date().toISOString().split('T')[0],
+    }),
 });
