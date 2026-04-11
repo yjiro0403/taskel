@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import nodemailer from 'nodemailer';
 
 import type { Database, Json } from '../src/types/supabase';
 
@@ -86,6 +87,8 @@ type EntityCounts = {
     attachments: number;
     auth_users_created: number;
     auth_users_reused: number;
+    reset_emails_sent: number;
+    reset_emails_logged: number;
 };
 
 type BatchResult = {
@@ -96,6 +99,7 @@ type BatchResult = {
 
 const BATCH_SIZE = 100;
 const dryRun = process.argv.includes('--dry-run');
+const sendResetEmails = process.argv.includes('--send-reset-emails');
 
 const counts: EntityCounts = {
     profiles: 0,
@@ -113,9 +117,12 @@ const counts: EntityCounts = {
     attachments: 0,
     auth_users_created: 0,
     auth_users_reused: 0,
+    reset_emails_sent: 0,
+    reset_emails_logged: 0,
 };
 
 let errorCount = 0;
+let smtpTransportPromise: Promise<nodemailer.Transporter | null> | null = null;
 
 function logInfo(message: string) {
     console.log(`[INFO] ${message}`);
@@ -162,6 +169,63 @@ function getSupabaseClient() {
             persistSession: false,
         },
     });
+}
+
+function getAppUrl() {
+    return (process.env.NEXT_PUBLIC_APP_URL || 'https://taskel.vercel.app').replace(/\/$/, '');
+}
+
+async function getSmtpTransport() {
+    if (smtpTransportPromise) {
+        return smtpTransportPromise;
+    }
+
+    smtpTransportPromise = (async () => {
+        const hasCredentials = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+        if (!hasCredentials) {
+            logWarn('SMTP credentials not found. Password reset links will be logged instead of emailed.');
+            return null;
+        }
+
+        const transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST,
+            port: Number(process.env.SMTP_PORT) || 587,
+            secure: false,
+            auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS,
+            },
+        });
+
+        await transporter.verify();
+        return transporter;
+    })();
+
+    return smtpTransportPromise;
+}
+
+async function deliverPasswordResetLink(email: string, resetLink: string) {
+    const transporter = await getSmtpTransport();
+    if (!transporter) {
+        counts.reset_emails_logged += 1;
+        logInfo(`[RESET LINK] ${email}: ${resetLink}`);
+        return;
+    }
+
+    await transporter.sendMail({
+        from: process.env.EMAIL_FROM || process.env.SMTP_FROM || '"Taskel" <noreply@taskel.app>',
+        to: email,
+        subject: 'Reset your Taskel password',
+        text: [
+            'Your Taskel account was migrated to Supabase authentication.',
+            'For your first login, reset your password using the link below:',
+            resetLink,
+            '',
+            'If you usually sign in with Google or another OAuth provider, use the same email address and your account will be linked automatically.',
+        ].join('\n'),
+    });
+
+    counts.reset_emails_sent += 1;
 }
 
 function initializeFirebase() {
@@ -509,6 +573,26 @@ async function ensureUserMappings(supabase: Client, registry: IdRegistry, users:
             authUserByEmail.set(emailKey, data.user.id);
             counts.auth_users_created += 1;
             logInfo(`Created auth user ${index + 1}/${users.length}: ${email}`);
+
+            if (sendResetEmails) {
+                try {
+                    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+                        type: 'recovery',
+                        email,
+                        options: {
+                            redirectTo: `${getAppUrl()}/login`,
+                        },
+                    });
+
+                    if (linkError) {
+                        throw new Error(linkError.message);
+                    }
+
+                    await deliverPasswordResetLink(email, linkData.properties.action_link);
+                } catch (resetError) {
+                    logError(`Failed to deliver password reset link for users/${user.id}`, resetError);
+                }
+            }
         } catch (error) {
             logError(`Failed to create auth user for users/${user.id}`, error);
         }
@@ -974,8 +1058,11 @@ function buildNotes(notes: NoteDoc[], registry: IdRegistry) {
 function printSummary() {
     console.log('\n=== Migration Summary ===');
     console.log(`Mode: ${dryRun ? 'dry-run' : 'write'}`);
+    console.log(`Send reset emails: ${sendResetEmails ? 'yes' : 'no'}`);
     console.log(`Auth users created: ${counts.auth_users_created}`);
     console.log(`Auth users reused: ${counts.auth_users_reused}`);
+    console.log(`Reset emails sent: ${counts.reset_emails_sent}`);
+    console.log(`Reset links logged: ${counts.reset_emails_logged}`);
     console.log(`profiles: ${counts.profiles}`);
     console.log(`projects: ${counts.projects}`);
     console.log(`project_members: ${counts.project_members}`);

@@ -111,6 +111,11 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
                         ? 'Enter your credentials to access your account'
                         : 'Enter your information to create an account'}
                 </p>
+                {isLogin && (
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        First login after the migration? Start from &quot;Reset password&quot;.
+                    </p>
+                )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
