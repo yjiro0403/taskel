@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hubRoleSchema, idSchema } from '@/lib/validations/common';
+import { hubRoleSchema, idSchema } from './common';
 
 export const invitationCreateRequestSchema = z.object({
   projectId: idSchema,

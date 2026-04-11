@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dateSchema, hubRoleSchema, idSchema } from '@/lib/validations/common';
+import { dateSchema, hubRoleSchema, idSchema } from './common';
 
 export const projectSchema = z.object({
   id: idSchema,

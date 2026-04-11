@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
     "seed:demo": "ts-node scripts/seedDemoData.ts",
     "screenshots": "playwright test e2e/screenshots.spec.ts",
     "storybook": "storybook dev -p 6006",

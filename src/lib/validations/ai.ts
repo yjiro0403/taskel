@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dateSchema } from '@/lib/validations/common';
+import { dateSchema } from './common';
 
 const allowedModelSchema = z.enum([
   'gemini-2.5-flash',
@@ -32,10 +32,42 @@ const calibrationHintSchema = z.object({
   sampleSize: z.number().int().nonnegative(),
 });
 
+const aiMessagePartSchema = z.object({
+  text: z.string().optional(),
+}).passthrough();
+
+const aiMessageSchema = z.object({
+  role: z.enum(['user', 'assistant', 'system']),
+  content: z.string().trim().min(1).optional(),
+  parts: z.array(aiMessagePartSchema).optional(),
+}).refine(
+  (message) => {
+    if (message.content && message.content.trim().length > 0) {
+      return true;
+    }
+
+    return (message.parts ?? []).some(
+      (part) => typeof part.text === 'string' && part.text.trim().length > 0
+    );
+  },
+  {
+    message: 'Message must include content or at least one text part.',
+  }
+);
+
+const aiSectionSchema = z.object({
+  id: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  order: z.number(),
+});
+
 export const aiChatRequestSchema = z.object({
-  messages: z.array(z.any()).min(1),
+  messages: z.array(aiMessageSchema).min(1),
   currentDate: dateSchema.optional(),
-  sections: z.array(z.any()).optional(),
+  sections: z.array(aiSectionSchema).optional(),
   model: allowedModelSchema.optional(),
   activeGoals: z.array(goalSummarySchema).optional(),
   calibrationHint: calibrationHintSchema.optional(),

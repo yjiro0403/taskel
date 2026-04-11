@@ -4,7 +4,7 @@ import {
   dateSchema,
   idSchema,
   taskStatusSchema,
-} from '@/lib/validations/common';
+} from './common';
 
 const nullableString = z.string().trim().min(1).nullable().optional();
 
