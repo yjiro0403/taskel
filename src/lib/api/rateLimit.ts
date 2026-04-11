@@ -26,12 +26,17 @@ const rateLimitStore = (() => {
 })();
 
 function getClientIp(request: Request) {
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    if (forwardedFor) {
-        return forwardedFor.split(',')[0]?.trim() || 'unknown';
+    const cloudflareIp = request.headers.get('cf-connecting-ip');
+    if (cloudflareIp) {
+        return cloudflareIp;
     }
 
-    return request.headers.get('x-real-ip') || 'unknown';
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    if (forwardedFor) {
+        return forwardedFor.split(',')[0]?.trim() || null;
+    }
+
+    return request.headers.get('x-real-ip') || null;
 }
 
 function pruneExpiredEntries(now: number) {
@@ -47,6 +52,10 @@ export function applyRateLimit(request: Request, config: RateLimitConfig) {
     pruneExpiredEntries(now);
 
     const ip = getClientIp(request);
+    if (!ip) {
+        return null;
+    }
+
     const bucketKey = `${config.key}:${ip}`;
     const currentEntry = rateLimitStore.get(bucketKey);
 

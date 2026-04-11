@@ -1,4 +1,5 @@
 drop policy if exists "profiles are readable by authenticated users" on public.profiles;
+drop policy if exists "users can read accessible profiles" on public.profiles;
 
 create policy "users can read accessible profiles"
 on public.profiles

@@ -53,6 +53,7 @@ export async function POST(req: Request) {
       .from('tasks')
       .select('*')
       .eq('id', taskId)
+      .eq('user_id', uid)
       .maybeSingle();
     if (taskError) {
       throw taskError;
