@@ -3,6 +3,7 @@ import { StateCreator } from 'zustand';
 
 import { createClient } from '@/lib/supabase/client';
 import { upsertTask, updateTaskRow } from '@/lib/supabase/data';
+import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
 import { Task } from '@/types';
 import { StoreState, TaskSlice } from '../types';
 import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
@@ -34,7 +35,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     },
 
     updateTask: async (taskId, updates) => {
-        const { user, tasks, getMergedTasks } = get();
+        const { user, tasks, getMergedTasks, currentDate } = get();
         if (!user) {
             set((state) => ({
                 tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
@@ -54,8 +55,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             let fullTaskForCreation: Task | null = null;
 
             if (!currentTask) {
-                const dateStr = taskId.split('-').slice(-3).join('-');
-                const virtualTask = getMergedTasks(dateStr).find((task) => task.id === taskId);
+                const virtualTask = getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
 
                 if (virtualTask) {
                     isVirtual = true;
@@ -133,7 +133,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     },
 
     deleteTask: async (taskId) => {
-        const { user, tasks, getMergedTasks } = get();
+        const { user, tasks, getMergedTasks, currentDate } = get();
         if (!user) {
             set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
             return;
@@ -143,18 +143,16 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
 
         try {
-            if (taskId.startsWith('routine-')) {
-                const dateStr = taskId.split('-').slice(-3).join('-');
-                const virtualTask = getMergedTasks(dateStr).find((task) => task.id === taskId);
+            const virtualTask = getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
+            if (virtualTask) {
 
-                if (virtualTask) {
-                    await upsertTask(createClient(), {
-                        ...virtualTask,
-                        userId: user.uid,
-                        status: 'skipped',
-                        updatedAt: Date.now(),
-                    }, user.uid);
-                }
+                await upsertTask(createClient(), {
+                    ...virtualTask,
+                    userId: user.uid,
+                    status: 'skipped',
+                    updatedAt: Date.now(),
+                    isVirtual: undefined,
+                }, user.uid);
                 return;
             }
 
@@ -193,7 +191,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     },
 
     bulkDeleteTasks: async (taskIds: string[]) => {
-        const { user, tasks, getMergedTasks } = get();
+        const { user, tasks, getMergedTasks, currentDate } = get();
         if (!user) {
             set((state) => ({
                 tasks: state.tasks.filter((task) => !taskIds.includes(task.id)),
@@ -212,18 +210,16 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             const client = createClient();
 
             for (const id of taskIds) {
-                if (id.startsWith('routine-')) {
-                    const dateStr = id.split('-').slice(-3).join('-');
-                    const virtualTask = getMergedTasks(dateStr).find((task) => task.id === id);
+                const virtualTask = getMergedTasks(currentDate).find((task) => task.id === id && task.isVirtual);
 
-                    if (virtualTask) {
-                        await upsertTask(client, {
-                            ...virtualTask,
-                            userId: user.uid,
-                            status: 'skipped',
-                            updatedAt: Date.now(),
-                        }, user.uid);
-                    }
+                if (virtualTask) {
+                    await upsertTask(client, {
+                        ...virtualTask,
+                        userId: user.uid,
+                        status: 'skipped',
+                        updatedAt: Date.now(),
+                        isVirtual: undefined,
+                    }, user.uid);
                     continue;
                 }
 
@@ -327,8 +323,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 return;
             }
 
-            const deterministicId = `routine-${routine.id}-${dateStr}`;
-            const exists = dbTasks.some((task) => task.id === deterministicId || task.routineId === routine.id);
+            const deterministicId = createVirtualRoutineTaskId(routine.id, dateStr);
+            const exists = dbTasks.some((task) => task.id === deterministicId || (task.routineId === routine.id && task.date === dateStr));
             if (exists) {
                 return;
             }
@@ -356,6 +352,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 routineId: routine.id,
                 tags: routine.tags,
                 memo: routine.memo,
+                isVirtual: true,
             });
         });
 

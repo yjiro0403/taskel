@@ -71,8 +71,8 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
         }
         if (!needsNormalize) return;
 
-        // 仮想タスク(routine-)は除外して実タスクのみ正規化
-        const realTaskIds = sorted.filter(t => !t.id.startsWith('routine-')).map(t => t.id);
+        // 仮想タスクは除外して実タスクのみ正規化
+        const realTaskIds = sorted.filter(t => !t.isVirtual).map(t => t.id);
         if (realTaskIds.length < 2) return;
 
         // reorderTasks はIDの配列順に order: 0, 1, 2... を割り当てる
