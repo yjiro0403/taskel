@@ -12,8 +12,21 @@ export async function GET(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
+    await requireAuth();
     const { taskId } = await params;
     const supabase = await createClient();
+
+    const { data: canAccessTask, error: accessError } = await supabase.rpc('can_access_task', {
+      task_uuid: taskId,
+    });
+
+    if (accessError) {
+      throw accessError;
+    }
+
+    if (!canAccessTask) {
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    }
 
     const { data: task, error: taskError } = await supabase
       .from('tasks')
