@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import nodemailer from 'nodemailer';
 
 import type { Database, Json } from '../src/types/supabase';
@@ -19,6 +20,7 @@ type SectionInsert = Tables['sections']['Insert'];
 type RoutineInsert = Tables['routines']['Insert'];
 type TaskInsert = Tables['tasks']['Insert'];
 type TaskTagInsert = Tables['task_tags']['Insert'];
+type TaskCommentInsert = Tables['task_comments']['Insert'];
 type InvitationInsert = Tables['invitations']['Insert'];
 type SubscriptionInsert = Tables['subscriptions']['Insert'];
 type NoteInsert = Tables['notes']['Insert'];
@@ -31,6 +33,7 @@ type GoalStatus = Database['public']['Enums']['goal_status'];
 type RoutineFrequency = Database['public']['Enums']['routine_frequency'];
 type TaskStatus = Database['public']['Enums']['task_status'];
 type TaskAiStatus = Database['public']['Enums']['task_ai_status'];
+type TaskAuthorType = Database['public']['Enums']['task_author_type'];
 type InvitationStatus = Database['public']['Enums']['invitation_status'];
 type SubscriptionPlan = Database['public']['Enums']['subscription_plan'];
 type SubscriptionStatus = Database['public']['Enums']['subscription_status'];
@@ -58,6 +61,23 @@ type NoteDoc = UserScopedDoc<{
     periodKey: string;
 };
 
+type TaskCommentDoc = RawDoc<{
+    taskId?: unknown;
+    userId?: unknown;
+    authorType?: unknown;
+    authorName?: unknown;
+    content?: unknown;
+    createdAt?: unknown;
+    updatedAt?: unknown;
+}> & {
+    taskId: string;
+};
+
+type PendingAttachmentInsert = AttachmentInsert & {
+    source_url: string | null;
+    source_storage_path: string | null;
+};
+
 type MigrationDataset = {
     users: RawDoc[];
     tags: RawDoc[];
@@ -65,6 +85,7 @@ type MigrationDataset = {
     invitations: RawDoc[];
     subscriptions: RawDoc[];
     tasks: RawDoc[];
+    taskComments: TaskCommentDoc[];
     goals: UserScopedDoc[];
     sections: UserScopedDoc[];
     routines: UserScopedDoc[];
@@ -81,6 +102,7 @@ type EntityCounts = {
     routines: number;
     tasks: number;
     task_tags: number;
+    task_comments: number;
     invitations: number;
     subscriptions: number;
     notes: number;
@@ -111,6 +133,7 @@ const counts: EntityCounts = {
     routines: 0,
     tasks: 0,
     task_tags: 0,
+    task_comments: 0,
     invitations: 0,
     subscriptions: 0,
     notes: 0,
@@ -173,6 +196,13 @@ function getSupabaseClient() {
 
 function getAppUrl() {
     return (process.env.NEXT_PUBLIC_APP_URL || 'https://taskel.vercel.app').replace(/\/$/, '');
+}
+
+function getFirebaseStorageBucketName() {
+    return process.env.FIREBASE_STORAGE_BUCKET
+        ?? process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+        ?? process.env.SUPABASE_PROJECT_ID
+        ?? undefined;
 }
 
 async function getSmtpTransport() {
@@ -419,6 +449,45 @@ async function readCollection<T = Record<string, unknown>>(path: string): Promis
     }));
 }
 
+async function readTaskComments(tasks: RawDoc[]): Promise<TaskCommentDoc[]> {
+    const nestedComments: TaskCommentDoc[] = [];
+
+    for (const [index, task] of tasks.entries()) {
+        logInfo(`Reading task comments ${index + 1}/${tasks.length}: ${task.id}`);
+        const comments = await readCollection(`tasks/${task.id}/comments`);
+        nestedComments.push(...comments.map((comment) => ({
+            ...comment,
+            taskId: task.id,
+        })));
+    }
+
+    let topLevelComments: TaskCommentDoc[] = [];
+    try {
+        const comments = await readCollection('task_comments');
+        topLevelComments = comments.flatMap((comment) => {
+            const taskId = asString(comment.data.taskId);
+            if (!taskId) {
+                logWarn(`Skipping top-level task comment ${comment.id}: missing taskId`);
+                return [];
+            }
+
+            return [{
+                ...comment,
+                taskId,
+            }];
+        });
+    } catch (error) {
+        logWarn(`Top-level task_comments collection could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+
+    const deduped = new Map<string, TaskCommentDoc>();
+    for (const comment of [...nestedComments, ...topLevelComments]) {
+        deduped.set(`${comment.taskId}:${comment.id}`, comment);
+    }
+
+    return Array.from(deduped.values());
+}
+
 async function loadDataset(): Promise<MigrationDataset> {
     const users = await readCollection('users');
     logInfo(`Loaded users: ${users.length}`);
@@ -430,6 +499,7 @@ async function loadDataset(): Promise<MigrationDataset> {
         readCollection('subscriptions'),
         readCollection('tasks'),
     ]);
+    const taskComments = await readTaskComments(tasks);
 
     const goals: UserScopedDoc[] = [];
     const sections: UserScopedDoc[] = [];
@@ -466,6 +536,7 @@ async function loadDataset(): Promise<MigrationDataset> {
     logInfo(`Loaded invitations: ${invitations.length}`);
     logInfo(`Loaded subscriptions: ${subscriptions.length}`);
     logInfo(`Loaded tasks: ${tasks.length}`);
+    logInfo(`Loaded task comments: ${taskComments.length}`);
     logInfo(`Loaded goals: ${goals.length}`);
     logInfo(`Loaded sections: ${sections.length}`);
     logInfo(`Loaded routines: ${routines.length}`);
@@ -478,6 +549,7 @@ async function loadDataset(): Promise<MigrationDataset> {
         invitations,
         subscriptions,
         tasks,
+        taskComments,
         goals,
         sections,
         routines,
@@ -877,7 +949,7 @@ function buildRoutines(routines: UserScopedDoc[], registry: IdRegistry) {
 function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<string, string>) {
     const taskRows: TaskInsert[] = [];
     const taskTagRows: TaskTagInsert[] = [];
-    const attachmentRows: AttachmentInsert[] = [];
+    const attachmentRows: PendingAttachmentInsert[] = [];
 
     for (const task of tasks) {
         const sourceUserId = asString(task.data.userId);
@@ -971,11 +1043,41 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
                 file_type: pickEnumValue(attachment.type, ['image', 'file'] as const, 'file') as AttachmentFileType,
                 size: typeof attachment.size === 'number' ? attachment.size : null,
                 created_at: normalizeTimestamp(attachment.createdAt) ?? undefined,
+                source_url: url,
+                source_storage_path: storagePath,
             });
         }
     }
 
     return { taskRows, taskTagRows, attachmentRows };
+}
+
+function buildTaskComments(taskComments: TaskCommentDoc[], registry: IdRegistry) {
+    const rows: TaskCommentInsert[] = [];
+
+    for (const comment of taskComments) {
+        const taskId = registry.get('tasks', comment.taskId);
+        if (!taskId) {
+            logError(`Skipping task comment ${comment.id}: missing task mapping for ${comment.taskId}`);
+            continue;
+        }
+
+        const authorType = pickEnumValue(comment.data.authorType, ['user', 'ai'] as const, 'user') as TaskAuthorType;
+        const userId = registry.get('users', asString(comment.data.userId));
+
+        rows.push({
+            id: registry.ensure('task_comments', `${comment.taskId}:${comment.id}`),
+            task_id: taskId,
+            user_id: userId,
+            author_type: authorType,
+            author_name: asString(comment.data.authorName),
+            content: asString(comment.data.content) ?? '',
+            created_at: normalizeTimestamp(comment.data.createdAt) ?? undefined,
+            updated_at: normalizeTimestamp(comment.data.updatedAt) ?? undefined,
+        });
+    }
+
+    return rows;
 }
 
 function buildInvitations(invitations: RawDoc[], registry: IdRegistry) {
@@ -1055,6 +1157,122 @@ function buildNotes(notes: NoteDoc[], registry: IdRegistry) {
     return rows;
 }
 
+function getSupabaseAttachmentPublicUrl(supabase: Client, path: string) {
+    return supabase.storage.from('attachments').getPublicUrl(path).data.publicUrl;
+}
+
+function inferFirebaseAttachmentPath(explicitPath: string | null, url: string | null) {
+    if (explicitPath) {
+        return explicitPath;
+    }
+
+    if (!url) {
+        return null;
+    }
+
+    try {
+        const parsed = new URL(url);
+        const objectPath = parsed.pathname.match(/\/o\/(.+)$/)?.[1];
+        if (!objectPath) {
+            return null;
+        }
+        return decodeURIComponent(objectPath);
+    } catch {
+        return null;
+    }
+}
+
+async function canUseSupabaseAttachmentBucket(supabase: Client) {
+    const { error } = await supabase.storage.from('attachments').list('', { limit: 1 });
+    if (!error) {
+        return true;
+    }
+
+    logWarn(`Supabase storage bucket "attachments" is not available: ${error.message}`);
+    return false;
+}
+
+async function downloadFirebaseAttachment(path: string) {
+    const bucketName = getFirebaseStorageBucketName();
+    const bucket = bucketName ? getStorage().bucket(bucketName) : getStorage().bucket();
+    const file = bucket.file(path);
+    const [buffer] = await file.download();
+    const [metadata] = await file.getMetadata();
+
+    return {
+        buffer,
+        contentType: metadata.contentType,
+    };
+}
+
+async function migrateAttachmentsToSupabase(supabase: Client, attachments: PendingAttachmentInsert[]) {
+    if (attachments.length === 0) {
+        return [] as AttachmentInsert[];
+    }
+
+    if (dryRun) {
+        return attachments.map(({ source_storage_path, source_url, ...attachment }) => ({
+            ...attachment,
+            storage_path: source_storage_path ?? attachment.storage_path,
+            url: getSupabaseAttachmentPublicUrl(supabase, source_storage_path ?? attachment.storage_path),
+        }));
+    }
+
+    const bucketAvailable = await canUseSupabaseAttachmentBucket(supabase);
+    if (!bucketAvailable) {
+        return attachments.map(({ source_storage_path, source_url, ...attachment }) => ({
+            ...attachment,
+            storage_path: source_storage_path ?? attachment.storage_path,
+            url: source_url ?? attachment.url,
+        }));
+    }
+
+    const migratedRows: AttachmentInsert[] = [];
+
+    for (const attachment of attachments) {
+        const { source_storage_path, source_url, ...baseAttachment } = attachment;
+        const targetPath = attachment.storage_path;
+        const sourcePath = inferFirebaseAttachmentPath(source_storage_path, source_url);
+
+        if (!sourcePath) {
+            logWarn(`Skipping storage transfer for attachment ${attachment.id}: missing Firebase source path`);
+            migratedRows.push({
+                ...baseAttachment,
+                url: source_url ?? attachment.url,
+                storage_path: targetPath,
+            });
+            continue;
+        }
+
+        try {
+            const { buffer, contentType } = await downloadFirebaseAttachment(sourcePath);
+            const { error } = await supabase.storage.from('attachments').upload(targetPath, buffer, {
+                upsert: true,
+                contentType: contentType ?? undefined,
+            });
+
+            if (error) {
+                throw new Error(error.message);
+            }
+
+            migratedRows.push({
+                ...baseAttachment,
+                storage_path: targetPath,
+                url: getSupabaseAttachmentPublicUrl(supabase, targetPath),
+            });
+        } catch (error) {
+            logWarn(`Attachment transfer failed for ${attachment.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+            migratedRows.push({
+                ...baseAttachment,
+                storage_path: targetPath,
+                url: source_url ?? attachment.url,
+            });
+        }
+    }
+
+    return migratedRows;
+}
+
 function printSummary() {
     console.log('\n=== Migration Summary ===');
     console.log(`Mode: ${dryRun ? 'dry-run' : 'write'}`);
@@ -1072,6 +1290,7 @@ function printSummary() {
     console.log(`routines: ${counts.routines}`);
     console.log(`tasks: ${counts.tasks}`);
     console.log(`task_tags: ${counts.task_tags}`);
+    console.log(`task_comments: ${counts.task_comments}`);
     console.log(`invitations: ${counts.invitations}`);
     console.log(`subscriptions: ${counts.subscriptions}`);
     console.log(`notes: ${counts.notes}`);
@@ -1095,9 +1314,11 @@ async function main() {
     const sectionRows = buildSections(dataset.sections, registry);
     const routineRows = buildRoutines(dataset.routines, registry);
     const { taskRows, taskTagRows, attachmentRows } = buildTasks(dataset.tasks, registry, tagNameByUser);
+    const taskCommentRows = buildTaskComments(dataset.taskComments, registry);
     const invitationRows = buildInvitations(dataset.invitations, registry);
     const subscriptionRows = buildSubscriptions(dataset.subscriptions, registry);
     const noteRows = buildNotes(dataset.notes, registry);
+    const migratedAttachmentRows = await migrateAttachmentsToSupabase(supabase, attachmentRows);
 
     logInfo('Beginning ordered upserts');
 
@@ -1109,8 +1330,9 @@ async function main() {
     await upsertTable(supabase, 'goals', goalRows, 'id', 'goals');
     await upsertTable(supabase, 'routines', routineRows, 'id', 'routines');
     await upsertTable(supabase, 'tasks', taskRows, 'id', 'tasks');
+    await upsertTable(supabase, 'task_comments', taskCommentRows, 'id', 'task_comments');
     await upsertTable(supabase, 'task_tags', taskTagRows, 'task_id,tag_id', 'task_tags');
-    await upsertTable(supabase, 'attachments', attachmentRows, 'id', 'attachments');
+    await upsertTable(supabase, 'attachments', migratedAttachmentRows, 'id', 'attachments');
     await upsertTable(supabase, 'invitations', invitationRows, 'id', 'invitations');
     await upsertTable(supabase, 'subscriptions', subscriptionRows, 'user_id', 'subscriptions');
     await upsertTable(supabase, 'notes', noteRows, 'user_id,type,period_key', 'notes');
