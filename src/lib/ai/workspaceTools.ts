@@ -98,11 +98,6 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
       execute: async (args: any) => {
         const { content } = args;
         const supabase = await createClient();
-        const { data: task } = await supabase
-          .from('tasks')
-          .select('comment_count')
-          .eq('id', ctx.taskId)
-          .maybeSingle();
 
         const { data: comment } = await supabase
           .from('task_comments')
@@ -115,10 +110,6 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
           })
           .select('id')
           .single();
-
-        await supabase.from('tasks').update({
-          comment_count: (task?.comment_count || 0) + 1,
-        });
 
         return {
           type: 'comment_posted',

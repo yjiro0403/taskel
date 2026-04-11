@@ -121,10 +121,6 @@ export async function POST(req: Request) {
       if (commentError) {
         throw commentError;
       }
-      await supabase.from('tasks').update({
-        comment_count: (taskData.comment_count ?? 0) + 1,
-      }).eq('id', taskId);
-
       return new Response(
         JSON.stringify({ comment }),
         { headers: { 'Content-Type': 'application/json' } }

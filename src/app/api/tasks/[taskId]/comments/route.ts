@@ -70,7 +70,7 @@ export async function POST(
 
     const { data: task, error: taskError } = await supabase
       .from('tasks')
-      .select('id, comment_count')
+      .select('id')
       .eq('id', taskId)
       .maybeSingle();
 
@@ -96,17 +96,6 @@ export async function POST(
 
     if (insertError) {
       throw insertError;
-    }
-
-    const { error: updateError } = await supabase
-      .from('tasks')
-      .update({
-        comment_count: (task.comment_count ?? 0) + 1,
-      })
-      .eq('id', taskId);
-
-    if (updateError) {
-      throw updateError;
     }
 
     return NextResponse.json({ comment: mapTaskComment(insertedComment) });
