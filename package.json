@@ -8,10 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "seed:demo": "ts-node scripts/seedDemoData.ts",
     "screenshots": "playwright test e2e/screenshots.spec.ts",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "build-storybook": "storybook build",
+    "migrate:supabase": "tsx scripts/migrate-to-supabase.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.26",
@@ -66,6 +66,7 @@
     "typescript": "^5",
     "vitest": "^4.0.18",
     "webpack": "^5.105.1",
-    "firebase-admin": "^13.6.0"
+    "firebase-admin": "^13.6.0",
+    "tsx": "^4.19.2"
   }
 }
