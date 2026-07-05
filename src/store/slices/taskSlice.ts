@@ -8,13 +8,17 @@ import {
 import { db } from '@/lib/firebase';
 import { sanitizeData } from '../helpers/sanitize';
 import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
-import { parseISO, isBefore, isSameDay } from 'date-fns';
+import { format } from 'date-fns';
+import { routineOccursOn } from '@/lib/routineUtils';
 
 // タスクCRUD + 仮想タスク生成 + マイグレーション スライス
 export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set, get) => ({
     tasks: [],
     selectedTaskIds: [],
-    currentDate: new Date().toISOString().split('T')[0],
+    // ローカルタイムゾーン基準の当日。toISOString() は UTC 基準のため、JST では
+    // 深夜0〜9時に「前日」を指してしまいルーチン表示とズレる（DateNavigation の
+    // Today ボタンや getMergedTasks はローカル基準のため二重にズレる）。
+    currentDate: format(new Date(), 'yyyy-MM-dd'),
 
     setCurrentDate: (date) => set({ currentDate: date }),
 
@@ -65,40 +69,94 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             try {
                 const token = await user.getIdToken();
                 const task = tasks.find(t => t.id === taskId);
-                let isVirtual = false;
-                let fullTaskForCreation: Task | null = null;
 
-                // 仮想タスクのインスタンス化ロジック
-                if (!task) {
+                // 仮想（未実体化）ルーチンタスクの元データを解決
+                let virtualTask: Task | undefined;
+                if (!task && taskId.startsWith('routine-')) {
                     const dateStr = taskId.split('-').slice(-3).join('-');
-                    const merged = getMergedTasks(dateStr);
-                    const virtualTask = merged.find(t => t.id === taskId);
-
-                    if (virtualTask) {
-                        isVirtual = true;
-                        fullTaskForCreation = {
-                            ...virtualTask,
-                            ...updates,
-                            userId: user.uid,
-                        };
-                        set((state) => ({ tasks: [...state.tasks, fullTaskForCreation as Task] }));
-                    }
+                    virtualTask = getMergedTasks(dateStr).find(t => t.id === taskId);
                 }
+                const occurrence = task ?? virtualTask; // 実体化 or 仮想のいずれか
 
-                if (isVirtual && fullTaskForCreation) {
-                    const response = await fetch('/api/tasks', {
+                // ルーチンタスクの「日付移動」検知（データ破壊防止）。
+                // ルーチン由来タスクの ID は `routine-<rid>-<元日付>` で日付を内包する。
+                // 日付だけ変更すると ID と date がズレ、元日付に同一 ID の仮想タスクが
+                // 再生成されて衝突し、その削除で移動先タスクを上書き破壊していた。
+                // 対策: 日付移動時は「元スロットをスキップ化」＋「新規 UUID の独立タスクへ
+                // デタッチ（routineId を外す）」ことで ID 衝突を根絶する（仮想・実体化とも）。
+                const isRoutineOccurrence = !!occurrence && (taskId.startsWith('routine-') || !!occurrence.routineId);
+                const dateKeyPresent = Object.prototype.hasOwnProperty.call(updates, 'date');
+                const dateChanging = dateKeyPresent && updates.date !== occurrence?.date;
+                if (occurrence && isRoutineOccurrence && dateChanging && occurrence.routineId && occurrence.date) {
+                    const rid = occurrence.routineId;
+                    const origDate = occurrence.date;
+                    const slotId = `routine-${rid}-${origDate}`;
+
+                    // 1) 元スロットをスキップ化（再生成を抑止）
+                    const skipMarker: Task = {
+                        ...occurrence,
+                        id: slotId,
+                        routineId: rid,
+                        date: origDate,
+                        status: 'skipped',
+                        userId: user.uid,
+                        updatedAt: Date.now(),
+                    };
+                    // 2) 移動先へ独立タスクとして複製（routineId を外し新規 UUID）
+                    const detached: Task = {
+                        ...occurrence,
+                        ...updates,
+                        id: crypto.randomUUID(),
+                        routineId: undefined,
+                        createdAt: Date.now(),
+                        updatedAt: Date.now(),
+                        userId: user.uid,
+                    };
+
+                    // 楽観的更新: 元タスクを除去し、スキップマーカー＋独立タスクを反映
+                    set((state) => ({
+                        tasks: [...state.tasks.filter((t) => t.id !== taskId), skipMarker, detached],
+                    }));
+
+                    // 元 doc が slotId と異なる場合（既に UUID 化済み等）は旧 doc を削除
+                    if (task && taskId !== slotId) {
+                        await deleteDoc(doc(db, 'tasks', taskId));
+                    }
+                    // スキップマーカーを永続化（クライアント SDK: 自己所有の単純ドキュメント）
+                    await setDoc(doc(db, 'tasks', slotId), sanitizeData(skipMarker));
+                    // 独立タスクを作成（BFF API）
+                    const detachRes = await fetch('/api/tasks', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             Authorization: `Bearer ${token}`,
                         },
-                        body: JSON.stringify({ task: fullTaskForCreation, action: 'create' })
+                        body: JSON.stringify({ task: detached, action: 'create' }),
                     });
-                    if (!response.ok) throw new Error('Failed to instantiate task via API');
+                    if (!detachRes.ok) throw new Error('Failed to detach routine task');
                     return;
                 }
 
-                if (!task && !isVirtual) {
+                // 仮想タスクのインスタンス化（日付移動でない通常の編集・完了操作）
+                if (!task) {
+                    if (virtualTask) {
+                        const fullTaskForCreation: Task = {
+                            ...virtualTask,
+                            ...updates,
+                            userId: user.uid,
+                        };
+                        set((state) => ({ tasks: [...state.tasks, fullTaskForCreation] }));
+                        const response = await fetch('/api/tasks', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                Authorization: `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({ task: fullTaskForCreation, action: 'create' })
+                        });
+                        if (!response.ok) throw new Error('Failed to instantiate task via API');
+                        return;
+                    }
                     console.error("Task not found for update:", taskId);
                     return;
                 }
@@ -224,22 +282,16 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     },
 
     bulkUpdateTasks: async (taskIds, updates) => {
-        const { user } = get();
+        const { user, updateTask } = get();
         if (user) {
-            try {
-                const batch = writeBatch(db);
-                taskIds.forEach((id) => {
-                    const ref = doc(db, 'tasks', id);
-                    batch.update(ref, sanitizeData({
-                        ...updates,
-                        updatedAt: Date.now()
-                    }));
-                });
-                await batch.commit();
-                set({ selectedTaskIds: [] });
-            } catch (error) {
-                console.error("Error bulk updating tasks: ", error);
+            // 従来は writeBatch.update を使っていたため、未実体化の仮想ルーチンタスクや
+            // 未作成 doc が1件でも含まれるとバッチ全体が失敗し「全件移動されない」
+            // 不具合があった。仮想タスクの実体化・ルーチンのデタッチ・未存在ドキュメントを
+            // 安全に扱うため、1件ずつ updateTask に委譲する（各件が独立して成否判定される）。
+            for (const id of taskIds) {
+                await updateTask(id, updates);
             }
+            set({ selectedTaskIds: [] });
         } else {
             set((state) => ({
                 tasks: state.tasks.map((t) => (taskIds.includes(t.id) ? { ...t, ...updates } : t)),
@@ -357,31 +409,13 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         // 1. 該当日のDBタスクを取得（skipped含む）
         const dbTasks = tasks.filter(t => t.date === dateStr);
 
-        // 2. 対象日を設定
-        const targetDate = parseISO(dateStr);
         const virtualTasks: Task[] = [];
 
         routines.forEach(routine => {
             if (!routine.active) return;
-            const startDate = parseISO(routine.startDate || routine.nextRun);
-            if (isBefore(targetDate, startDate) && !isSameDay(targetDate, startDate)) return;
 
-            // 頻度のチェック
-            let matches = false;
-            if (routine.frequency === 'daily') {
-                matches = true;
-            } else if (routine.frequency === 'weekly') {
-                if (routine.daysOfWeek && routine.daysOfWeek.length > 0) {
-                    matches = routine.daysOfWeek.includes(targetDate.getDay());
-                } else {
-                    matches = targetDate.getDay() === startDate.getDay();
-                }
-            } else if (routine.frequency === 'monthly') {
-                matches = targetDate.getDate() === startDate.getDate();
-            } else if (routine.frequency === 'custom' && routine.interval) {
-                const diffDays = Math.floor((targetDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-                matches = diffDays >= 0 && diffDays % routine.interval === 0;
-            }
+            // 頻度判定は純粋関数 routineOccursOn に集約（単体テスト対象）
+            const matches = routineOccursOn(routine, dateStr);
 
             if (matches) {
                 const deterministicId = `routine-${routine.id}-${dateStr}`;

@@ -28,7 +28,7 @@ import {
 import { AIChatPanel } from './AIChatPanel';
 
 export default function TaskList() {
-    const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
+    const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -115,7 +115,10 @@ export default function TaskList() {
 
     const filteredTasks = useMemo(() => {
         return getMergedTasks(currentDate);
-    }, [getMergedTasks, currentDate, tasks]);
+        // routines を依存に含める。含めないと、起動時に tasks が routines より先に
+        // 届いた場合などにルーチン仮想タスクが再計算されず「今日のルーチンが出ない」
+        // 間欠不具合になる。
+    }, [getMergedTasks, currentDate, tasks, routines]);
 
     const dailyGoals = useMemo(() => {
         return tasks.filter(t => t.assignedDate === currentDate && !t.date).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
