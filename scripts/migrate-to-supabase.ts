@@ -837,6 +837,50 @@ function buildProjects(projects: RawDoc[], registry: IdRegistry) {
     return { projectRows, memberRows };
 }
 
+// ISO週文字列 'YYYY-Www' から代表月 'YYYY-MM' を導出する（週の木曜日が属する月）。
+function isoWeekToMonth(weekStr: string | null): string | null {
+    if (!weekStr) return null;
+    const m = /^(\d{4})-W(\d{2})$/.exec(weekStr);
+    if (!m) return null;
+    const year = Number(m[1]);
+    const week = Number(m[2]);
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Day = jan4.getUTCDay() || 7;
+    const week1Monday = new Date(jan4);
+    week1Monday.setUTCDate(jan4.getUTCDate() - (jan4Day - 1));
+    const monday = new Date(week1Monday);
+    monday.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7);
+    const thursday = new Date(monday);
+    thursday.setUTCDate(monday.getUTCDate() + 3);
+    return `${thursday.getUTCFullYear()}-${String(thursday.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+// goals_period_scope_check（yearly→month/week null / monthly→month必須,week null /
+// weekly→month,week必須）を満たすよう type と assigned_month/week を整える。欠損は
+// 導出（weekから月）または粒度降格で救済し、CHECK違反による欠損を防ぐ。
+function normalizeGoalScope(type: GoalType, month: string | null, week: string | null): {
+    type: GoalType;
+    assigned_month: string | null;
+    assigned_week: string | null;
+} {
+    if (type === 'yearly') {
+        return { type: 'yearly', assigned_month: null, assigned_week: null };
+    }
+    if (type === 'monthly') {
+        if (month) return { type: 'monthly', assigned_month: month, assigned_week: null };
+        return { type: 'yearly', assigned_month: null, assigned_week: null };
+    }
+    // weekly
+    if (week) {
+        const resolvedMonth = month ?? isoWeekToMonth(week);
+        if (resolvedMonth) {
+            return { type: 'weekly', assigned_month: resolvedMonth, assigned_week: week };
+        }
+    }
+    if (month) return { type: 'monthly', assigned_month: month, assigned_week: null };
+    return { type: 'yearly', assigned_month: null, assigned_week: null };
+}
+
 function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
     const rows: GoalInsert[] = [];
 
@@ -848,19 +892,23 @@ function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
         }
 
         const id = registry.ensure('goals', `${goal.userId}:${goal.id}`);
-        const type: GoalType = pickEnumValue(goal.data.type, ['yearly', 'monthly', 'weekly'] as const, 'weekly');
+        const rawType: GoalType = pickEnumValue(goal.data.type, ['yearly', 'monthly', 'weekly'] as const, 'weekly');
+        const scope = normalizeGoalScope(rawType, asString(goal.data.assignedMonth) ?? null, asString(goal.data.assignedWeek) ?? null);
+        if (scope.type !== rawType) {
+            logWarn(`Goal ${goal.id}: adjusted scope ${rawType} -> ${scope.type} to satisfy period-scope constraint`);
+        }
         const status: GoalStatus = pickEnumValue(goal.data.status, ['pending', 'in_progress', 'achieved', 'missed', 'cancelled'] as const, 'pending');
         const parentSourceId = asString(goal.data.parentGoalId);
 
         rows.push({
             id,
             user_id: userId,
-            type,
+            type: scope.type,
             title: asString(goal.data.title) ?? 'Untitled goal',
             description: asString(goal.data.description),
             assigned_year: asString(goal.data.assignedYear) ?? new Date().getUTCFullYear().toString(),
-            assigned_month: asString(goal.data.assignedMonth),
-            assigned_week: asString(goal.data.assignedWeek),
+            assigned_month: scope.assigned_month,
+            assigned_week: scope.assigned_week,
             status,
             progress: Math.max(0, Math.min(100, asNumber(goal.data.progress, 0))),
             parent_goal_id: parentSourceId ? registry.ensure('goals', `${goal.userId}:${parentSourceId}`) : null,
@@ -960,14 +1008,16 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
         }
 
         const sourceSectionId = asString(task.data.sectionId);
-        const sectionId = registry.get('sections', `${sourceUserId}:${sourceSectionId ?? ''}`);
-        if (!sectionId) {
-            logError(`Skipping task ${task.id}: missing section mapping for ${sourceSectionId ?? '(null)'}`);
-            continue;
-        }
+        // section_id は nullable 化済み（006）。ゴール/バックログタスクは section を持たない
+        // （元データで sectionId='goal' や空、または参照先セクション削除済み）ので、マッピングが
+        // 引けなくても skip せず section_id=null で投入する（従来は skip で欠損していた）。
+        const sectionId = registry.get('sections', `${sourceUserId}:${sourceSectionId ?? ''}`) ?? null;
 
         const id = registry.ensure('tasks', task.id);
-        const date = normalizeDate(task.data.date) ?? normalizeDate(task.data.assignedDate) ?? new Date().toISOString().slice(0, 10);
+        // date は nullable 化済み（006）。日付なしタスク（週/月/年ゴール・バックログ, 元データ
+        // date:''）は date=null として意味を保持する（従来は today にフォールバックし『今日の
+        // 日次タスク』へ化けてゴール/バックログビューから消えていた）。
+        const date = normalizeDate(task.data.date) ?? null;
         const tags = asStringArray(task.data.tags);
         const attachments = Array.isArray(task.data.attachments) ? task.data.attachments : [];
 
@@ -1047,6 +1097,28 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
                 source_storage_path: storagePath,
             });
         }
+    }
+
+    // 005 の部分ユニークインデックス（user_id where status='in_progress' は1件のみ）に
+    // 抵触しないよう、ユーザー単位で in_progress を1件に正規化する。実 Firestore には
+    // タイマー放置・複数日跨ぎ等で複数 in_progress が残りうるため、最新 started_at のみ
+    // in_progress を保持し、他は open へ降格する（従来はそのまま投入し unique 違反で
+    // 2件目以降のタスクが移行失敗＝欠損していた）。
+    const inProgressByUser = new Map<string, TaskInsert[]>();
+    for (const row of taskRows) {
+        if (row.status === 'in_progress') {
+            const list = inProgressByUser.get(row.user_id) ?? [];
+            list.push(row);
+            inProgressByUser.set(row.user_id, list);
+        }
+    }
+    for (const [normalizeUserId, rows] of inProgressByUser) {
+        if (rows.length <= 1) continue;
+        rows.sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''));
+        for (let i = 1; i < rows.length; i++) {
+            rows[i].status = 'open';
+        }
+        logWarn(`User ${normalizeUserId}: demoted ${rows.length - 1} extra in_progress task(s) to open (single-active-task constraint)`);
     }
 
     return { taskRows, taskTagRows, attachmentRows };
