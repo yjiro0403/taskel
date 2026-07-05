@@ -10,12 +10,18 @@ async function saveNote(
     periodKey: string,
     content: string
 ) {
-    const { error } = await createClient().from('notes').upsert({
-        user_id: userId,
-        type,
-        period_key: periodKey,
-        content,
-    });
+    // notes は id(PK) に加え unique(user_id, type, period_key)。id を送らない upsert は
+    // 既定で PK 競合となり毎回 INSERT 扱いになるため、2回目の保存で unique 制約違反になる。
+    // 競合キーを (user_id, type, period_key) に明示して『同一期間ノートの更新』を成立させる。
+    const { error } = await createClient().from('notes').upsert(
+        {
+            user_id: userId,
+            type,
+            period_key: periodKey,
+            content,
+        },
+        { onConflict: 'user_id,type,period_key' }
+    );
 
     if (error) {
         throw error;

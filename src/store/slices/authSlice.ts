@@ -180,17 +180,15 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 }
 
                 set((state) => ({
-                    tasks: upsertById(
-                        state.tasks.filter((entry) => !isPendingTask(entry.id) || entry.id === task.id),
-                        task
-                    ),
+                    // pending中（書き込み飛行中）のタスクはローカルの楽観的状態を優先し、
+                    // realtime版で上書きしない。他の pending タスクも配列から除去せず保持する
+                    // （従来は filter で無関係な pending タスクごと消し、ドラッグ/編集中の
+                    // タスクが realtime イベント到来時に一瞬消える不具合があった）。
+                    tasks: isPendingTask(task.id) ? state.tasks : upsertById(state.tasks, task),
                 }));
                 rebuildDataSubscriptions(
                     get().projects.map((project) => project.id),
-                    upsertById(
-                        get().tasks.filter((entry) => !isPendingTask(entry.id) || entry.id === task.id),
-                        task
-                    ).map((entry) => entry.id)
+                    get().tasks.map((entry) => entry.id)
                 );
             } catch (error) {
                 console.error('Failed to sync task:', error);

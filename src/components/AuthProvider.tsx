@@ -26,8 +26,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 return;
             }
 
-            await ensureProfile(supabase, data.user);
-            await createDefaultWorkspace(supabase, data.user.id);
+            // プロフィール/ワークスペース初期化の失敗（一時的なネットワーク断・RLS・
+            // UNIQUE衝突等）でセッション自体を失わないよう、失敗しても setUser は必ず行う。
+            // これを握らないと『ログイン済みなのにアプリ上ログアウト扱い→/login無限往復』になる。
+            try {
+                await ensureProfile(supabase, data.user);
+                await createDefaultWorkspace(supabase, data.user.id);
+            } catch (initError) {
+                console.error('Profile/workspace init failed (session preserved):', initError);
+            }
             setUser(mapSupabaseUser(data.user));
         };
 
@@ -39,8 +46,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (!session?.user) {
                 setUser(null);
             } else {
-                await ensureProfile(supabase, session.user);
-                await createDefaultWorkspace(supabase, session.user.id);
+                try {
+                    await ensureProfile(supabase, session.user);
+                    await createDefaultWorkspace(supabase, session.user.id);
+                } catch (initError) {
+                    console.error('Profile/workspace init failed (session preserved):', initError);
+                }
                 setUser(mapSupabaseUser(session.user));
             }
 
