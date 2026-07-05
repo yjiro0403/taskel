@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import admin from 'firebase-admin';
 import { getDb } from '@/lib/firebaseAdmin';
 import { requireAuth, handleAuthError } from '@/lib/apiAuth';
 
@@ -105,8 +106,20 @@ export async function POST(req: Request) {
                 taskData.userId = uid;
             }
 
-            // undefined フィールドを除去（merge で無害化）
-            const cleanUpdates = JSON.parse(JSON.stringify(taskData));
+            // フィールドの正規化:
+            //  - null が来たキーは「クリア（削除）」意図として FieldValue.delete() に変換。
+            //    set(merge) は null を代入するだけでフィールドを消せず、undefined は
+            //    JSON 転送時に脱落するため、週/月ビューの「バックログへ戻す」等の
+            //    クリア操作が永続化されず巻き戻っていた（本修正で解消）。
+            //  - undefined はスキップ（merge で無害化）。
+            const cleanUpdates: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(taskData)) {
+                if (value === null) {
+                    cleanUpdates[key] = admin.firestore.FieldValue.delete();
+                } else if (value !== undefined) {
+                    cleanUpdates[key] = value;
+                }
+            }
 
             await docRef.set(cleanUpdates, { merge: true });
             return NextResponse.json({ success: true, message: 'Task updated' });

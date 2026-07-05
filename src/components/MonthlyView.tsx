@@ -16,7 +16,7 @@ import {
     DragStartEvent,
     DragOverlay
 } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { sortableKeyboardCoordinates, arrayMove } from '@dnd-kit/sortable';
 import { useState } from 'react';
 import GoalItem from './GoalItem';
 
@@ -26,7 +26,7 @@ interface MonthlyViewProps {
 }
 
 export default function MonthlyView({ currentDate = new Date() }: MonthlyViewProps) {
-    const { tasks, updateTask } = useStore();
+    const { tasks, updateTask, reorderTasks } = useStore();
 
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);
@@ -82,22 +82,42 @@ export default function MonthlyView({ currentDate = new Date() }: MonthlyViewPro
         if (activeTaskId === overId) return;
 
         // Determine destination
-        // 1. Dropped on another Weekly Goal
+        // 1. Dropped on another Goal（週ゴール or 月ゴール）
         const overTask = tasks.find(t => t.id === overId);
         if (overTask) {
-            // Reordering within the same week OR moving to another week's goal
-            const targetWeekId = overTask.assignedWeek;
             const activeTask = tasks.find(t => t.id === activeTaskId);
+            if (!activeTask) return;
 
-            if (!activeTask || !targetWeekId) return;
+            const targetWeekId = overTask.assignedWeek;
 
-            // If moving to a different week
-            if (activeTask.assignedWeek !== targetWeekId) {
-                updateTask(activeTaskId, { assignedWeek: targetWeekId });
-            } else {
-                // Reorder within same week (basic reorder logic - simple append for now or handle detailed reorder)
-                // For simplified cross-column DnD, we focus on moving between weeks first.
-                // Detailed reorder logic can be added if needed, similar to TaskList.
+            if (targetWeekId) {
+                // 週ゴールの上にドロップ
+                if (activeTask.assignedWeek !== targetWeekId) {
+                    // 別の週へ移動
+                    updateTask(activeTaskId, { assignedWeek: targetWeekId });
+                } else {
+                    // 同一週内での並び替え（従来は未実装で元に戻っていた）
+                    const list = (weeklyGoalsMap.get(targetWeekId) ?? [])
+                        .slice()
+                        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+                    const oldIndex = list.findIndex(g => g.id === activeTaskId);
+                    const newIndex = list.findIndex(g => g.id === overId);
+                    if (oldIndex !== -1 && newIndex !== -1) {
+                        reorderTasks(arrayMove(list, oldIndex, newIndex).map(g => g.id));
+                    }
+                }
+            } else if (overTask.assignedMonth && !overTask.assignedWeek) {
+                // 月ゴールの上にドロップ → 月ゴール一覧内での並び替え
+                if (!activeTask.assignedWeek && activeTask.assignedMonth === overTask.assignedMonth) {
+                    const list = monthlyGoals
+                        .slice()
+                        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+                    const oldIndex = list.findIndex(g => g.id === activeTaskId);
+                    const newIndex = list.findIndex(g => g.id === overId);
+                    if (oldIndex !== -1 && newIndex !== -1) {
+                        reorderTasks(arrayMove(list, oldIndex, newIndex).map(g => g.id));
+                    }
+                }
             }
             return;
         }

@@ -180,6 +180,16 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                     };
                 }
 
+                // クリア意図（undefined）を null センチネルに変換して API に伝える。
+                // JSON では undefined が脱落するため、そのままだと date/assignedWeek 等の
+                // 「バックログへ戻す」クリアが永続化されず巻き戻る。API 側で
+                // null→FieldValue.delete() に変換される。
+                if (payloadAction === 'update') {
+                    for (const k of Object.keys(payloadTask)) {
+                        if (payloadTask[k] === undefined) payloadTask[k] = null;
+                    }
+                }
+
                 // BFFパターン: API経由で更新
                 const response = await fetch('/api/tasks', {
                     method: 'POST',
@@ -380,7 +390,9 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     reorderTasks: async (taskIds: string[]) => {
         const { user, tasks } = get();
-        // 楽観的更新
+        const oldTasks = tasks;
+
+        // 楽観的更新（配列順に order 0,1,2... を割り当て）
         const newTasks = tasks.map(t => {
             const newIndex = taskIds.indexOf(t.id);
             if (newIndex >= 0) {
@@ -391,15 +403,22 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         set({ tasks: newTasks });
 
         if (user) {
+            // 書き込み中は Firestore リスナーによる巻き戻しを防止
+            taskIds.forEach(addPendingTask);
             try {
                 const batch = writeBatch(db);
                 taskIds.forEach((id, index) => {
                     const ref = doc(db, 'tasks', id);
-                    batch.update(ref, { order: index, updatedAt: Date.now() });
+                    // update() は未存在 doc でバッチ全体を失敗させるため set(merge) を使う
+                    batch.set(ref, { order: index, updatedAt: Date.now() }, { merge: true });
                 });
                 await batch.commit();
             } catch (error) {
                 console.error("Error reordering tasks: ", error);
+                // 失敗時はローカル順を巻き戻す（DBと画面の乖離を防ぐ）
+                set({ tasks: oldTasks });
+            } finally {
+                taskIds.forEach(removePendingTask);
             }
         }
     },
