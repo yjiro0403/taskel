@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { tool } from 'ai';
 import { createClient } from '@/lib/supabase/server';
+import { safeFetch } from '@/lib/safeFetch';
 
 interface WorkspaceToolContext {
   userId: string;
@@ -132,7 +133,9 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
       execute: async (args: any) => {
         const { url, instruction } = args;
         try {
-          const response = await fetch(url, {
+          // SSRF 対策: プライベート/ループバック/メタデータ IP・非 http(s)・
+          // リダイレクトを拒否する safeFetch を使用
+          const response = await safeFetch(url, {
             headers: {
               'User-Agent': 'Taskel-AI/1.0',
               'Accept': 'text/html,application/json,text/plain',

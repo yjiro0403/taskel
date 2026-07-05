@@ -1,11 +1,11 @@
-import { parseISO, isBefore, isSameDay } from 'date-fns';
+import { format } from 'date-fns';
 import { StateCreator } from 'zustand';
 
 import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
+import { routineOccursOn } from '@/lib/routineUtils';
 import {
     bulkCreateTaskRecords,
     bulkReplaceTaskRecords,
-    bulkUpdateTaskRecords,
     createTaskRecord,
     deleteTaskRecord,
     replaceTaskRecord,
@@ -18,7 +18,9 @@ import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
 export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set, get) => ({
     tasks: [],
     selectedTaskIds: [],
-    currentDate: new Date().toISOString().split('T')[0],
+    // ローカルタイムゾーン基準の当日。toISOString() は UTC 基準のため、JST では
+    // 深夜0〜9時に「前日」を指してしまいルーチン表示とズレる。
+    currentDate: format(new Date(), 'yyyy-MM-dd'),
 
     setCurrentDate: (date) => set({ currentDate: date }),
 
@@ -58,29 +60,69 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
         try {
             const currentTask = tasks.find((task) => task.id === taskId);
-            let isVirtual = false;
-            let fullTaskForCreation: Task | null = null;
+            const virtualTask = currentTask
+                ? undefined
+                : getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
+            const occurrence = currentTask ?? virtualTask;
 
+            // ルーチンタスクの「日付移動」検知（データ破壊防止）。
+            // ルーチン由来タスクは日付をエンコードした決定的UUIDを doc ID に持つため、
+            // 日付だけ変更すると元日付に同一 ID の仮想タスクが再生成されて衝突し、その
+            // 削除で移動先タスクを上書き破壊していた。対策: 日付移動時は元スロットを
+            // スキップ化＋新規 UUID の独立タスクへデタッチ（routineId を外す）して衝突を根絶。
+            const isRoutineOccurrence = !!occurrence && !!occurrence.routineId;
+            const dateKeyPresent = Object.prototype.hasOwnProperty.call(updates, 'date');
+            const dateChanging = dateKeyPresent && updates.date !== occurrence?.date;
+            if (occurrence && isRoutineOccurrence && dateChanging && occurrence.routineId && occurrence.date) {
+                const rid = occurrence.routineId;
+                const origDate = occurrence.date;
+                const slotId = createVirtualRoutineTaskId(rid, origDate);
+
+                const skipMarker: Task = {
+                    ...occurrence,
+                    id: slotId,
+                    routineId: rid,
+                    date: origDate,
+                    status: 'skipped',
+                    userId: user.uid,
+                    updatedAt: Date.now(),
+                    isVirtual: undefined,
+                };
+                const detached: Task = {
+                    ...occurrence,
+                    ...updates,
+                    id: crypto.randomUUID(),
+                    routineId: undefined,
+                    isVirtual: undefined,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    userId: user.uid,
+                };
+
+                set((state) => ({
+                    tasks: [...state.tasks.filter((task) => task.id !== taskId), skipMarker, detached],
+                }));
+
+                if (currentTask && taskId !== slotId) {
+                    await deleteTaskRecord(taskId);
+                }
+                await replaceTaskRecord(skipMarker, user.uid);
+                await createTaskRecord(detached, user.uid);
+                return;
+            }
+
+            // 仮想タスクの実体化（日付移動でない通常の編集・完了操作）
             if (!currentTask) {
-                const virtualTask = getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
-
                 if (virtualTask) {
-                    isVirtual = true;
-                    fullTaskForCreation = {
+                    const fullTaskForCreation: Task = {
                         ...virtualTask,
                         ...updates,
                         userId: user.uid,
                     };
-                    set((state) => ({ tasks: [...state.tasks, fullTaskForCreation as Task] }));
+                    set((state) => ({ tasks: [...state.tasks, fullTaskForCreation] }));
+                    await replaceTaskRecord(fullTaskForCreation, user.uid);
+                    return;
                 }
-            }
-
-            if (isVirtual && fullTaskForCreation) {
-                await replaceTaskRecord(fullTaskForCreation, user.uid);
-                return;
-            }
-
-            if (!currentTask) {
                 console.error('Task not found for update:', taskId);
                 return;
             }
@@ -90,7 +132,14 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             if (isProjectChange) {
                 await replaceTaskRecord({ ...currentTask, ...updates, userId: user.uid }, user.uid);
             } else {
-                await updateTaskRecord(taskId, updates, user.uid);
+                // クリア意図（明示的な undefined）を null に変換して永続化する。
+                // updateTaskRow は undefined を省略・null をクリアとして扱うため、
+                // 週/月ビューの「バックログへ戻す」等の date クリアが巻き戻らなくなる。
+                const normalized: Record<string, unknown> = { ...updates };
+                for (const key of Object.keys(normalized)) {
+                    if (normalized[key] === undefined) normalized[key] = null;
+                }
+                await updateTaskRecord(taskId, normalized as Partial<Task>, user.uid);
             }
         } catch (error) {
             console.error('Error updating task:', error);
@@ -170,7 +219,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     },
 
     bulkUpdateTasks: async (taskIds, updates) => {
-        const { user, tasks } = get();
+        const { user, updateTask } = get();
         if (!user) {
             set((state) => ({
                 tasks: state.tasks.map((task) => (taskIds.includes(task.id) ? { ...task, ...updates } : task)),
@@ -179,25 +228,14 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = tasks;
-        const updatedTasks = tasks
-            .filter((task) => taskIds.includes(task.id))
-            .map((task) => ({ ...task, ...updates }));
-        set((state) => ({
-            tasks: state.tasks.map((task) => (taskIds.includes(task.id) ? { ...task, ...updates } : task)),
-            selectedTaskIds: [],
-        }));
-
-        try {
-            if (updates.tags !== undefined) {
-                await bulkReplaceTaskRecords(updatedTasks, user.uid);
-            } else {
-                await bulkUpdateTaskRecords(taskIds, updates, user.uid);
-            }
-        } catch (error) {
-            console.error('Error bulk updating tasks:', error);
-            set({ tasks: oldTasks });
+        // 従来は bulkUpdateTaskRows(SQL UPDATE .in()) を使っていたため、未実体化の
+        // 仮想ルーチンタスクや未存在 doc は黙って無視され「一部が移動されない」不具合が
+        // あった。仮想タスクの実体化・ルーチンのデタッチ・クリア処理を安全に扱うため、
+        // 1件ずつ updateTask に委譲する（各件が独立して成否判定される）。
+        for (const id of taskIds) {
+            await updateTask(id, updates);
         }
+        set({ selectedTaskIds: [] });
     },
 
     bulkDeleteTasks: async (taskIds: string[]) => {
@@ -274,6 +312,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     reorderTasks: async (taskIds: string[]) => {
         const { user, tasks } = get();
+        const oldTasks = tasks;
         const newTasks = tasks.map((task) => {
             const newIndex = taskIds.indexOf(task.id);
             return newIndex >= 0 ? { ...task, order: newIndex } : task;
@@ -284,6 +323,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
+        // 書き込み中は realtime による巻き戻しを防止
+        taskIds.forEach(addPendingTask);
         try {
             const reorderedTasks = newTasks
                 .filter((task) => taskIds.includes(task.id))
@@ -292,38 +333,23 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             await bulkReplaceTaskRecords(reorderedTasks, user.uid);
         } catch (error) {
             console.error('Error reordering tasks:', error);
+            // 失敗時はローカル順を巻き戻す（DBと画面の乖離を防ぐ）
+            set({ tasks: oldTasks });
+        } finally {
+            taskIds.forEach(removePendingTask);
         }
     },
 
     getMergedTasks: (dateStr: string) => {
         const { tasks, routines } = get();
         const dbTasks = tasks.filter((task) => task.date === dateStr);
-        const targetDate = parseISO(dateStr);
         const virtualTasks: Task[] = [];
 
         routines.forEach((routine) => {
             if (!routine.active) return;
 
-            const startDate = parseISO(routine.startDate || routine.nextRun);
-            if (isBefore(targetDate, startDate) && !isSameDay(targetDate, startDate)) return;
-
-            let matches = false;
-            if (routine.frequency === 'daily') {
-                matches = true;
-            } else if (routine.frequency === 'weekly') {
-                if (routine.daysOfWeek && routine.daysOfWeek.length > 0) {
-                    matches = routine.daysOfWeek.includes(targetDate.getDay());
-                } else {
-                    matches = targetDate.getDay() === startDate.getDay();
-                }
-            } else if (routine.frequency === 'monthly') {
-                matches = targetDate.getDate() === startDate.getDate();
-            } else if (routine.frequency === 'custom' && routine.interval) {
-                const diffDays = Math.floor((targetDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-                matches = diffDays >= 0 && diffDays % routine.interval === 0;
-            }
-
-            if (!matches) {
+            // 頻度判定は純粋関数 routineOccursOn に集約（月末繰り上げ含む・単体テスト対象）
+            if (!routineOccursOn(routine, dateStr)) {
                 return;
             }
 
@@ -366,6 +392,6 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     resetTaskSlice: () => set({
         tasks: [],
         selectedTaskIds: [],
-        currentDate: new Date().toISOString().split('T')[0],
+        currentDate: format(new Date(), 'yyyy-MM-dd'),
     }),
 });

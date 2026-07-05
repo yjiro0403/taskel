@@ -13,6 +13,7 @@ import {
 } from '@dnd-kit/core';
 import {
     sortableKeyboardCoordinates,
+    arrayMove,
 } from '@dnd-kit/sortable';
 import { useStore } from '@/store/useStore';
 import { generateDisplaySections } from '@/lib/sectionUtils';
@@ -23,9 +24,6 @@ import { Task } from '@/types';
 
 // Drag activation distance threshold (px) - prevents accidental drags during taps/scrolls
 const DRAG_ACTIVATION_DISTANCE = 8;
-
-// order間隔がこの閾値以下になったらセクション内の全orderを正規化
-const ORDER_GAP_THRESHOLD = 0.001;
 
 export default function TasksDnDWrapper({ children }: { children: React.ReactNode }) {
     const {
@@ -58,25 +56,27 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
         })
     );
 
-    // セクション内のorder間隔が閾値以下なら、全タスクを整数orderに正規化
-    const normalizeOrdersIfNeeded = (sectionTasks: Task[]) => {
-        if (sectionTasks.length < 2) return;
-        const sorted = [...sectionTasks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        let needsNormalize = false;
-        for (let i = 1; i < sorted.length; i++) {
-            if (Math.abs((sorted[i].order ?? 0) - (sorted[i - 1].order ?? 0)) < ORDER_GAP_THRESHOLD) {
-                needsNormalize = true;
-                break;
+    // 表示順（セクション内）のソート。TaskList.compareTasks と同一ロジック。
+    const sortSectionForDisplay = (list: Task[]): Task[] => {
+        const hasSchedule = (t: Task) => !!t.scheduledStart && t.scheduledStart.trim() !== '';
+        const statusRank = (t: Task) => {
+            if (t.status === 'done') return 0;
+            if (t.status === 'in_progress') return 1;
+            return 2;
+        };
+        return [...list].sort((a, b) => {
+            const rd = statusRank(a) - statusRank(b);
+            if (rd !== 0) return rd;
+            const hasA = hasSchedule(a);
+            const hasB = hasSchedule(b);
+            if (hasA && hasB) {
+                const tc = a.scheduledStart!.localeCompare(b.scheduledStart!);
+                if (tc !== 0) return tc;
             }
-        }
-        if (!needsNormalize) return;
-
-        // 仮想タスクは除外して実タスクのみ正規化
-        const realTaskIds = sorted.filter(t => !t.isVirtual).map(t => t.id);
-        if (realTaskIds.length < 2) return;
-
-        // reorderTasks はIDの配列順に order: 0, 1, 2... を割り当てる
-        reorderTasks(realTaskIds);
+            if (hasA && !hasB) return -1;
+            if (!hasA && hasB) return 1;
+            return (a.order ?? 0) - (b.order ?? 0);
+        });
     };
 
     const handleDragStart = (event: DragStartEvent) => {
@@ -85,121 +85,60 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
     };
 
     // --- Drag and Drop Logic (Moved from TaskList) ---
-    const handleDragEnd = (event: DragEndEvent) => {
+    const handleDragEnd = async (event: DragEndEvent) => {
         const { active, over } = event;
         setActiveId(null);
 
-        if (!over) {
-            return;
-        }
-        if (active.id === over.id) {
-            return;
-        }
+        if (!over) return;
+        if (active.id === over.id) return;
 
         const mergedTasks = getMergedTasks(currentDate);
-
-        // Use helper function for cleaner task lookup
         const activeTask = findTaskById(String(active.id), mergedTasks);
         const overTask = findTaskById(String(over.id), mergedTasks);
 
-        if (!activeTask) {
-            return;
-        }
-
-        // UIの表示順と同一のソートロジックを使用
-        const hasSchedule = (t: Task) => !!t.scheduledStart && t.scheduledStart.trim() !== '';
-        const statusRank = (t: Task) => {
-            if (t.status === 'done') return 0;
-            if (t.status === 'in_progress') return 1;
-            return 2;
-        };
-        const getTasksBySection = (sectionId: string) => {
-            return mergedTasks
-                .filter(t => t.sectionId === sectionId)
-                .sort((a, b) => {
-                    // 0. 完了タスクは上に表示
-                    const rd = statusRank(a) - statusRank(b);
-                    if (rd !== 0) return rd;
-                    const hasA = hasSchedule(a);
-                    const hasB = hasSchedule(b);
-                    // 1. スケジュール済み同士は時間順
-                    if (hasA && hasB) {
-                        const tc = a.scheduledStart!.localeCompare(b.scheduledStart!);
-                        if (tc !== 0) return tc;
-                    }
-                    // 2. スケジュール済み → 未スケジュール
-                    if (hasA && !hasB) return -1;
-                    if (!hasA && hasB) return 1;
-                    // 3. order 順
-                    return (a.order ?? 0) - (b.order ?? 0);
-                });
-        };
+        if (!activeTask) return;
 
         const displaySections = generateDisplaySections(sections);
 
-        // Case 1: Dropped over another Task
+        // Case 1: 別タスクの上にドロップ（並び替え or セクション移動）
         if (overTask) {
             const newSectionId = overTask.sectionId;
             const isSameSection = activeTask.sectionId === newSectionId;
-            const sectionTasks = getTasksBySection(newSectionId);
 
-            // Find indices in sorted order
-            const activeIndex = sectionTasks.findIndex(t => t.id === activeTask.id);
-            const overIndex = sectionTasks.findIndex(t => t.id === overTask.id);
-
-            let newOrder: number;
-
-            if (isSameSection && activeIndex !== -1 && overIndex !== -1) {
-                // Same section reordering
-                // Determine if moving up or down
-                if (activeIndex < overIndex) {
-                    // Moving down: place after overTask
-                    const nextTask = sectionTasks[overIndex + 1];
-                    if (nextTask) {
-                        newOrder = (overTask.order + nextTask.order) / 2;
-                    } else {
-                        newOrder = overTask.order + 1;
-                    }
-                } else {
-                    // Moving up: place before overTask
-                    const prevTask = sectionTasks[overIndex - 1];
-                    if (prevTask) {
-                        newOrder = (prevTask.order + overTask.order) / 2;
-                    } else {
-                        newOrder = overTask.order - 1;
-                    }
-                }
-            } else {
-                // Cross-section move: insert before overTask
-                const overIdx = sectionTasks.findIndex(t => t.id === overTask.id);
-                if (overIdx > 0) {
-                    const prevTask = sectionTasks[overIdx - 1];
-                    newOrder = (prevTask.order + overTask.order) / 2;
-                } else {
-                    newOrder = overTask.order - 1;
-                }
+            // 1) セクション移動 or 仮想タスクの実体化が必要なら先に確定（await して順序を保証）
+            if (!isSameSection || activeTask.isVirtual) {
+                await updateTask(String(active.id), { sectionId: newSectionId, date: currentDate });
             }
 
-            updateTask(String(active.id), {
-                sectionId: newSectionId,
-                order: newOrder,
-                date: currentDate
-            });
-
-            // 正規化チェック（更新後のセクション内タスクで判定）
-            const updatedSectionTasks = getTasksBySection(newSectionId).map(t =>
-                t.id === String(active.id) ? { ...t, order: newOrder, sectionId: newSectionId } : t
+            // 2) 最新の表示順を再計算し、arrayMove で目標の並びを作る。
+            //    従来は表示順（status/時刻優先で order 非単調）から中点を計算していたため、
+            //    挿入位置が区間外に飛んでスナップバックしていた（本修正で解消）。
+            const freshMerged = getMergedTasks(currentDate);
+            const freshSection = sortSectionForDisplay(
+                freshMerged.filter(t => t.sectionId === newSectionId)
             );
-            normalizeOrdersIfNeeded(updatedSectionTasks);
+            const ids = freshSection.map(t => t.id);
+            const fromIdx = ids.indexOf(String(active.id));
+            const toIdx = ids.indexOf(String(over.id));
+            if (fromIdx === -1 || toIdx === -1) return;
+            const newOrderIds = arrayMove(ids, fromIdx, toIdx);
+
+            // 3) 実タスク（純粋仮想を除く。実体化済みルーチンは含む）のみ 0..n に再採番。
+            //    整数連番のため精度枯渇も起きない。
+            const virtualIds = new Set(freshSection.filter(t => t.isVirtual).map(t => t.id));
+            const realIds = newOrderIds.filter(id => !virtualIds.has(id));
+            if (realIds.length > 0) {
+                await reorderTasks(realIds);
+            }
             return;
         }
 
-        // Case 2: Dropped into a Section (empty section or section drop zone)
+        // Case 2: セクション枠（空セクション/ドロップゾーン）にドロップ → 末尾へ移動
         const sectionIdMatch = displaySections.find(s => s.id === over.id);
         if (sectionIdMatch) {
-            const targetTasks = getTasksBySection(sectionIdMatch.id);
-            const maxOrder = targetTasks.length > 0 ? Math.max(...targetTasks.map(t => t.order)) : 0;
-            updateTask(String(active.id), {
+            const targetTasks = mergedTasks.filter(t => t.sectionId === sectionIdMatch.id);
+            const maxOrder = targetTasks.length > 0 ? Math.max(...targetTasks.map(t => t.order ?? 0)) : 0;
+            await updateTask(String(active.id), {
                 sectionId: sectionIdMatch.id,
                 order: maxOrder + 1,
                 date: currentDate
