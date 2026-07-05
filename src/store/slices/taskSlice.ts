@@ -88,6 +88,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                     userId: user.uid,
                     updatedAt: Date.now(),
                     isVirtual: undefined,
+                    // 添付は移動先(detached)へ引き継ぐ。skipMarker 側は [] にして元スロットの
+                    // 添付を削除する（undefined だと元 attachments が残り、detached が同一
+                    // attachment.id を再挿入して PK 違反→移動失敗になる）。
+                    attachments: [],
                 };
                 const detached: Task = {
                     ...occurrence,
