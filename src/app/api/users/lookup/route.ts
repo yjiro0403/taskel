@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
+import { getAuth } from '@/lib/firebaseAdmin';
+import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 export async function POST(request: Request) {
     try {
@@ -12,11 +13,17 @@ export async function POST(request: Request) {
 
         // Verify token
         const token = authHeader.split('Bearer ')[1];
+        let requesterUid: string;
         try {
-            await getAuth().verifyIdToken(token);
+            const decoded = await getAuth().verifyIdToken(token);
+            requesterUid = decoded.uid;
         } catch {
             return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
         }
+
+        // メールアドレス列挙攻撃の抑止（1ユーザーあたり 10 分で 30 回まで）
+        const limit = rateLimit(`user-lookup:${requesterUid}`, 30, 10 * 60 * 1000);
+        if (!limit.ok) return rateLimitResponse(limit);
 
         const { email } = await request.json();
 

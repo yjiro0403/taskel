@@ -27,9 +27,13 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
             try {
                 // BFFパターン: API経由でタスク作成
+                const token = await user.getIdToken();
                 const response = await fetch('/api/tasks', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
                     body: JSON.stringify({ task: { ...task, userId: user.uid }, action: 'create' })
                 });
 
@@ -59,6 +63,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             }));
 
             try {
+                const token = await user.getIdToken();
                 const task = tasks.find(t => t.id === taskId);
                 let isVirtual = false;
                 let fullTaskForCreation: Task | null = null;
@@ -83,7 +88,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 if (isVirtual && fullTaskForCreation) {
                     const response = await fetch('/api/tasks', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
                         body: JSON.stringify({ task: fullTaskForCreation, action: 'create' })
                     });
                     if (!response.ok) throw new Error('Failed to instantiate task via API');
@@ -117,7 +125,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 // BFFパターン: API経由で更新
                 const response = await fetch('/api/tasks', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
                     body: JSON.stringify({
                         task: payloadTask,
                         action: payloadAction

@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 import { getAuth, getDb } from '@/lib/firebaseAdmin';
 import { Invitation } from '@/types';
 import nodemailer from 'nodemailer';
+import { escapeHtml } from '@/lib/escapeHtml';
+import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 export async function POST(request: Request, props: { params: Promise<{ projectId: string }> }) {
     try {
@@ -25,6 +27,10 @@ export async function POST(request: Request, props: { params: Promise<{ projectI
             console.error('Auth verification failed:', authError);
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
+        // レート制限（招待メール乱発の抑止）
+        const limit = rateLimit(`project-invite:${inviterId}`, 20, 10 * 60 * 1000);
+        if (!limit.ok) return rateLimitResponse(limit);
 
         const { email, role } = await request.json();
 
@@ -97,6 +103,11 @@ export async function POST(request: Request, props: { params: Promise<{ projectI
             console.log('-----------------------');
             // Allow success even if mock
         } else {
+            // 差込値はすべてエスケープ（HTML/コンテンツインジェクション防止）
+            const safeInviter = escapeHtml(inviterName);
+            const safeProject = escapeHtml(projectTitle);
+            const safeLink = escapeHtml(joinLink);
+
             const transporter = nodemailer.createTransport(smtpConfig);
             await transporter.verify();
             await transporter.sendMail({
@@ -106,14 +117,14 @@ export async function POST(request: Request, props: { params: Promise<{ projectI
                 html: `
                     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
                         <h2>You've been invited!</h2>
-                        <p><strong>${inviterName}</strong> has invited you to collaborate on the project <strong>"${projectTitle}"</strong> using Taskel.</p>
+                        <p><strong>${safeInviter}</strong> has invited you to collaborate on the project <strong>"${safeProject}"</strong> using Taskel.</p>
                         <p>To accept the invitation, please click the button below:</p>
                         <div style="margin: 32px 0;">
-                            <a href="${joinLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                            <a href="${safeLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
                                 Join Project
                             </a>
                         </div>
-                        <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${joinLink}</p>
+                        <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${safeLink}</p>
                     </div>
                 `,
             });

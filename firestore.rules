@@ -60,9 +60,11 @@ service cloud.firestore {
       allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
-    // User Profile: 認証済みユーザーは読み取り可、自分のみ書き込み可
+    // User Profile: 本人のみ直接読み書き可。
+    // 他ユーザーのプロフィール（メンバー表示）は /api/users/profile 経由で
+    // 安全な項目のみ取得する（課金識別子・PII の横断的な露出を防ぐ）。
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isOwner(userId);
       allow write: if isOwner(userId);
     }
 
