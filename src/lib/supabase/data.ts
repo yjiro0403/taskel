@@ -22,15 +22,39 @@ function toNullable<T>(value: T | undefined) {
     return value === undefined ? undefined : value ?? null;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// UUID 列（section_id/project_id 等）向け: 空文字・センチネル('goal')・非UUIDは null に正規化。
+// アプリは日付なしタスク(ゴール)を sectionId:'goal'、プロジェクト未指定を projectId:'' で扱うが、
+// Postgres の uuid 列は空文字/非UUIDを受け付けず INSERT/UPDATE が失敗するため。
+function toUuidOrNull(value: string | undefined | null): string | null {
+    if (!value) return null;
+    return UUID_RE.test(value) ? value : null;
+}
+
+// DATE 列（date/assigned_date）向け: 空文字は null に正規化（アプリの date:'' = 日付なし）。
+function toDateOrNull(value: string | undefined | null): string | null {
+    if (!value) return null;
+    return value;
+}
+
+// UPDATE 経路用: undefined は「更新しない（省略）」を維持しつつ、値がある場合のみ正規化する。
+function uuidUpdate(value: string | undefined | null): string | null | undefined {
+    return value === undefined ? undefined : toUuidOrNull(value);
+}
+function dateUpdate(value: string | undefined | null): string | null | undefined {
+    return value === undefined ? undefined : toDateOrNull(value);
+}
+
 function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
     return {
         id: task.id,
         user_id: userId,
         title: task.title,
-        assignee_id: task.assigneeId ?? null,
-        reporter_id: task.reporterId ?? null,
-        section_id: task.sectionId,
-        date: task.date,
+        assignee_id: toUuidOrNull(task.assigneeId),
+        reporter_id: toUuidOrNull(task.reporterId),
+        section_id: toUuidOrNull(task.sectionId),
+        date: toDateOrNull(task.date),
         status: task.status,
         estimated_minutes: task.estimatedMinutes,
         actual_minutes: task.actualMinutes,
@@ -38,14 +62,14 @@ function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['In
         completed_at: millisToIso(task.completedAt),
         scheduled_start: task.scheduledStart ?? null,
         external_link: task.externalLink ?? null,
-        parent_goal_id: task.parentGoalId ?? null,
-        project_id: task.projectId ?? null,
+        parent_goal_id: toUuidOrNull(task.parentGoalId),
+        project_id: toUuidOrNull(task.projectId),
         milestone_id: task.milestoneId ?? null,
-        routine_id: task.routineId ?? null,
+        routine_id: toUuidOrNull(task.routineId),
         assigned_week: task.assignedWeek ?? null,
         assigned_month: task.assignedMonth ?? null,
         assigned_year: task.assignedYear ?? null,
-        assigned_date: task.assignedDate ?? null,
+        assigned_date: toDateOrNull(task.assignedDate),
         score: task.score ?? null,
         order: task.order,
         memo: task.memo ?? null,
@@ -381,8 +405,8 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         title: updates.title,
         assignee_id: toNullable(updates.assigneeId),
         reporter_id: toNullable(updates.reporterId),
-        section_id: updates.sectionId,
-        date: updates.date,
+        section_id: uuidUpdate(updates.sectionId),
+        date: dateUpdate(updates.date),
         status: updates.status,
         estimated_minutes: updates.estimatedMinutes,
         actual_minutes: updates.actualMinutes,
@@ -390,14 +414,14 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
         scheduled_start: toNullable(updates.scheduledStart),
         external_link: toNullable(updates.externalLink),
-        parent_goal_id: toNullable(updates.parentGoalId),
-        project_id: toNullable(updates.projectId),
+        parent_goal_id: uuidUpdate(updates.parentGoalId),
+        project_id: uuidUpdate(updates.projectId),
         milestone_id: toNullable(updates.milestoneId),
-        routine_id: toNullable(updates.routineId),
+        routine_id: uuidUpdate(updates.routineId),
         assigned_week: toNullable(updates.assignedWeek),
         assigned_month: toNullable(updates.assignedMonth),
         assigned_year: toNullable(updates.assignedYear),
-        assigned_date: toNullable(updates.assignedDate),
+        assigned_date: dateUpdate(updates.assignedDate),
         score: toNullable(updates.score),
         order: updates.order,
         memo: toNullable(updates.memo),
@@ -426,8 +450,8 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         title: updates.title,
         assignee_id: toNullable(updates.assigneeId),
         reporter_id: toNullable(updates.reporterId),
-        section_id: updates.sectionId,
-        date: updates.date,
+        section_id: uuidUpdate(updates.sectionId),
+        date: dateUpdate(updates.date),
         status: updates.status,
         estimated_minutes: updates.estimatedMinutes,
         actual_minutes: updates.actualMinutes,
@@ -435,14 +459,14 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
         scheduled_start: toNullable(updates.scheduledStart),
         external_link: toNullable(updates.externalLink),
-        parent_goal_id: toNullable(updates.parentGoalId),
-        project_id: toNullable(updates.projectId),
+        parent_goal_id: uuidUpdate(updates.parentGoalId),
+        project_id: uuidUpdate(updates.projectId),
         milestone_id: toNullable(updates.milestoneId),
-        routine_id: toNullable(updates.routineId),
+        routine_id: uuidUpdate(updates.routineId),
         assigned_week: toNullable(updates.assignedWeek),
         assigned_month: toNullable(updates.assignedMonth),
         assigned_year: toNullable(updates.assignedYear),
-        assigned_date: toNullable(updates.assignedDate),
+        assigned_date: dateUpdate(updates.assignedDate),
         score: toNullable(updates.score),
         order: updates.order,
         memo: toNullable(updates.memo),

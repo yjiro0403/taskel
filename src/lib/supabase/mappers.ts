@@ -106,8 +106,9 @@ export function mapTask(
         title: row.title,
         assigneeId: row.assignee_id ?? undefined,
         reporterId: row.reporter_id ?? undefined,
-        sectionId: row.section_id,
-        date: row.date,
+        // DB上 nullable（ゴール/バックログは NULL）→ アプリ規約の空文字へ戻す
+        sectionId: row.section_id ?? '',
+        date: row.date ?? '',
         status: row.status,
         estimatedMinutes: row.estimated_minutes,
         actualMinutes: row.actual_minutes,

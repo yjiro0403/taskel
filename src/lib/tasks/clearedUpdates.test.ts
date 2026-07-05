@@ -9,23 +9,21 @@ describe('withClearedNullables', () => {
         expect(result.assignedMonth).toBeNull();
     });
 
-    it('NOT NULL 列（date）の undefined は変換しない（NOT NULL 違反を防ぐ）', () => {
-        const result = withClearedNullables({ date: undefined });
-        // date は変換されず undefined のまま（＝更新から省略される）
-        expect(result.date).toBeUndefined();
+    it('nullable 化された date/sectionId の undefined は null に変換する（バックログ移動）', () => {
+        const result = withClearedNullables({ date: undefined, sectionId: undefined });
+        expect(result.date).toBeNull();
+        expect(result.sectionId).toBeNull();
     });
 
-    it('NOT NULL 列（title/sectionId/status/order）は変換しない', () => {
+    it('NOT NULL 列（title/status/order/estimated/actual）は変換しない', () => {
         const result = withClearedNullables({
             title: undefined,
-            sectionId: undefined,
             status: undefined,
             order: undefined,
             estimatedMinutes: undefined,
             actualMinutes: undefined,
         });
         expect(result.title).toBeUndefined();
-        expect(result.sectionId).toBeUndefined();
         expect(result.status).toBeUndefined();
         expect(result.order).toBeUndefined();
         expect(result.estimatedMinutes).toBeUndefined();

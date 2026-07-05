@@ -432,7 +432,7 @@ export type Database = {
                     comment_count: number;
                     completed_at: string | null;
                     created_at: string;
-                    date: string;
+                    date: string | null;
                     estimated_minutes: number;
                     external_link: string | null;
                     id: string;
@@ -445,7 +445,7 @@ export type Database = {
                     routine_id: string | null;
                     scheduled_start: string | null;
                     score: number | null;
-                    section_id: string;
+                    section_id: string | null;
                     started_at: string | null;
                     status: Database['public']['Enums']['task_status'];
                     title: string;
@@ -466,7 +466,7 @@ export type Database = {
                     comment_count?: number;
                     completed_at?: string | null;
                     created_at?: string;
-                    date: string;
+                    date?: string | null;
                     estimated_minutes?: number;
                     external_link?: string | null;
                     id?: string;
@@ -479,7 +479,7 @@ export type Database = {
                     routine_id?: string | null;
                     scheduled_start?: string | null;
                     score?: number | null;
-                    section_id: string;
+                    section_id?: string | null;
                     started_at?: string | null;
                     status?: Database['public']['Enums']['task_status'];
                     title: string;
@@ -500,7 +500,7 @@ export type Database = {
                     comment_count?: number;
                     completed_at?: string | null;
                     created_at?: string;
-                    date?: string;
+                    date?: string | null;
                     estimated_minutes?: number;
                     external_link?: string | null;
                     id?: string;
@@ -513,7 +513,7 @@ export type Database = {
                     routine_id?: string | null;
                     scheduled_start?: string | null;
                     score?: number | null;
-                    section_id?: string;
+                    section_id?: string | null;
                     started_at?: string | null;
                     status?: Database['public']['Enums']['task_status'];
                     title?: string;
