@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import { StateCreator } from 'zustand';
 
 import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
+import { withClearedNullables } from '@/lib/tasks/clearedUpdates';
 import { routineOccursOn } from '@/lib/routineUtils';
 import {
     bulkCreateTaskRecords,
@@ -132,13 +133,13 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             if (isProjectChange) {
                 await replaceTaskRecord({ ...currentTask, ...updates, userId: user.uid }, user.uid);
             } else {
-                // クリア意図（明示的な undefined）を null に変換して永続化する。
-                // updateTaskRow は undefined を省略・null をクリアとして扱うため、
-                // 週/月ビューの「バックログへ戻す」等の date クリアが巻き戻らなくなる。
-                const normalized: Record<string, unknown> = { ...updates };
-                for (const key of Object.keys(normalized)) {
-                    if (normalized[key] === undefined) normalized[key] = null;
-                }
+                // クリア意図（明示的な undefined）を、DB上 nullable なフィールドに限り null へ
+                // 変換して永続化する。updateTaskRow は undefined を省略・null をクリアとして
+                // 扱うため、月ビューの「週↔月ゴール移動」等の assignedWeek/assignedMonth
+                // クリアが巻き戻らなくなる。NOT NULL 列（date 等）は変換しない（制約違反防止）。
+                // ※ date クリアによる「日次→バックログ移動」は tasks.date が NOT NULL の
+                //   ままでは永続化できず、スキーマの nullable 化が必要（Phase 2 の課題）。
+                const normalized = withClearedNullables(updates);
                 await updateTaskRecord(taskId, normalized as Partial<Task>, user.uid);
             }
         } catch (error) {
