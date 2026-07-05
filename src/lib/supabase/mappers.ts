@@ -1,7 +1,19 @@
-import type { Goal, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
+import type { Attachment, Goal, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
 import type { Database } from '@/types/supabase';
 
 type Tables = Database['public']['Tables'];
+
+export function mapAttachment(row: Tables['attachments']['Row']): Attachment {
+    return {
+        id: row.id,
+        url: row.url,
+        path: row.storage_path,
+        name: row.name,
+        type: row.file_type,
+        size: row.size ?? undefined,
+        createdAt: new Date(row.created_at).getTime(),
+    };
+}
 
 export function isoToMillis(value?: string | null) {
     return value ? new Date(value).getTime() : undefined;
@@ -33,7 +45,7 @@ export function mapRoutine(row: Tables['routines']['Row']): Routine {
         startDate: row.start_date,
         nextRun: row.next_run,
         startTime: row.start_time ?? undefined,
-        sectionId: row.section_id,
+        sectionId: row.section_id ?? '',
         estimatedMinutes: row.estimated_minutes,
         active: row.active,
         projectId: row.project_id ?? undefined,
@@ -98,7 +110,8 @@ export function mapProject(
 
 export function mapTask(
     row: Tables['tasks']['Row'],
-    tags: Tag[] = []
+    tags: Tag[] = [],
+    attachments: Attachment[] = []
 ): Task {
     return {
         id: row.id,
@@ -135,6 +148,7 @@ export function mapTask(
         aiError: row.ai_error ?? undefined,
         aiCompletedAt: isoToMillis(row.ai_completed_at),
         commentCount: row.comment_count,
+        attachments: attachments.length > 0 ? attachments : undefined,
     };
 }
 

@@ -652,7 +652,9 @@ async function ensureUserMappings(supabase: Client, registry: IdRegistry, users:
                         type: 'recovery',
                         email,
                         options: {
-                            redirectTo: `${getAppUrl()}/login`,
+                            // /auth/callback で code を session に交換してから /reset-password へ。
+                            // 従来は /login 直行だが /login にはパスワード設定処理が無かった。
+                            redirectTo: `${getAppUrl()}/auth/callback?next=/reset-password`,
                         },
                     });
 
@@ -958,11 +960,9 @@ function buildRoutines(routines: UserScopedDoc[], registry: IdRegistry) {
             continue;
         }
 
-        const sectionId = registry.get('sections', `${routine.userId}:${asString(routine.data.sectionId) ?? ''}`);
-        if (!sectionId) {
-            logError(`Skipping routine ${routine.id}: missing section mapping`);
-            continue;
-        }
+        // section_id は nullable 化済み（008）。参照先セクション削除済み等でマッピングが
+        // 引けなくても skip せず section_id=null で投入する（従来は skip で欠損）。
+        const sectionId = registry.get('sections', `${routine.userId}:${asString(routine.data.sectionId) ?? ''}`) ?? null;
 
         const frequency: RoutineFrequency = pickEnumValue(routine.data.frequency, ['daily', 'weekly', 'monthly', 'custom'] as const, 'daily');
         const startDate = normalizeDate(routine.data.startDate) ?? new Date().toISOString().slice(0, 10);
@@ -1084,12 +1084,21 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
                 continue;
             }
 
+            // アプリの Storage 規約 users/{SupabaseUID}/attachments/{id}_{name} で
+            // ターゲットパスを再構築する（従来は Firebase の path をそのまま採用し、
+            // アプリの参照/削除ロジックとズレていた）。source_* に Firebase 側を残し、
+            // migrateAttachmentsToSupabase が source→target へコピーする。
+            const attachmentId = registry.ensure('attachments', `${task.id}:${asString(attachment.id) ?? attachmentIndex.toString()}`);
+            const attachmentName = asString(attachment.name) ?? `attachment-${attachmentIndex + 1}`;
+            const sanitizedName = attachmentName.replace(/[^\w.\-]+/g, '_');
+            const targetStoragePath = `users/${userId}/attachments/${attachmentId}_${sanitizedName}`;
+
             attachmentRows.push({
-                id: registry.ensure('attachments', `${task.id}:${asString(attachment.id) ?? attachmentIndex.toString()}`),
+                id: attachmentId,
                 task_id: id,
                 url,
-                storage_path: storagePath,
-                name: asString(attachment.name) ?? `attachment-${attachmentIndex + 1}`,
+                storage_path: targetStoragePath,
+                name: attachmentName,
                 file_type: pickEnumValue(attachment.type, ['image', 'file'] as const, 'file') as AttachmentFileType,
                 size: typeof attachment.size === 'number' ? attachment.size : null,
                 created_at: normalizeTimestamp(attachment.createdAt) ?? undefined,
@@ -1283,15 +1292,23 @@ async function migrateAttachmentsToSupabase(supabase: Client, attachments: Pendi
     }
 
     if (dryRun) {
+        // dry-run では Supabase 側のターゲットパス/URL を提示（実コピーはしない）
         return attachments.map(({ source_storage_path, source_url, ...attachment }) => ({
             ...attachment,
-            storage_path: source_storage_path ?? attachment.storage_path,
-            url: getSupabaseAttachmentPublicUrl(supabase, source_storage_path ?? attachment.storage_path),
+            storage_path: attachment.storage_path,
+            url: getSupabaseAttachmentPublicUrl(supabase, attachment.storage_path),
         }));
     }
 
     const bucketAvailable = await canUseSupabaseAttachmentBucket(supabase);
     if (!bucketAvailable) {
+        // バケット未作成だと添付をコピーできない。サイレントに Firebase URL を残すと
+        // Firebase 退役後に全滅するため、明示的に ERROR で可視化する（migration 007 の
+        // attachments バケット適用が前提。runbook §2 参照）。
+        logError(
+            `attachments bucket unavailable: ${attachments.length} attachment(s) were NOT copied. ` +
+            `Apply migration 007 (attachments bucket) and re-run. URLs left pointing at Firebase (temporary).`
+        );
         return attachments.map(({ source_storage_path, source_url, ...attachment }) => ({
             ...attachment,
             storage_path: source_storage_path ?? attachment.storage_path,

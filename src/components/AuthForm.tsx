@@ -16,6 +16,7 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [resetMessage, setResetMessage] = useState<string | null>(null);
     const router = useRouter();
     const { user } = useStore();
 
@@ -67,6 +68,31 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
             }
 
             setError(message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleForgotPassword = async () => {
+        if (!email) {
+            setError('Enter your email above, then click reset.');
+            return;
+        }
+        setIsLoading(true);
+        setError(null);
+        setResetMessage(null);
+        try {
+            const supabase = createClient();
+            const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+            });
+            if (resetError) {
+                throw resetError;
+            }
+            setResetMessage('Password reset email sent. Check your inbox to set a new password.');
+        } catch (err) {
+            console.error(err);
+            setError('Failed to send reset email. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -154,6 +180,7 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
                 </div>
 
                 {error && <div className="text-center text-sm font-medium text-red-500">{error}</div>}
+                {resetMessage && <div className="text-center text-sm font-medium text-green-600">{resetMessage}</div>}
 
                 <button
                     className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-50 shadow-sm transition-colors hover:bg-zinc-900/90 disabled:pointer-events-none disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-50/90"
@@ -163,6 +190,17 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
                     {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {isLogin ? 'Sign In' : 'Sign Up'}
                 </button>
+
+                {isLogin && (
+                    <button
+                        type="button"
+                        onClick={handleForgotPassword}
+                        disabled={isLoading}
+                        className="w-full text-center text-sm text-zinc-500 underline-offset-4 hover:underline disabled:opacity-50 dark:text-zinc-400"
+                    >
+                        Forgot / set password?
+                    </button>
+                )}
             </form>
 
             <div className="relative">

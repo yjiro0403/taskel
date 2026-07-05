@@ -3,9 +3,10 @@ import type {
     SupabaseClient,
 } from '@supabase/supabase-js';
 
-import type { DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
+import type { Attachment, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
 import type { Database } from '@/types/supabase';
 import {
+    mapAttachment,
     mapGoal,
     mapProject,
     mapRoutine,
@@ -272,7 +273,8 @@ export async function fetchProjectById(client: Client, projectId: string) {
 function buildTaskTags(
     tasks: Tables['tasks']['Row'][],
     taskTagRows: Tables['task_tags']['Row'][],
-    allTags: Tag[]
+    allTags: Tag[],
+    attachmentRows: Tables['attachments']['Row'][] = []
 ) {
     const tagById = new Map(allTags.map((tag) => [tag.id, tag]));
 
@@ -282,7 +284,11 @@ function buildTaskTags(
             .map((taskTag) => tagById.get(taskTag.tag_id))
             .filter((tag): tag is Tag => Boolean(tag));
 
-        return mapTask(task, tags);
+        const attachments = attachmentRows
+            .filter((row) => row.task_id === task.id)
+            .map(mapAttachment);
+
+        return mapTask(task, tags, attachments);
     });
 }
 
@@ -297,6 +303,7 @@ export async function fetchTasks(client: Client, tags: Tag[]) {
     const taskIds = taskRows.map((task) => task.id);
 
     let taskTagRows: Tables['task_tags']['Row'][] = [];
+    let attachmentRows: Tables['attachments']['Row'][] = [];
     if (taskIds.length > 0) {
         const { data, error } = await client
             .from('task_tags')
@@ -304,9 +311,16 @@ export async function fetchTasks(client: Client, tags: Tag[]) {
             .in('task_id', taskIds);
 
         taskTagRows = requireData(data, error);
+
+        const { data: attachments, error: attachmentsError } = await client
+            .from('attachments')
+            .select('*')
+            .in('task_id', taskIds);
+
+        attachmentRows = requireData(attachments, attachmentsError);
     }
 
-    return buildTaskTags(taskRows, taskTagRows, tags);
+    return buildTaskTags(taskRows, taskTagRows, tags, attachmentRows);
 }
 
 export async function fetchTaskById(client: Client, taskId: string) {
@@ -342,7 +356,14 @@ export async function fetchTaskById(client: Client, taskId: string) {
         tags = requireData(selectedTags, tagsError);
     }
 
-    return mapTask(task, tags.map(mapTag));
+    const { data: attachments, error: attachmentsError } = await client
+        .from('attachments')
+        .select('*')
+        .eq('task_id', taskId);
+
+    const attachmentRows = requireData(attachments, attachmentsError);
+
+    return mapTask(task, tags.map(mapTag), attachmentRows.map(mapAttachment));
 }
 
 export async function fetchNotes(client: Client) {
@@ -378,6 +399,11 @@ export async function upsertTask(client: Client, task: Task, userId: string) {
     }
 
     await syncTaskTags(client, task.id, userId, task.tags ?? []);
+
+    // attachments が渡された場合のみ同期（undefined=未指定は既存を温存）
+    if (task.attachments !== undefined) {
+        await syncTaskAttachments(client, task.id, task.attachments);
+    }
 }
 
 export async function bulkUpsertTasks(client: Client, tasks: Task[], userId: string, syncTags = false) {
@@ -439,6 +465,11 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
     if (updates.tags) {
         await syncTaskTags(client, taskId, userId, updates.tags);
     }
+
+    // attachments が更新に含まれる場合のみ同期（編集で添付を追加/削除したケース）
+    if (updates.attachments !== undefined) {
+        await syncTaskAttachments(client, taskId, updates.attachments);
+    }
 }
 
 export async function bulkUpdateTaskRows(client: Client, taskIds: string[], updates: Partial<Task>, userId: string) {
@@ -491,6 +522,35 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
     }
 
     await Promise.all(taskIds.map((taskId) => syncTaskTags(client, taskId, userId, updates.tags ?? [])));
+}
+
+// タスクの添付メタを attachments テーブルへ同期する（現状全削除→再挿入の単純差分）。
+// アプリは添付を Task.attachments 配列で保持するが、従来は DB へ一切書かれず、
+// Storage へ上げてもリロードで消えていた。ここで tasks 保存時に結線する。
+export async function syncTaskAttachments(client: Client, taskId: string, attachments: Attachment[]) {
+    const { error: deleteError } = await client.from('attachments').delete().eq('task_id', taskId);
+    if (deleteError) {
+        throw new Error(deleteError.message);
+    }
+
+    if (attachments.length === 0) {
+        return;
+    }
+
+    const rows = attachments.map((attachment) => ({
+        id: attachment.id,
+        task_id: taskId,
+        url: attachment.url,
+        storage_path: attachment.path,
+        name: attachment.name,
+        file_type: attachment.type,
+        size: attachment.size ?? null,
+    }));
+
+    const { error: insertError } = await client.from('attachments').insert(rows);
+    if (insertError) {
+        throw new Error(insertError.message);
+    }
 }
 
 export async function syncTaskTags(client: Client, taskId: string, userId: string, tagNames: string[]) {

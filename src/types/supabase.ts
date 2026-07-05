@@ -258,7 +258,7 @@ export type Database = {
                     memo: string | null;
                     next_run: string;
                     project_id: string | null;
-                    section_id: string;
+                    section_id: string | null;
                     start_date: string;
                     start_time: string | null;
                     tags: string[];
@@ -277,7 +277,7 @@ export type Database = {
                     memo?: string | null;
                     next_run: string;
                     project_id?: string | null;
-                    section_id: string;
+                    section_id?: string | null;
                     start_date: string;
                     start_time?: string | null;
                     tags?: string[];
@@ -296,7 +296,7 @@ export type Database = {
                     memo?: string | null;
                     next_run?: string;
                     project_id?: string | null;
-                    section_id?: string;
+                    section_id?: string | null;
                     start_date?: string;
                     start_time?: string | null;
                     tags?: string[];

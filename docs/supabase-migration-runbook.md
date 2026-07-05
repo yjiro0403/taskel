@@ -107,34 +107,30 @@ npm run migrate:supabase -- --send-reset-emails
 
 ---
 
-## 7. 残課題（本セッションで未対応・要追加対応）
+## 7. 残課題
 
-コード側で対応しきれていない、または実 Supabase 検証が必要な項目。優先度順:
+### 7a. 追加対応済み（2回目の残課題対応で実装）
 
-1. **添付ファイルのアプリ側結線（未対応・機能欠落）**
-   `tasks` に attachments 列がなく、`data.ts` が `attachments` テーブルへ読み書きしていない。
-   Storage へのアップロードは成功してもメタが DB に残らず、リロードで消える。移行済み添付も
-   UI に出ない。→ `fetchTasks/fetchTaskById` で attachments を JOIN 取得し `mapTask` に載せ、
-   `upsertTask/updateTaskRow` で attachments テーブルへ差分同期する実装が必要。
-2. **移行スクリプトの添付パス（未対応）**
-   Firebase の storage_path をそのまま流用しており、Supabase 規約 `users/{uid}/attachments/...`
-   へ再構築していない。バケット未作成時は Firebase URL を据え置くため Firebase 退役で 404 になる。
-3. **移行ユーザーの初回パスワード設定導線（未対応）**
-   リカバリーリンクが `/login` に飛ぶが、`/login` にトークン交換・`updateUser({password})` の
-   処理が無い。→ リンク先を `/auth/callback?next=/reset-password` にし、`/reset-password`
-   ページを新設する必要がある。個人利用（オーナー1名）なら、Supabase ダッシュボードから直接
-   パスワード設定しても可。
-4. **profiles 自動生成トリガ（推奨・未対応）**
-   profiles 生成がクライアント `ensureProfile` 依存。`auth.users` への `handle_new_user`
-   トリガ（SECURITY DEFINER）に寄せると堅牢。`profiles.email` の NOT NULL/UNIQUE も
-   OAuth 想定で見直し。
-5. **routines のセクション欠落（限定的）**
-   `routines.section_id` は NOT NULL のまま。参照先セクションが削除済みのルーチンは移行時に
-   skip され得る（稀）。必要なら routines.section_id も nullable 化 or デフォルトセクション付与。
-6. **Realtime の `in.()` フィルタ + RLS 認可（要実 Supabase 検証）**
-   プロジェクト単位の `in.()` フィルタ購読と、共有プロジェクトの RLS が realtime 認可
-   コンテキストで正しく評価されるかは実 Supabase での検証が必要。
-7. **その他 Medium/Low**: 監査で 62 件検出。上記以外は Medium/Low で日常利用のブロッカーでは
+1. ✅ **添付ファイルのアプリ側結線** — `fetchTasks/fetchTaskById` で attachments を取得し
+   `mapTask` に載せ、`upsertTask/updateTaskRow` で attachments テーブルへ差分同期
+   （`syncTaskAttachments`）。保存・表示が結線された。
+2. ✅ **移行スクリプトの添付パス再構築** — Supabase 規約 `users/{uid}/attachments/{id}_{name}`
+   へ再構築。バケット未作成時は Firebase URL 据え置きを **明示 ERROR** で可視化。
+3. ✅ **移行ユーザーのパスワード設定導線** — リカバリーリンクを
+   `/auth/callback?next=/reset-password` に変更し、`/reset-password` ページを新設。
+   ログイン画面に「Forgot / set password?」導線を追加。
+4. ✅ **profiles 自動生成トリガ** — migration 008 で `handle_new_user`（SECURITY DEFINER）
+   を auth.users に付与。email 無しユーザーは skip（ensureProfile がフォールバック）。
+5. ✅ **routines.section_id nullable 化** — migration 008。移行時にセクション未解決の
+   ルーチンを skip せず section_id=null で投入。
+
+### 7b. 実 Supabase 環境での検証が必要（コードでは完結しない）
+
+6. **Realtime の `in.()` フィルタ + RLS 認可** — プロジェクト単位の `in.()` フィルタ購読と、
+   共有プロジェクトの RLS が realtime 認可コンテキストで正しく評価されるかは実 Supabase での
+   検証が必要（§6 チェックリスト参照）。
+7. **migration 006/007/008 の実 DB 適用** と、dry-run→本移行の実データ検証。
+8. **その他 Medium/Low**: 監査で 62 件検出。上記以外は Medium/Low で日常利用のブロッカーでは
    ない（詳細は移行監査の記録を参照）。
 
 ---
