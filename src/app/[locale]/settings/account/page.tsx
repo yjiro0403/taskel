@@ -66,12 +66,16 @@ export default function AccountSettingsPage() {
         try {
             const supabase = createClient();
             const ext = file.name.split('.').pop() || 'png';
+            // avatars バケットは public。パスの第1階層を uid にして、書き込みRLS
+            // 「本人フォルダ（(storage.foldername(name))[1] = auth.uid()）のみ許可」に一致させる。
+            // 読み取りは公開（他ユーザーのメンバー一覧等でも <img src> でそのまま表示するため public を維持）。
             const path = `${user.uid}/profile_${Date.now()}.${ext}`;
             const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, {
                 upsert: true,
             });
             if (uploadError) throw uploadError;
 
+            // public バケットのため getPublicUrl の恒久URLをそのまま profiles/auth メタに保存する。
             const { data } = supabase.storage.from('avatars').getPublicUrl(path);
             const photoURL = data.publicUrl;
 

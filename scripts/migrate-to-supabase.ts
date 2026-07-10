@@ -117,6 +117,9 @@ type BatchResult = {
     attempted: number;
     succeeded: number;
     failed: number;
+    // 行単位リトライでも書き込めなかった行の識別子（onConflict 列の値を連結したもの）。
+    // サマリーで「どの行が落ちたか」を可視化し、サイレントな欠損を防ぐために保持する。
+    failedIds: string[];
 };
 
 const BATCH_SIZE = 100;
@@ -146,6 +149,28 @@ const counts: EntityCounts = {
 
 let errorCount = 0;
 let smtpTransportPromise: Promise<nodemailer.Transporter | null> | null = null;
+
+// テーブルごとの書き込み結果（試行/成功/失敗）。upsertTable が記録し、printSummary が
+// 参照する。main() の途中で例外終了しても正しい部分サマリーを出せるようモジュール
+// レベルで保持する（従来は upsertTable の戻り値を破棄し、試行件数を成功として表示していた）。
+const writeOutcomes: Partial<Record<keyof EntityCounts, BatchResult>> = {};
+
+function recordWriteOutcome(countKey: keyof EntityCounts, result: BatchResult) {
+    const existing = writeOutcomes[countKey];
+    if (!existing) {
+        writeOutcomes[countKey] = result;
+        return;
+    }
+    // 同一テーブルが複数回 upsert される場合に備えて集計する。
+    existing.attempted += result.attempted;
+    existing.succeeded += result.succeeded;
+    existing.failed += result.failed;
+    existing.failedIds.push(...result.failedIds);
+}
+
+function totalWriteFailures(): number {
+    return Object.values(writeOutcomes).reduce((sum, outcome) => sum + (outcome?.failed ?? 0), 0);
+}
 
 function logInfo(message: string) {
     console.log(`[INFO] ${message}`);
@@ -370,19 +395,16 @@ function asJson(value: unknown): Json | null {
         return new Date(value.toMillis()).toISOString();
     }
     if (isObject(value)) {
+        // jsonb カラム（goals.ai_analysis 等）へ入れる値のキーは変換しない。
+        // アプリは ai_analysis を camelCase の Goal['aiAnalysis'] としてそのまま読む
+        // （src/lib/supabase/mappers.ts）ため、suggestedBreakdown / keyResults 等を
+        // snake_case 化すると UI から内容が消える。原文のキーを保持する。
         const entries = Object.entries(value)
-            .map(([key, entry]) => [camelToSnake(key), asJson(entry)] as const)
+            .map(([key, entry]) => [key, asJson(entry)] as const)
             .filter(([, entry]) => entry !== undefined);
         return Object.fromEntries(entries) as Json;
     }
     return null;
-}
-
-function camelToSnake(value: string) {
-    return value
-        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-        .replace(/[-\s]+/g, '_')
-        .toLowerCase();
 }
 
 function deterministicUuid(seed: string) {
@@ -684,9 +706,18 @@ async function upsertTable<T extends Record<string, unknown>>(
         attempted: rows.length,
         succeeded: dryRun ? rows.length : 0,
         failed: 0,
+        failedIds: [],
     };
 
+    // onConflict 列の値を連結して行を識別する（id を持たない複合キーのテーブルにも対応）。
+    const conflictCols = onConflict.split(',').map((col) => col.trim());
+    const identify = (row: T) =>
+        conflictCols
+            .map((col) => String((row as Record<string, unknown>)[col] ?? '?'))
+            .join('/') || '(unknown)';
+
     if (rows.length === 0) {
+        recordWriteOutcome(countKey, result);
         return result;
     }
 
@@ -694,6 +725,7 @@ async function upsertTable<T extends Record<string, unknown>>(
 
     if (dryRun) {
         logInfo(`[DRY RUN] ${String(table)}: ${rows.length} row(s) planned`);
+        recordWriteOutcome(countKey, result);
         return result;
     }
 
@@ -717,13 +749,15 @@ async function upsertTable<T extends Record<string, unknown>>(
             const { error: rowError } = await supabase.from(table).upsert(row as never, { onConflict });
             if (rowError) {
                 result.failed += 1;
-                logError(`Failed upserting ${String(table)} row`, rowError);
+                result.failedIds.push(identify(row));
+                logError(`Failed upserting ${String(table)} row (${identify(row)})`, rowError);
                 continue;
             }
             result.succeeded += 1;
         }
     }
 
+    recordWriteOutcome(countKey, result);
     return result;
 }
 
@@ -751,7 +785,10 @@ function buildProfiles(users: RawDoc[], registry: IdRegistry): ProfileInsert[] {
 
 function buildTags(tags: RawDoc[], registry: IdRegistry) {
     const rows: TagInsert[] = [];
+    // (user_id, 正規化name) -> 生存者タグの Supabase UUID。task_tags は名前で引くため、
+    // このマップが name ベースの参照解決も兼ねる（キーは trim 済み name で統一する）。
     const tagNameByUser = new Map<string, string>();
+    let mergedCount = 0;
 
     for (const tag of tags) {
         const sourceUserId = asString(tag.data.userId);
@@ -761,13 +798,26 @@ function buildTags(tags: RawDoc[], registry: IdRegistry) {
             continue;
         }
 
-        const id = registry.ensure('tags', tag.id);
         const name = asString(tag.data.name);
         if (!name) {
             logError(`Skipping tag ${tag.id}: missing name`);
             continue;
         }
 
+        // unique(user_id, name) 違反を防ぐため (user_id, trim済みname) 単位で重複排除する。
+        // 大小文字は変えない（実データの意味を壊さない）。最初の1件を生存者とする。
+        const dedupeKey = `${userId}:${name.trim()}`;
+        const survivorId = tagNameByUser.get(dedupeKey);
+        if (survivorId) {
+            // 重複タグは投入しない。この Firestore ID の参照を生存者 UUID に張り替え、
+            // 名前ベースの task_tags 紐づけも生存者へ集約する（従来は2件目の INSERT が
+            // unique 違反で落ち、その名前を参照するタスクの task_tags が欠損していた）。
+            registry.set('tags', tag.id, survivorId);
+            mergedCount += 1;
+            continue;
+        }
+
+        const id = registry.ensure('tags', tag.id);
         rows.push({
             id,
             user_id: userId,
@@ -778,7 +828,11 @@ function buildTags(tags: RawDoc[], registry: IdRegistry) {
             updated_at: normalizeTimestamp(tag.data.updatedAt) ?? undefined,
         });
 
-        tagNameByUser.set(`${userId}:${name}`, id);
+        tagNameByUser.set(dedupeKey, id);
+    }
+
+    if (mergedCount > 0) {
+        logWarn(`Tags: merged ${mergedCount} duplicate (user, name) tag(s) into their survivor to satisfy unique(user_id, name)`);
     }
 
     return { rows, tagNameByUser };
@@ -883,26 +937,117 @@ function normalizeGoalScope(type: GoalType, month: string | null, week: string |
     return { type: 'yearly', assigned_month: null, assigned_week: null };
 }
 
-function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
-    const rows: GoalInsert[] = [];
+type GoalWork = {
+    key: string;                // registry 'goals' 名前空間のキー `${userId}:${goalId}`
+    parentKey: string | null;   // 実在する親のキー（未解決/自己参照/循環は null）
+    row: GoalInsert;
+};
 
+// 親→子のトポロジカル順に並べ替える。goals.parent_goal_id は NOT DEFERRABLE な自己参照 FK
+// のため、BATCH_SIZE で分割した際に「子が親より前のバッチ」に入ると FK 違反で欠損する。
+// 親を必ず先に投入するため Kahn 法で並べる。循環がある場合は循環メンバーの親を null に
+// して断ち切り、logError で可視化した上で末尾に追加する（本体は必ず残す）。
+function topologicalSortGoals(works: GoalWork[]): GoalInsert[] {
+    const byKey = new Map<string, GoalWork>();
+    for (const work of works) {
+        byKey.set(work.key, work);
+    }
+
+    const childrenByParent = new Map<string, GoalWork[]>();
+    const inDegree = new Map<string, number>();
+    for (const work of works) {
+        inDegree.set(work.key, 0);
+    }
+    for (const work of works) {
+        if (work.parentKey && byKey.has(work.parentKey)) {
+            inDegree.set(work.key, (inDegree.get(work.key) ?? 0) + 1);
+            const siblings = childrenByParent.get(work.parentKey) ?? [];
+            siblings.push(work);
+            childrenByParent.set(work.parentKey, siblings);
+        }
+    }
+
+    // 親を持たないノードから幅優先で確定する。元配列順を保つため FIFO で処理する
+    // （決定的な順序 = 再実行しても同じ並びになり、ログの安定性が保てる）。
+    const queue: GoalWork[] = works.filter((work) => (inDegree.get(work.key) ?? 0) === 0);
+    const ordered: GoalWork[] = [];
+    let head = 0;
+    while (head < queue.length) {
+        const node = queue[head];
+        head += 1;
+        ordered.push(node);
+        for (const child of childrenByParent.get(node.key) ?? []) {
+            const remaining = (inDegree.get(child.key) ?? 0) - 1;
+            inDegree.set(child.key, remaining);
+            if (remaining === 0) {
+                queue.push(child);
+            }
+        }
+    }
+
+    if (ordered.length < works.length) {
+        // ordered に含まれないノードは循環に属する。親を null にして循環を断ち、末尾へ。
+        const resolved = new Set(ordered.map((work) => work.key));
+        for (const work of works) {
+            if (!resolved.has(work.key)) {
+                logError(`Goal ${work.key}: detected circular parent_goal_id; parent set to null to break the cycle`);
+                work.row.parent_goal_id = null;
+                ordered.push(work);
+            }
+        }
+    }
+
+    return ordered.map((work) => work.row);
+}
+
+function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
+    // --- 第1パス: 実在するゴールを先に採番し、キー -> UUID を確定する ---
+    // parent_goal_id の FK は goals(id) を指すため、親が「実際に投入されるゴール集合」に
+    // 実在する場合のみ親参照を張る（従来は registry.ensure で未登録の親 UUID を捏造し、
+    // dangling parent のゴールが FK 違反で永久欠損していた）。
+    const idByKey = new Map<string, string>();
+    const validGoals: Array<{ goal: UserScopedDoc; userId: string; key: string; id: string }> = [];
     for (const goal of goals) {
         const userId = registry.get('users', goal.userId);
         if (!userId) {
             logError(`Skipping goal ${goal.id}: missing user mapping`);
             continue;
         }
+        const key = `${goal.userId}:${goal.id}`;
+        const id = registry.ensure('goals', key);
+        idByKey.set(key, id);
+        validGoals.push({ goal, userId, key, id });
+    }
 
-        const id = registry.ensure('goals', `${goal.userId}:${goal.id}`);
+    // --- 第2パス: 行を組み立て、親参照を実在チェックした上で解決する ---
+    const works: GoalWork[] = [];
+    let orphanedParentCount = 0;
+
+    for (const { goal, userId, key, id } of validGoals) {
         const rawType: GoalType = pickEnumValue(goal.data.type, ['yearly', 'monthly', 'weekly'] as const, 'weekly');
         const scope = normalizeGoalScope(rawType, asString(goal.data.assignedMonth) ?? null, asString(goal.data.assignedWeek) ?? null);
         if (scope.type !== rawType) {
             logWarn(`Goal ${goal.id}: adjusted scope ${rawType} -> ${scope.type} to satisfy period-scope constraint`);
         }
         const status: GoalStatus = pickEnumValue(goal.data.status, ['pending', 'in_progress', 'achieved', 'missed', 'cancelled'] as const, 'pending');
-        const parentSourceId = asString(goal.data.parentGoalId);
 
-        rows.push({
+        const parentSourceId = asString(goal.data.parentGoalId);
+        const parentKeyCandidate = parentSourceId ? `${goal.userId}:${parentSourceId}` : null;
+        let resolvedParentKey: string | null = null;
+        if (parentKeyCandidate) {
+            if (parentKeyCandidate === key) {
+                // 自己参照は論理破綻。null にして本体を残す。
+                logWarn(`Goal ${goal.id}: self-referential parent_goal_id dropped`);
+                orphanedParentCount += 1;
+            } else if (idByKey.has(parentKeyCandidate)) {
+                resolvedParentKey = parentKeyCandidate;
+            } else {
+                // 親が実在しない（Firestore で親削除済み等）。孤児化して本体を残す。
+                orphanedParentCount += 1;
+            }
+        }
+
+        const row: GoalInsert = {
             id,
             user_id: userId,
             type: scope.type,
@@ -913,7 +1058,7 @@ function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
             assigned_week: scope.assigned_week,
             status,
             progress: Math.max(0, Math.min(100, asNumber(goal.data.progress, 0))),
-            parent_goal_id: parentSourceId ? registry.ensure('goals', `${goal.userId}:${parentSourceId}`) : null,
+            parent_goal_id: resolvedParentKey ? idByKey.get(resolvedParentKey)! : null,
             project_id: registry.get('projects', asString(goal.data.projectId)),
             priority: Math.max(1, Math.min(5, asNumber(goal.data.priority, 3))),
             tags: asStringArray(goal.data.tags),
@@ -921,14 +1066,24 @@ function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
             ai_analysis: asJson(goal.data.aiAnalysis),
             created_at: normalizeTimestamp(goal.data.createdAt) ?? undefined,
             updated_at: normalizeTimestamp(goal.data.updatedAt) ?? undefined,
-        });
+        };
+
+        works.push({ key, parentKey: resolvedParentKey, row });
     }
 
-    return rows;
+    if (orphanedParentCount > 0) {
+        logWarn(`Goals: ${orphanedParentCount} parent_goal_id reference(s) were orphaned (parent missing or self-referential) and set to null; goal rows preserved`);
+    }
+
+    // --- 第3パス: 親→子順に並べ替えてバッチ跨ぎの FK 違反を防ぐ ---
+    return topologicalSortGoals(works);
 }
 
 function buildSections(sections: UserScopedDoc[], registry: IdRegistry) {
     const rows: SectionInsert[] = [];
+    // (user_id, 正規化name) -> 生存者セクションの Supabase UUID
+    const survivorByUserName = new Map<string, string>();
+    let mergedCount = 0;
 
     for (const section of sections) {
         const userId = registry.get('users', section.userId);
@@ -937,14 +1092,36 @@ function buildSections(sections: UserScopedDoc[], registry: IdRegistry) {
             continue;
         }
 
+        const key = `${section.userId}:${section.id}`;
+        const name = asString(section.data.name) ?? 'Untitled section';
+        // unique(user_id, name) 違反を防ぐため (user_id, trim済みname) 単位で重複排除する。
+        // 大小文字は変えない（実データの意味を壊さない）。最初の1件を生存者とする。
+        const dedupeKey = `${userId}:${name.trim()}`;
+
+        const survivorId = survivorByUserName.get(dedupeKey);
+        if (survivorId) {
+            // 重複セクションは投入しない。この Firestore ID の参照を生存者 UUID に張り替える
+            // ことで、このセクションを参照するタスク/ルーチンが FK 違反・欠損しないようにする
+            // （従来は2件目の INSERT が unique 違反で落ち、それを指すタスクまで FK 違反で欠損）。
+            registry.set('sections', key, survivorId);
+            mergedCount += 1;
+            continue;
+        }
+
+        const id = registry.ensure('sections', key);
+        survivorByUserName.set(dedupeKey, id);
         rows.push({
-            id: registry.ensure('sections', `${section.userId}:${section.id}`),
+            id,
             user_id: userId,
-            name: asString(section.data.name) ?? 'Untitled section',
+            name,
             start_time: normalizeTime(section.data.startTime),
             end_time: normalizeTime(section.data.endTime),
             order: asNumber(section.data.order, 0),
         });
+    }
+
+    if (mergedCount > 0) {
+        logWarn(`Sections: merged ${mergedCount} duplicate (user, name) section(s) into their survivor; referencing tasks/routines repointed`);
     }
 
     return rows;
@@ -968,6 +1145,18 @@ function buildRoutines(routines: UserScopedDoc[], registry: IdRegistry) {
         const startDate = normalizeDate(routine.data.startDate) ?? new Date().toISOString().slice(0, 10);
         const nextRun = normalizeDate(routine.data.nextRun) ?? startDate;
 
+        // interval は CHECK (interval is null or interval > 0) 制約下。0/負値/非有限/非整数を
+        // そのまま投入すると CHECK 違反でルーチンが欠損するため、正の整数のみ採用し、
+        // それ以外は null にクランプする（integer 列なので floor で整数化する）。
+        const rawInterval = routine.data.interval;
+        const flooredInterval = typeof rawInterval === 'number' && Number.isFinite(rawInterval)
+            ? Math.floor(rawInterval)
+            : null;
+        const interval = flooredInterval !== null && flooredInterval > 0 ? flooredInterval : null;
+        if (rawInterval !== null && rawInterval !== undefined && interval === null) {
+            logWarn(`Routine ${routine.id}: interval ${String(rawInterval)} is not a positive integer; clamped to null`);
+        }
+
         rows.push({
             id: registry.ensure('routines', `${routine.userId}:${routine.id}`),
             user_id: userId,
@@ -976,7 +1165,7 @@ function buildRoutines(routines: UserScopedDoc[], registry: IdRegistry) {
             days_of_week: Array.isArray(routine.data.daysOfWeek)
                 ? routine.data.daysOfWeek.filter((value): value is number => typeof value === 'number')
                 : null,
-            interval: typeof routine.data.interval === 'number' ? routine.data.interval : null,
+            interval,
             start_date: startDate,
             next_run: nextRun,
             start_time: normalizeTime(routine.data.startTime),
@@ -1059,7 +1248,9 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
         });
 
         for (const tagName of tags) {
-            const tagId = tagNameByUser.get(`${userId}:${tagName}`);
+            // buildTags は (user_id, trim済みname) をキーに重複排除・登録しているため、
+            // 参照側も trim して引く（前後空白違いで別タグ扱いにならないよう統一する）。
+            const tagId = tagNameByUser.get(`${userId}:${tagName.trim()}`);
             if (!tagId) {
                 logWarn(`Task ${task.id} references unknown tag "${tagName}"`);
                 continue;
@@ -1123,7 +1314,14 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
     }
     for (const [normalizeUserId, rows] of inProgressByUser) {
         if (rows.length <= 1) continue;
-        rows.sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''));
+        // 最新 started_at を in_progress として残す。started_at が同値/null の場合は
+        // task id 昇順を tie-break に使い、再実行しても常に同じ1件が残るようにする
+        // （不安定だと再実行時に別の行が残り 005 の部分ユニーク制約に抵触し得る）。
+        rows.sort((a, b) => {
+            const byStarted = (b.started_at ?? '').localeCompare(a.started_at ?? '');
+            if (byStarted !== 0) return byStarted;
+            return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+        });
         for (let i = 1; i < rows.length; i++) {
             rows[i].status = 'open';
         }
@@ -1238,10 +1436,6 @@ function buildNotes(notes: NoteDoc[], registry: IdRegistry) {
     return rows;
 }
 
-function getSupabaseAttachmentPublicUrl(supabase: Client, path: string) {
-    return supabase.storage.from('attachments').getPublicUrl(path).data.publicUrl;
-}
-
 function inferFirebaseAttachmentPath(explicitPath: string | null, url: string | null) {
     if (explicitPath) {
         return explicitPath;
@@ -1292,11 +1486,11 @@ async function migrateAttachmentsToSupabase(supabase: Client, attachments: Pendi
     }
 
     if (dryRun) {
-        // dry-run では Supabase 側のターゲットパス/URL を提示（実コピーはしない）
+        // dry-run では Supabase 側のターゲットパスを提示（実コピーはしない）
         return attachments.map(({ source_storage_path, source_url, ...attachment }) => ({
             ...attachment,
             storage_path: attachment.storage_path,
-            url: getSupabaseAttachmentPublicUrl(supabase, attachment.storage_path),
+            url: attachment.storage_path,
         }));
     }
 
@@ -1347,7 +1541,11 @@ async function migrateAttachmentsToSupabase(supabase: Client, attachments: Pendi
             migratedRows.push({
                 ...baseAttachment,
                 storage_path: targetPath,
-                url: getSupabaseAttachmentPublicUrl(supabase, targetPath),
+                // attachments バケットは private（migration 009）。公開URLは 403 になるため
+                // 保存しない。アプリは storage_path から署名付きURLを都度生成して描画する。
+                // url 列は NOT NULL のため、破綻しない値として storage_path を格納する
+                // （src/lib/storage.ts の uploadTaskAttachment と同じ規約）。
+                url: targetPath,
             });
         } catch (error) {
             logWarn(`Attachment transfer failed for ${attachment.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -1362,6 +1560,23 @@ async function migrateAttachmentsToSupabase(supabase: Client, attachments: Pendi
     return migratedRows;
 }
 
+const SUMMARY_TABLE_KEYS: (keyof EntityCounts)[] = [
+    'profiles',
+    'projects',
+    'project_members',
+    'tags',
+    'goals',
+    'sections',
+    'routines',
+    'tasks',
+    'task_tags',
+    'task_comments',
+    'invitations',
+    'subscriptions',
+    'notes',
+    'attachments',
+];
+
 function printSummary() {
     console.log('\n=== Migration Summary ===');
     console.log(`Mode: ${dryRun ? 'dry-run' : 'write'}`);
@@ -1370,21 +1585,36 @@ function printSummary() {
     console.log(`Auth users reused: ${counts.auth_users_reused}`);
     console.log(`Reset emails sent: ${counts.reset_emails_sent}`);
     console.log(`Reset links logged: ${counts.reset_emails_logged}`);
-    console.log(`profiles: ${counts.profiles}`);
-    console.log(`projects: ${counts.projects}`);
-    console.log(`project_members: ${counts.project_members}`);
-    console.log(`tags: ${counts.tags}`);
-    console.log(`goals: ${counts.goals}`);
-    console.log(`sections: ${counts.sections}`);
-    console.log(`routines: ${counts.routines}`);
-    console.log(`tasks: ${counts.tasks}`);
-    console.log(`task_tags: ${counts.task_tags}`);
-    console.log(`task_comments: ${counts.task_comments}`);
-    console.log(`invitations: ${counts.invitations}`);
-    console.log(`subscriptions: ${counts.subscriptions}`);
-    console.log(`notes: ${counts.notes}`);
-    console.log(`attachments: ${counts.attachments}`);
-    console.log(`errors: ${errorCount}`);
+
+    // 試行 / 成功 / 失敗を明確に分けて表示する（従来は試行件数だけを表示し、行単位
+    // リトライで一部が落ちても全件成功のように見えていた）。
+    console.log('\n-- Table writes (attempted / succeeded / failed) --');
+    for (const key of SUMMARY_TABLE_KEYS) {
+        const outcome = writeOutcomes[key];
+        const attempted = outcome?.attempted ?? counts[key];
+        const succeeded = outcome?.succeeded ?? 0;
+        const failed = outcome?.failed ?? 0;
+        const flag = failed > 0 ? '   <-- FAILED' : '';
+        console.log(`${`${key}:`.padEnd(18)} attempted=${attempted}  succeeded=${succeeded}  failed=${failed}${flag}`);
+    }
+
+    const totalFailed = totalWriteFailures();
+    if (totalFailed > 0) {
+        console.error('\n!!! WRITE FAILURES DETECTED !!!');
+        console.error(
+            `${totalFailed} row(s) failed to persist. Migrated data is INCOMPLETE — ` +
+            `investigate and re-run before retiring Firestore.`
+        );
+        for (const key of SUMMARY_TABLE_KEYS) {
+            const outcome = writeOutcomes[key];
+            if (outcome && outcome.failed > 0) {
+                console.error(`  ${key}: ${outcome.failed} failed [${outcome.failedIds.join(', ')}]`);
+            }
+        }
+    }
+
+    console.log(`\nerrors: ${errorCount}`);
+    console.log(`failed rows: ${totalFailed}`);
 }
 
 async function main() {
@@ -1428,7 +1658,10 @@ async function main() {
 
     printSummary();
 
-    if (errorCount > 0) {
+    // 書き込み失敗が1件でもあれば（行単位リトライでも落ちた行があれば）非0終了させ、
+    // 成功したように見える誤検出を防ぐ。失敗行は logError 済みで errorCount にも計上される
+    // が、明示的に totalWriteFailures も条件に含めて堅牢にする。
+    if (errorCount > 0 || totalWriteFailures() > 0) {
         process.exitCode = 1;
     }
 }

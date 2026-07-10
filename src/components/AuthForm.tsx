@@ -11,6 +11,21 @@ interface AuthFormProps {
     isLogin?: boolean;
 }
 
+// /auth/callback がエラー時に付与する ?authError=<code> を、ユーザー向けの文言に変換する。
+function mapAuthCallbackError(code: string): string {
+    switch (code) {
+        case 'otp_expired':
+        case 'otp_verification_failed':
+            return 'The link has expired or was already used. Please request a new password reset email below.';
+        case 'access_denied':
+            return 'Sign in was cancelled or denied. Please try again.';
+        case 'missing_auth_params':
+            return 'Invalid sign-in link. Please try again.';
+        default:
+            return 'Sign in could not be completed. Please try again.';
+    }
+}
+
 export function AuthForm({ isLogin = true }: AuthFormProps) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -25,6 +40,16 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
             router.push('/tasks');
         }
     }, [router, user]);
+
+    // /auth/callback がリンク失効・OAuth拒否などで戻したエラーを表示する。
+    // useSearchParams は Next の Suspense 境界を要求するため、ここでは window.location を直接読む。
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const authError = new URLSearchParams(window.location.search).get('authError');
+        if (authError) {
+            setError(mapAuthCallbackError(authError));
+        }
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

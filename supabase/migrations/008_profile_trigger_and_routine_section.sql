@@ -19,18 +19,28 @@ begin
     -- email が無い認証方式では profiles を作らない（NOT NULL 違反で auth.users 作成を
     -- 巻き込まないため）。その場合はクライアントの ensureProfile が後段で補う。
     if new.email is not null then
-        insert into public.profiles (id, email, display_name, avatar_url)
-        values (
-            new.id,
-            new.email,
-            coalesce(
-                new.raw_user_meta_data->>'display_name',
-                new.raw_user_meta_data->>'full_name',
-                new.raw_user_meta_data->>'name'
-            ),
-            new.raw_user_meta_data->>'avatar_url'
-        )
-        on conflict (id) do nothing;
+        -- profiles 生成が万一失敗しても auth.users の作成（サインアップ / 移行時の
+        -- createUser）は絶対に巻き込まない。id 重複は on conflict で吸収するが、email は
+        -- 別 UNIQUE 制約のため（既存プロフィールと email 衝突する異常データ等では）
+        -- on conflict では捕捉できず例外になり得る。ここで unique_violation を握り潰し、
+        -- 後段の ensureProfile / 移行スクリプトの upsert にプロフィール補完を委ねる。
+        begin
+            insert into public.profiles (id, email, display_name, avatar_url)
+            values (
+                new.id,
+                new.email,
+                coalesce(
+                    new.raw_user_meta_data->>'display_name',
+                    new.raw_user_meta_data->>'full_name',
+                    new.raw_user_meta_data->>'name'
+                ),
+                new.raw_user_meta_data->>'avatar_url'
+            )
+            on conflict (id) do nothing;
+        exception
+            when unique_violation then
+                null;
+        end;
     end if;
     return new;
 end;

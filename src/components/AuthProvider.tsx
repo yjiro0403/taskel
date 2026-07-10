@@ -55,7 +55,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setUser(mapSupabaseUser(session.user));
             }
 
-            const publicRoutes = ['/', '/login', '/signup', '/join'];
+            // /reset-password は「リンク無効」案内をセッション未確立でも表示する必要があるため公開扱いにする。
+            // 未登録だと AuthProvider がセッション確立前に /login へ強制遷移させ、案内が出る前に飛ばされる。
+            const publicRoutes = ['/', '/login', '/signup', '/join', '/reset-password'];
             const normalizedPath = pathname.replace(/^\/(en|ja)/, '') || '/';
 
             if (!session?.user && !publicRoutes.includes(normalizedPath) && !normalizedPath.startsWith('/join')) {
