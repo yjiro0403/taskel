@@ -631,8 +631,11 @@ export function subscribeTable(
     return channel;
 }
 
-export function unsubscribeChannels(client: Client, channels: RealtimeChannel[]) {
-    channels.forEach((channel) => {
-        client.removeChannel(channel);
-    });
+export async function unsubscribeChannels(client: Client, channels: RealtimeChannel[]) {
+    // client.removeChannel は内部で `await channel.unsubscribe()` → teardown を行う非同期処理。
+    // fire-and-forget にすると teardown 完了前に呼び出し側が次の購読を張ってしまい、
+    // 「同名トピックの解放待ちと再取得が競合する」「購読解除漏れ（リーク）」の温床になる。
+    // そのため各チャンネルの破棄完了を必ず待つ。呼び出し側が待たない場合も、
+    // 破棄処理自体は Promise として確実に開始・完走する。
+    await Promise.all(channels.map((channel) => client.removeChannel(channel)));
 }
