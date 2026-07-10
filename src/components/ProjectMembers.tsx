@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Users, Trash2 } from 'lucide-react';
 import { Project } from '@/types';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
 import { useStore } from '@/store/useStore';
 
 interface ProjectMembersProps {
@@ -22,26 +21,47 @@ export default function ProjectMembers({ project, currentUserRole, currentUserId
     const { updateProject } = useStore();
     const [members, setMembers] = useState<UserData[]>([]);
 
-    // Fetch Member Data
+    // Fetch Member Data（サーバー API 経由。安全な項目のみ返る）
     useEffect(() => {
         const fetchMembers = async () => {
-            if (!project.memberIds) return;
-
-            const memberData: UserData[] = [];
-            for (const uid of project.memberIds) {
-                try {
-                    const userDoc = await getDoc(doc(db, 'users', uid));
-                    if (userDoc.exists()) {
-                        memberData.push(userDoc.data() as UserData);
-                    } else {
-                        // Fallback if no user doc (e.g. old user)
-                        memberData.push({ uid, displayName: 'Unknown User', email: null, photoURL: null });
-                    }
-                } catch (e) {
-                    memberData.push({ uid, displayName: 'Error Loading', email: null, photoURL: null });
-                }
+            if (!project.memberIds || project.memberIds.length === 0) {
+                setMembers([]);
+                return;
             }
-            setMembers(memberData);
+
+            const buildFallback = (label: string): UserData[] =>
+                project.memberIds.map((uid) => ({ uid, displayName: label, email: null, photoURL: null }));
+
+            try {
+                const currentUser = auth.currentUser;
+                if (!currentUser) {
+                    setMembers(buildFallback('Unknown User'));
+                    return;
+                }
+                const token = await currentUser.getIdToken();
+                const res = await fetch('/api/users/profile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ uids: project.memberIds }),
+                });
+                if (!res.ok) throw new Error('Failed to fetch members');
+                const data = await res.json();
+                const byUid = new Map<string, UserData>(
+                    (data.members as UserData[]).map((m) => [m.uid, m])
+                );
+                // API から返らなかった uid はフォールバック表示にする
+                setMembers(
+                    project.memberIds.map(
+                        (uid) => byUid.get(uid) ?? { uid, displayName: 'Unknown User', email: null, photoURL: null }
+                    )
+                );
+            } catch (e) {
+                console.error('fetchMembers error:', e);
+                setMembers(buildFallback('Error Loading'));
+            }
         };
         fetchMembers();
     }, [project.memberIds]);

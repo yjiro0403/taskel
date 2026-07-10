@@ -19,7 +19,7 @@ import {
     DragStartEvent,
     DragOverlay
 } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { sortableKeyboardCoordinates, arrayMove } from '@dnd-kit/sortable';
 import { useState } from 'react';
 import GoalItem from './GoalItem';
 import WeeklyTaskItem from './WeeklyTaskItem';
@@ -29,7 +29,7 @@ interface WeeklyViewProps {
 }
 
 export default function WeeklyView({ currentDate = new Date() }: WeeklyViewProps) {
-    const { tasks, getMergedTasks, updateTask } = useStore();
+    const { tasks, getMergedTasks, updateTask, reorderTasks } = useStore();
 
     // Calculate Week Range
     const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday start
@@ -108,8 +108,17 @@ export default function WeeklyView({ currentDate = new Date() }: WeeklyViewProps
                     updateTask(activeTaskId, { date: overTask.date });
                 }
             } else if (overTask.assignedWeek) {
-                // Dropped onto a weekly goal -> Assign to week (remove date)
-                if (activeTask.date || activeTask.assignedWeek !== overTask.assignedWeek) {
+                const sameWeek = !activeTask.date && activeTask.assignedWeek === overTask.assignedWeek;
+                if (sameWeek) {
+                    // 同一週内のゴール並び替え（従来は no-op で必ず元に戻っていた）
+                    const oldIndex = weeklyGoals.findIndex(g => g.id === activeTaskId);
+                    const newIndex = weeklyGoals.findIndex(g => g.id === overId);
+                    if (oldIndex !== -1 && newIndex !== -1) {
+                        const reordered = arrayMove(weeklyGoals, oldIndex, newIndex);
+                        reorderTasks(reordered.map(g => g.id));
+                    }
+                } else {
+                    // Dropped onto a weekly goal -> Assign to week (remove date)
                     updateTask(activeTaskId, { assignedWeek: overTask.assignedWeek, date: undefined });
                 }
             }

@@ -1,14 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/firebaseAdmin';
+import { requireAuth, handleAuthError } from '@/lib/apiAuth';
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json();
-        const { userId } = body;
-
-        if (!userId) {
-            return NextResponse.json({ error: 'User ID required' }, { status: 400 });
-        }
+        // 本人性はトークンから導出（ボディの userId は信頼しない）
+        const { uid: userId } = await requireAuth(request);
 
         const db = getDb();
         const batch = db.batch();
@@ -90,6 +87,9 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, message: 'Onboarding data created' });
     } catch (error) {
+        const authErr = handleAuthError(error);
+        if (authErr) return authErr;
+
         console.error('Onboarding error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }

@@ -5,6 +5,7 @@ import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
 import { getAuth } from '@/lib/firebaseAdmin';
 import { checkQuota, incrementRequestCount, recordTokenUsage } from '@/lib/billing/usage';
+import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 // メッセージの正規化ヘルパー
 function normalizeMessages(messages: any[]) {
@@ -48,6 +49,10 @@ export async function POST(req: Request) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    // 1.5. バーストレート制限（月次クォータとは別に、短時間の乱用/課金枯渇を抑止）
+    const burst = rateLimit(`ai-chat:${uid}`, 20, 60 * 1000);
+    if (!burst.ok) return rateLimitResponse(burst);
 
     // 2. クォータチェック
     const quota = await checkQuota(uid);
