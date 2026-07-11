@@ -3,11 +3,12 @@ import type {
     SupabaseClient,
 } from '@supabase/supabase-js';
 
-import type { Attachment, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
-import type { Database } from '@/types/supabase';
+import type { Attachment, ChecklistItem, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
+import type { Database, Json } from '@/types/supabase';
 import {
     mapAttachment,
     mapGoal,
+    mapItemTemplate,
     mapProject,
     mapRoutine,
     mapSection,
@@ -47,6 +48,16 @@ function dateUpdate(value: string | undefined | null): string | null | undefined
     return value === undefined ? undefined : toDateOrNull(value);
 }
 
+// checklist (ChecklistItem[]) を jsonb 保存用のプレーンな配列へ変換する。
+// 余計なプロパティを持ち込まないよう、既知の3フィールドだけを写す。
+export function checklistToJson(items: ChecklistItem[] | undefined): Json {
+    return (items ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        checked: item.checked,
+    }));
+}
+
 function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
     return {
         id: task.id,
@@ -74,6 +85,7 @@ function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['In
         score: task.score ?? null,
         order: task.order,
         memo: task.memo ?? null,
+        checklist: checklistToJson(task.checklist),
         ai_tags: task.aiTags ?? [],
         ai_status: task.aiStatus ?? null,
         ai_error: task.aiError ?? null,
@@ -193,6 +205,14 @@ export async function createDefaultWorkspace(client: Client, userId: string) {
     if (taskError) {
         throw new Error(taskError.message);
     }
+}
+
+export async function fetchItemTemplates(client: Client) {
+    const { data, error } = await client
+        .from('item_templates')
+        .select('*')
+        .order('created_at', { ascending: true });
+    return requireData(data, error).map(mapItemTemplate);
 }
 
 export async function fetchTags(client: Client) {
@@ -477,6 +497,8 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         score: toNullable(updates.score),
         order: updates.order,
         memo: toNullable(updates.memo),
+        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
+        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
         ai_tags: updates.aiTags,
         ai_status: toNullable(updates.aiStatus),
         ai_error: toNullable(updates.aiError),
@@ -528,6 +550,8 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         score: toNullable(updates.score),
         order: updates.order,
         memo: toNullable(updates.memo),
+        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
+        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
         ai_tags: updates.aiTags,
         ai_status: toNullable(updates.aiStatus),
         ai_error: toNullable(updates.aiError),

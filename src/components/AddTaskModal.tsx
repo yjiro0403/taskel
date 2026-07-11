@@ -3,12 +3,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
-import { Task, Attachment } from '@/types';
+import { Task, Attachment, ChecklistItem } from '@/types';
 import { X, Sparkles, MessageSquare } from 'lucide-react';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
 import { TaskForm } from '@/components/TaskForm';
 import { TaskAttachments } from '@/components/TaskAttachments';
+import { TaskChecklistEditor } from '@/components/TaskChecklistEditor';
 import { TaskTagSelector } from '@/components/TaskTagSelector';
 import { TaskDatePicker } from '@/components/TaskDatePicker';
 
@@ -103,6 +104,9 @@ export default function AddTaskModal({
         targetTask?.aiTags?.includes('ai-workspace') ?? false
     );
     const [aiInitialPrompt, setAiInitialPrompt] = useState('');
+
+    // 持ち物リスト State
+    const [checklist, setChecklist] = useState<ChecklistItem[]>(targetTask?.checklist || []);
 
     // Attachment State
     const [attachments, setAttachments] = useState<Attachment[]>(targetTask?.attachments || []);
@@ -205,6 +209,7 @@ export default function AddTaskModal({
             setCurrentTag('');
             setTaskelAIEnabled(targetTask?.aiTags?.includes('ai-workspace') ?? false);
             setAiInitialPrompt('');
+            setChecklist(targetTask?.checklist || []);
             setAttachments(targetTask?.attachments || []);
             setError(null);
         }
@@ -322,6 +327,7 @@ export default function AddTaskModal({
                 tags: finalTags,
                 score: score === '' ? undefined : Number(score),
                 memo,
+                checklist,
                 attachments,
                 aiTags: updatedAiTags.length > 0 ? updatedAiTags : undefined,
                 ...(taskelAIEnabled && !targetTask.aiStatus ? { aiStatus: 'pending' as const } : {}),
@@ -347,6 +353,7 @@ export default function AddTaskModal({
                 order: newOrder,
                 tags: finalTags,
                 memo,
+                checklist,
                 attachments,
                 assignedDate: activeType === 'daily' ? (assignedDate || currentDate) : undefined,
                 assignedWeek: activeType === 'weekly' ? assignedWeek : undefined,
@@ -377,6 +384,7 @@ export default function AddTaskModal({
         setMilestoneId('');
         setMemo('');
         setTags([]);
+        setChecklist([]);
         setCurrentTag('');
         setTaskelAIEnabled(false);
         setAiInitialPrompt('');
@@ -556,6 +564,10 @@ export default function AddTaskModal({
                             )}
                         </div>
                     )} */}
+
+                    {activeType === 'task' && (
+                        <TaskChecklistEditor checklist={checklist} setChecklist={setChecklist} />
+                    )}
 
                     <TaskAttachments
                         attachments={attachments}

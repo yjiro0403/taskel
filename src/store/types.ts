@@ -1,7 +1,7 @@
 // Store全体の型定義
 // 各スライスのインターフェースをここで統合
 
-import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
+import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, ItemTemplate, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
 import type { AppUser } from '@/types/auth';
 import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
@@ -66,6 +66,14 @@ export interface TagSlice {
     resetTagSlice: () => void;
 }
 
+export interface ItemTemplateSlice {
+    itemTemplates: ItemTemplate[];
+    addItemTemplate: (template: ItemTemplate) => Promise<boolean>;
+    updateItemTemplate: (templateId: string, updates: Partial<Pick<ItemTemplate, 'name' | 'items'>>) => Promise<boolean>;
+    deleteItemTemplate: (templateId: string) => Promise<boolean>;
+    resetItemTemplateSlice: () => void;
+}
+
 export interface NoteSlice {
     dailyNotes: DailyNote[];
     weeklyNotes: WeeklyNote[];
@@ -112,6 +120,7 @@ export type StoreState =
     ProjectSlice &
     RoutineSlice &
     TagSlice &
+    ItemTemplateSlice &
     NoteSlice &
     AuthSlice &
     UISlice &

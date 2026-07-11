@@ -1,5 +1,5 @@
-import type { Attachment, Goal, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
-import type { Database } from '@/types/supabase';
+import type { Attachment, ChecklistItem, Goal, ItemTemplate, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
+import type { Database, Json } from '@/types/supabase';
 
 type Tables = Database['public']['Tables'];
 
@@ -51,6 +51,50 @@ export function mapRoutine(row: Tables['routines']['Row']): Routine {
         projectId: row.project_id ?? undefined,
         tags: row.tags,
         memo: row.memo ?? undefined,
+    };
+}
+
+// jsonb の checklist を防御的にパースする。手書き SQL やダッシュボード編集で
+// 型が崩れた行が混ざっても、正常な項目だけを残してクラッシュさせない。
+export function parseChecklist(value: Json | null | undefined): ChecklistItem[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    const items: ChecklistItem[] = [];
+    value.forEach((entry) => {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            return;
+        }
+        const name = entry.name;
+        if (typeof name !== 'string' || name.trim() === '') {
+            return;
+        }
+        items.push({
+            id: typeof entry.id === 'string' && entry.id !== '' ? entry.id : crypto.randomUUID(),
+            name,
+            checked: entry.checked === true,
+        });
+    });
+    return items;
+}
+
+// jsonb の items（持ち物名の配列）を防御的にパースする。
+export function parseTemplateItems(value: Json | null | undefined): string[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '');
+}
+
+export function mapItemTemplate(row: Tables['item_templates']['Row']): ItemTemplate {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        items: parseTemplateItems(row.items),
+        createdAt: new Date(row.created_at).getTime(),
+        updatedAt: new Date(row.updated_at).getTime(),
     };
 }
 
@@ -142,6 +186,7 @@ export function mapTask(
         order: row.order,
         tags: tags.map((tag) => tag.name),
         memo: row.memo ?? undefined,
+        checklist: parseChecklist(row.checklist),
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
         aiStatus: row.ai_status ?? undefined,

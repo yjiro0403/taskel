@@ -3,6 +3,7 @@ import { StateCreator } from 'zustand';
 import { createClient } from '@/lib/supabase/client';
 import {
     fetchGoals,
+    fetchItemTemplates,
     fetchNotes,
     fetchProjectById,
     fetchProjects,
@@ -14,8 +15,8 @@ import {
     subscribeTable,
     unsubscribeChannels,
 } from '@/lib/supabase/data';
-import { mapGoal, mapRoutine, mapSection, mapTag } from '@/lib/supabase/mappers';
-import type { DailyNote, Goal, MonthlyNote, Routine, Section, Tag, WeeklyNote, YearlyNote } from '@/types';
+import { mapGoal, mapItemTemplate, mapRoutine, mapSection, mapTag } from '@/lib/supabase/mappers';
+import type { DailyNote, Goal, ItemTemplate, MonthlyNote, Routine, Section, Tag, WeeklyNote, YearlyNote } from '@/types';
 import type { Database } from '@/types/supabase';
 import { StoreState, AuthSlice } from '../types';
 import { isPendingTask } from '../helpers/pendingTasks';
@@ -73,6 +74,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         get().resetProjectSlice();
         get().resetRoutineSlice();
         get().resetTagSlice();
+        get().resetItemTemplateSlice();
         get().resetNoteSlice();
         get().resetGoalSlice();
         get().resetAISlice();
@@ -132,13 +134,14 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         const refreshInitialState = async () => {
             try {
                 const tags = await fetchTags(supabase);
-                const [tasks, routines, sections, projects, goals, notes] = await Promise.all([
+                const [tasks, routines, sections, projects, goals, notes, itemTemplates] = await Promise.all([
                     fetchTasks(supabase, tags),
                     fetchRoutines(supabase),
                     fetchSections(supabase),
                     fetchProjects(supabase),
                     fetchGoals(supabase),
                     fetchNotes(supabase),
+                    fetchItemTemplates(supabase),
                 ]);
 
                 if (disposed) {
@@ -162,6 +165,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                         sections: sortSections(sections),
                         projects,
                         goals,
+                        itemTemplates,
                         dailyNotes: notes.dailyNotes,
                         weeklyNotes: notes.weeklyNotes,
                         monthlyNotes: notes.monthlyNotes,
@@ -251,7 +255,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         };
 
         const syncCollectionItem = <T extends { id: string }>(
-            key: 'tags' | 'sections' | 'routines' | 'goals',
+            key: 'tags' | 'sections' | 'routines' | 'goals' | 'itemTemplates',
             mapper: (row: never) => T,
             payload: RealtimePayload
         ) => {
@@ -289,6 +293,17 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                         payload.eventType === 'DELETE'
                             ? state.routines.filter((routine) => routine.id !== row.id)
                             : upsertById(state.routines, mapped),
+                }));
+                return;
+            }
+
+            if (key === 'itemTemplates') {
+                const mapped = mapper(row as never) as unknown as ItemTemplate;
+                set((state) => ({
+                    itemTemplates:
+                        payload.eventType === 'DELETE'
+                            ? state.itemTemplates.filter((template) => template.id !== row.id)
+                            : upsertById(state.itemTemplates, mapped),
                 }));
                 return;
             }
@@ -409,6 +424,12 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 `tags:${user.uid}`,
                 'tags',
                 (payload) => syncCollectionItem('tags', mapTag, payload),
+                `user_id=eq.${user.uid}`
+            );
+            ensureChannel(
+                `item-templates:${user.uid}`,
+                'item_templates',
+                (payload) => syncCollectionItem('itemTemplates', mapItemTemplate, payload as any),
                 `user_id=eq.${user.uid}`
             );
             ensureChannel(
