@@ -123,12 +123,27 @@ export default function RightSidebar() {
         setEditingTask(null);
     };
 
-    const handlePlay = (task: Task) => {
+    const handlePlay = async (task: Task) => {
+        if (task.status === 'in_progress') return;
+
+        // 005 の単一アクティブ制約対策: 既に実行中のタスクを先に停止してから開始する
+        // （status を open に戻し、経過時間を実績へ加算）。停止の永続化を待ってから開始しないと
+        // tasks_single_active_per_user_idx に違反して開始が失敗する。
+        const runningTasks = tasks.filter((t) => t.status === 'in_progress' && t.id !== task.id);
+        for (const running of runningTasks) {
+            const elapsedMinutes = running.startedAt ? (Date.now() - running.startedAt) / 60000 : 0;
+            await updateTask(running.id, {
+                status: 'open',
+                startedAt: undefined,
+                actualMinutes: (running.actualMinutes || 0) + elapsedMinutes,
+            });
+        }
+
         // Start task immediately and move to Today AND Correct Section
         const now = new Date();
         const currentSectionId = getSectionForTime(useStore.getState().sections, now);
 
-        updateTask(task.id, {
+        await updateTask(task.id, {
             status: 'in_progress',
             startedAt: now.getTime(),
             date: useStore.getState().currentDate, // Assign to today

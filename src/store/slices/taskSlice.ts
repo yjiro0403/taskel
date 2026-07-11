@@ -6,7 +6,7 @@ import { withClearedNullables } from '@/lib/tasks/clearedUpdates';
 import { routineOccursOn } from '@/lib/routineUtils';
 import {
     bulkCreateTaskRecords,
-    bulkReplaceTaskRecords,
+    bulkUpdateTaskOrderRecords,
     createTaskRecord,
     deleteTaskRecord,
     replaceTaskRecord,
@@ -15,6 +15,24 @@ import {
 import { Task } from '@/types';
 import { StoreState, TaskSlice } from '../types';
 import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
+
+// 楽観的更新の失敗ロールバックを「影響を受けたタスクのみ」に限定するヘルパ。
+// 従来は失敗時に tasks 配列全体を古いスナップショット(oldTasks)で上書きしていたため、
+// 書き込み処理中に別デバイス/タブの realtime で届いた無関係タスクの更新まで巻き戻して
+// ローカルから消してしまっていた。ここでは snapshot に載せた id だけを操作前の値へ戻し、
+// それ以外の現在値（=最新の realtime 反映済み）はそのまま保持する。
+//   snapshot: id -> 操作前の Task（null = 操作前は存在しなかった → ロールバックで除去する）
+// 配列の並び順は変わり得るが、表示は order 列でソートされるため影響しない。
+function rollbackTasks(current: Task[], snapshot: Map<string, Task | null>): Task[] {
+    const kept = current.filter((task) => !snapshot.has(task.id));
+    const restored: Task[] = [];
+    snapshot.forEach((prev) => {
+        if (prev) {
+            restored.push(prev);
+        }
+    });
+    return [...kept, ...restored];
+}
 
 export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set, get) => ({
     tasks: [],
@@ -32,14 +50,15 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = get().tasks;
+        // 失敗時に巻き戻すのは追加した task.id のみ（操作前は非存在 → null）。
+        const snapshot = new Map<string, Task | null>([[task.id, null]]);
         set((state) => ({ tasks: [...state.tasks, task] }));
 
         try {
             await createTaskRecord({ ...task, userId: user.uid }, user.uid);
         } catch (error) {
             console.error('Error adding task:', error);
-            set({ tasks: oldTasks });
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
             alert('Failed to add task. Please check your connection.');
         }
     },
@@ -53,7 +72,11 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = tasks;
+        // 失敗時の巻き戻しは「この操作で触れた id のみ」に限定する（無関係タスクの
+        // realtime 更新を巻き込まないため）。まず対象 id の操作前状態を記録する。
+        const snapshot = new Map<string, Task | null>([[taskId, tasks.find((task) => task.id === taskId) ?? null]]);
+        // realtime による巻き戻し防止のため pending 登録した id を追跡し、finally で確実に解除する。
+        const pendingIds = new Set<string>([taskId]);
         addPendingTask(taskId);
         set((state) => ({
             tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
@@ -88,9 +111,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                     userId: user.uid,
                     updatedAt: Date.now(),
                     isVirtual: undefined,
-                    // 添付は移動先(detached)へ引き継ぐ。skipMarker 側は [] にして元スロットの
-                    // 添付を削除する（undefined だと元 attachments が残り、detached が同一
-                    // attachment.id を再挿入して PK 違反→移動失敗になる）。
+                    // 元スロットの添付は削除する（[]）。移動先(detached)へは別IDで複製済みのため、
+                    // ここで消えても添付は失われない。undefined だと元 attachments が残る。
                     attachments: [],
                 };
                 const detached: Task = {
@@ -102,17 +124,49 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                     createdAt: Date.now(),
                     updatedAt: Date.now(),
                     userId: user.uid,
+                    // 添付は移動先へ「新しい attachment.id」で複製する。元行の添付(同一ID)が
+                    // 残ったまま detached を先に作成しても、attachments.id は全体でユニークな
+                    // PK のため衝突しない（作成優先の原子性を安全に成立させる要）。
+                    // storage_path/url 等は据え置きで実体ファイルはそのまま共有する。
+                    attachments: (occurrence.attachments ?? []).map((attachment) => ({
+                        ...attachment,
+                        id: crypto.randomUUID(),
+                    })),
                 };
+                // 実行中(in_progress)のまま日付移動すると 005 の単一アクティブ部分ユニーク
+                // インデックスに違反して作成が失敗し得る。移動先は「別日に予定変更」の意味なので
+                // open に落とし startedAt をクリアする（実績時間 actualMinutes は維持）。
+                if (detached.status === 'in_progress') {
+                    detached.status = 'open';
+                    detached.startedAt = undefined;
+                }
+
+                // 触れる id を巻き戻し対象＆pending に登録する。
+                snapshot.set(slotId, tasks.find((task) => task.id === slotId) ?? null);
+                snapshot.set(detached.id, null);
+                for (const id of [slotId, detached.id]) {
+                    if (!pendingIds.has(id)) {
+                        pendingIds.add(id);
+                        addPendingTask(id);
+                    }
+                }
 
                 set((state) => ({
                     tasks: [...state.tasks.filter((task) => task.id !== taskId), skipMarker, detached],
                 }));
 
+                // 【原子性の要】必ず「先に移動先(detached)を作成」→ 成功後に破壊的操作を行う。
+                // これにより途中失敗でもタスクが DB から消える経路を無くす:
+                //  1) createTaskRecord が失敗 → 元は一切変更されず無傷（ローカルは巻き戻し）。
+                //  2) replaceTaskRecord(skip) が失敗 → detached は既に永続化済み。元も残るため
+                //     最悪でも新旧日付への「重複表示」に留まる（可視・復旧可能。消失しない）。
+                //  3) deleteTaskRecord が失敗 → 旧行が残るだけ（同上の重複）。detached は無事。
+                await createTaskRecord(detached, user.uid);
+                await replaceTaskRecord(skipMarker, user.uid);
                 if (currentTask && taskId !== slotId) {
+                    // materialized で slot と異なる実体行がある場合のみ、最後に旧行を削除する。
                     await deleteTaskRecord(taskId);
                 }
-                await replaceTaskRecord(skipMarker, user.uid);
-                await createTaskRecord(detached, user.uid);
                 return;
             }
 
@@ -124,6 +178,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                         ...updates,
                         userId: user.uid,
                     };
+                    // 実体化で新規に作る id は失敗時に除去する（操作前は非存在）。
+                    snapshot.set(fullTaskForCreation.id, tasks.find((task) => task.id === fullTaskForCreation.id) ?? null);
                     set((state) => ({ tasks: [...state.tasks, fullTaskForCreation] }));
                     await replaceTaskRecord(fullTaskForCreation, user.uid);
                     return;
@@ -148,10 +204,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             }
         } catch (error) {
             console.error('Error updating task:', error);
-            set({ tasks: oldTasks });
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
             alert('Failed to update task. Please check your connection.');
         } finally {
-            removePendingTask(taskId);
+            pendingIds.forEach(removePendingTask);
         }
     },
 
@@ -199,7 +255,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = tasks;
+        // 失敗時は削除対象 id のみを元に戻す（無関係タスクの realtime 更新を巻き込まない）。
+        const snapshot = new Map<string, Task | null>([[taskId, tasks.find((task) => task.id === taskId) ?? null]]);
         set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
 
         try {
@@ -219,7 +276,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             await deleteTaskRecord(taskId);
         } catch (error) {
             console.error('Error deleting task:', error);
-            set({ tasks: oldTasks });
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
         }
     },
 
@@ -253,7 +310,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = tasks;
+        // 失敗時は削除対象 id のみを元に戻す（無関係タスクの realtime 更新を巻き込まない）。
+        const snapshot = new Map<string, Task | null>(
+            taskIds.map((id) => [id, tasks.find((task) => task.id === id) ?? null])
+        );
         set((state) => ({
             tasks: state.tasks.filter((task) => !taskIds.includes(task.id)),
             selectedTaskIds: [],
@@ -278,7 +338,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             }
         } catch (error) {
             console.error('Error bulk deleting tasks:', error);
-            set({ tasks: oldTasks });
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
         }
     },
 
@@ -317,7 +377,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     reorderTasks: async (taskIds: string[]) => {
         const { user, tasks } = get();
-        const oldTasks = tasks;
+        // 失敗時は並べ替えた id のみ order を元に戻す（無関係タスクの realtime 更新は保持）。
+        const snapshot = new Map<string, Task | null>(
+            taskIds.map((id) => [id, tasks.find((task) => task.id === id) ?? null])
+        );
         const newTasks = tasks.map((task) => {
             const newIndex = taskIds.indexOf(task.id);
             return newIndex >= 0 ? { ...task, order: newIndex } : task;
@@ -331,15 +394,18 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         // 書き込み中は realtime による巻き戻しを防止
         taskIds.forEach(addPendingTask);
         try {
-            const reorderedTasks = newTasks
+            // order 列だけを更新する。フルupsert(bulkReplaceTaskRecords)は buildTaskInsertPayload が
+            // user_id を常に現在ユーザーで書くため、混在ビュー内の他ユーザー所有タスクを並べ替えると
+            // 所有権を奪って RLS 前提を破壊する。order のみの部分更新でその破壊を根絶する。
+            const orders = newTasks
                 .filter((task) => taskIds.includes(task.id))
-                .map((task) => ({ ...task }));
+                .map((task) => ({ id: task.id, order: task.order ?? 0 }));
 
-            await bulkReplaceTaskRecords(reorderedTasks, user.uid);
+            await bulkUpdateTaskOrderRecords(orders);
         } catch (error) {
             console.error('Error reordering tasks:', error);
-            // 失敗時はローカル順を巻き戻す（DBと画面の乖離を防ぐ）
-            set({ tasks: oldTasks });
+            // 失敗時は並べ替えた分の order だけ巻き戻す（DBと画面の乖離を防ぐ）。
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
         } finally {
             taskIds.forEach(removePendingTask);
         }

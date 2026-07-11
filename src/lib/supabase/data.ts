@@ -426,11 +426,37 @@ export async function bulkUpsertTasks(client: Client, tasks: Task[], userId: str
     await Promise.all(tasks.map((task) => syncTaskTags(client, task.id, userId, task.tags ?? [])));
 }
 
+// 並べ替え専用: 各行の "order" 列だけを更新する。
+// 従来は reorder でフルupsert(buildTaskInsertPayload)していたため user_id を常に現在ユーザーで
+// 上書きし、日次ビュー等に混在した他ユーザー所有のプロジェクトタスクを並べ替えると所有権を
+// 奪って RLS 前提を破壊していた。ここでは "order" のみを SET し user_id 等の他列には一切
+// 触れないため、所有権・他デバイスの並行編集内容を保存する。認可は tasks の update RLS に委ねる。
+export async function bulkUpdateTaskOrders(
+    client: Client,
+    orders: { id: string; order: number }[]
+) {
+    if (orders.length === 0) {
+        return;
+    }
+
+    const results = await Promise.all(
+        orders.map(({ id, order }) => client.from('tasks').update({ order }).eq('id', id))
+    );
+
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+        throw new Error(failed.error.message);
+    }
+}
+
 export async function updateTaskRow(client: Client, taskId: string, updates: Partial<Task>, userId: string) {
     const payload: Tables['tasks']['Update'] = {
         title: updates.title,
-        assignee_id: toNullable(updates.assigneeId),
-        reporter_id: toNullable(updates.reporterId),
+        // assignee_id/reporter_id は uuid 列。insert 経路(toUuidOrNull)と対称に、空文字・
+        // 非UUIDは null へ正規化する。素通し(toNullable)だと空文字が uuid 列に渡り
+        // UPDATE 全体が失敗し、無関係な項目の更新まで巻き添えで落ちるため。
+        assignee_id: uuidUpdate(updates.assigneeId),
+        reporter_id: uuidUpdate(updates.reporterId),
         section_id: uuidUpdate(updates.sectionId),
         date: dateUpdate(updates.date),
         status: updates.status,
@@ -479,8 +505,9 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
 
     const payload: Tables['tasks']['Update'] = {
         title: updates.title,
-        assignee_id: toNullable(updates.assigneeId),
-        reporter_id: toNullable(updates.reporterId),
+        // uuid 列は空文字・非UUIDを null 正規化（updateTaskRow と対称）。
+        assignee_id: uuidUpdate(updates.assigneeId),
+        reporter_id: uuidUpdate(updates.reporterId),
         section_id: uuidUpdate(updates.sectionId),
         date: dateUpdate(updates.date),
         status: updates.status,
