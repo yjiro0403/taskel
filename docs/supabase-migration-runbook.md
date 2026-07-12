@@ -82,12 +82,18 @@ select id, public from storage.buckets where id='attachments';
 # 1) まず dry-run で件数と警告を確認（DBには書き込まない）
 npm run migrate:supabase -- --dry-run
 
+# 特定アカウントだけを移行する場合（以後の全コマンドで同じ値を指定）
+npm run migrate:supabase -- --dry-run --email user@example.com
+
 # 2) 問題なければ本移行
 npm run migrate:supabase
 
 # 3) 移行ユーザーへ初回パスワード設定メールを送るなら（SMTP必須）
 npm run migrate:supabase -- --send-reset-emails
 ```
+
+> `--send-reset-emails` を付けたwrite実行では、新規・既存どちらの移行対象にも
+> 再設定メールを送る。重複送信を避けるため、通常は最初の本実行で1回だけ指定すること。
 
 移行スクリプトは冪等（`deterministicUuid` によるID決定的マッピング）で再実行可能。
 本 Runbook 対応で以下のデータ安全性を確保済み:
