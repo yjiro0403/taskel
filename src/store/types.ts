@@ -16,7 +16,7 @@ export interface TaskSlice {
     currentDate: string;
     setCurrentDate: (date: string) => void;
     addTask: (task: Task) => void;
-    updateTask: (taskId: string, updates: Partial<Task>) => void;
+    updateTask: (taskId: string, updates: Partial<Task>) => Promise<boolean>;
     duplicateTask: (taskId: string) => Promise<void>;
     deleteTask: (taskId: string) => void;
     bulkUpdateTasks: (taskIds: string[], updates: Partial<Task>) => void;

@@ -169,24 +169,24 @@ export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, ge
 
   // --- A1: Timer Integration ---
   confirmAndStartTask: async (tempId) => {
-    const { taskCandidates, tasks, addTask, updateTask, user, sections, currentDate } = get();
+    const { taskCandidates, tasks, addTask, updateTask, user, sections } = get();
     const candidate = taskCandidates.find((c) => c.tempId === tempId);
     if (!candidate || !user) return;
 
-    // 1. 実行中タスクを検出して停止
-    const inProgressTasks = tasks.filter(
-      (t) => t.status === 'in_progress' && t.date === currentDate
-    );
+    // 1. 日付を問わず実行中タスクを検出して停止。DB はユーザーごとの実行中を
+    // 1件に制限しているため、別日に残ったタイマーも必ず先に解除する。
+    const inProgressTasks = tasks.filter((t) => t.status === 'in_progress');
     for (const task of inProgressTasks) {
       const elapsed = task.startedAt
         ? Math.round((Date.now() - task.startedAt) / 60000)
         : 0;
-      updateTask(task.id, {
+      const stopped = await updateTask(task.id, {
         status: 'done',
         actualMinutes: task.actualMinutes + elapsed,
         startedAt: undefined,
         completedAt: Date.now(),
       });
+      if (!stopped) return;
     }
 
     // 2. 現在時刻に基づくセクション自動割り当て
