@@ -18,6 +18,7 @@ export type Database = {
                     size: number | null;
                     storage_path: string;
                     task_id: string;
+                    uploader_id: string;
                     url: string;
                 };
                 Insert: {
@@ -28,6 +29,7 @@ export type Database = {
                     size?: number | null;
                     storage_path: string;
                     task_id: string;
+                    uploader_id?: string;
                     url: string;
                 };
                 Update: {
@@ -38,6 +40,7 @@ export type Database = {
                     size?: number | null;
                     storage_path?: string;
                     task_id?: string;
+                    uploader_id?: string;
                     url?: string;
                 };
                 Relationships: [];
@@ -639,6 +642,10 @@ export type Database = {
                 Args: {
                     project_uuid: string;
                 };
+                Returns: boolean;
+            };
+            consume_invitation_send_attempt: {
+                Args: Record<PropertyKey, never>;
                 Returns: boolean;
             };
             set_updated_at: {

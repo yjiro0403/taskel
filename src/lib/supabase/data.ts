@@ -3,7 +3,7 @@ import type {
     SupabaseClient,
 } from '@supabase/supabase-js';
 
-import type { Attachment, ChecklistItem, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
+import type { Attachment, ChecklistItem, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task } from '@/types';
 import type { Database, Json } from '@/types/supabase';
 import {
     mapAttachment,
@@ -575,20 +575,39 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
     await Promise.all(taskIds.map((taskId) => syncTaskTags(client, taskId, userId, updates.tags ?? [])));
 }
 
-// タスクの添付メタを attachments テーブルへ同期する（現状全削除→再挿入の単純差分）。
-// アプリは添付を Task.attachments 配列で保持するが、従来は DB へ一切書かれず、
-// Storage へ上げてもリロードで消えていた。ここで tasks 保存時に結線する。
+// タスクの添付メタを attachments テーブルへ同期する。
+// 既存行は uploader/storage_path の所有関係を保持するため不変とし、削除と新規追加だけを行う。
 export async function syncTaskAttachments(client: Client, taskId: string, attachments: Attachment[]) {
-    const { error: deleteError } = await client.from('attachments').delete().eq('task_id', taskId);
-    if (deleteError) {
-        throw new Error(deleteError.message);
+    const { data: existingRows, error: selectError } = await client
+        .from('attachments')
+        .select('id')
+        .eq('task_id', taskId);
+
+    if (selectError) {
+        throw new Error(selectError.message);
     }
 
-    if (attachments.length === 0) {
-        return;
+    const requestedIds = new Set(attachments.map((attachment) => attachment.id));
+    const existingIds = new Set((existingRows ?? []).map((attachment) => attachment.id));
+    const removedIds = (existingRows ?? [])
+        .map((attachment) => attachment.id)
+        .filter((id) => !requestedIds.has(id));
+
+    if (removedIds.length > 0) {
+        const { error: deleteError } = await client
+            .from('attachments')
+            .delete()
+            .eq('task_id', taskId)
+            .in('id', removedIds);
+
+        if (deleteError) {
+            throw new Error(deleteError.message);
+        }
     }
 
-    const rows = attachments.map((attachment) => ({
+    const rows = attachments
+        .filter((attachment) => !existingIds.has(attachment.id))
+        .map((attachment) => ({
         id: attachment.id,
         task_id: taskId,
         url: attachment.url,
@@ -596,7 +615,11 @@ export async function syncTaskAttachments(client: Client, taskId: string, attach
         name: attachment.name,
         file_type: attachment.type,
         size: attachment.size ?? null,
-    }));
+        }));
+
+    if (rows.length === 0) {
+        return;
+    }
 
     const { error: insertError } = await client.from('attachments').insert(rows);
     if (insertError) {

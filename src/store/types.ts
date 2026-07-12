@@ -43,8 +43,8 @@ export interface ProjectSlice {
     addProject: (project: Omit<Project, 'ownerId' | 'memberIds' | 'roles'>) => Promise<void>;
     updateProject: (projectId: string, updates: Partial<Project>) => Promise<void>;
     deleteProject: (projectId: string) => Promise<void>;
-    inviteMember: (projectId: string, email: string) => Promise<{ success: boolean; message: string }>;
-    generateInviteLink: (projectId: string, email?: string, role?: HubRole) => Promise<{ success: boolean; joinLink?: string; message: string }>;
+    inviteMember: (projectId: string, email: string, role?: Exclude<HubRole, 'owner'>) => Promise<{ success: boolean; message: string }>;
+    generateInviteLink: (projectId: string, email?: string, role?: Exclude<HubRole, 'owner'>) => Promise<{ success: boolean; joinLink?: string; message: string }>;
     joinProjectWithToken: (token: string) => Promise<{ success: boolean; projectId?: string; message: string }>;
     resetProjectSlice: () => void;
 }

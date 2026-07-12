@@ -13,7 +13,6 @@ import {
 import {
   invitationCreateRequestSchema,
   invitationJoinRequestSchema,
-  sendInvitationEmailSchema,
 } from './invitation';
 import {
   projectInviteRequestSchema,
@@ -115,18 +114,6 @@ describe('validation schemas', () => {
     }).success).toBe(true);
     expect(invitationJoinRequestSchema.safeParse({ inviteToken: 'token' }).success).toBe(false);
 
-    expect(sendInvitationEmailSchema.safeParse({
-      email: 'user@example.com',
-      projectTitle: 'Taskel',
-      inviterName: 'Owner',
-      inviteLink: 'https://example.com/join',
-    }).success).toBe(true);
-    expect(sendInvitationEmailSchema.safeParse({
-      email: 'bad',
-      projectTitle: '',
-      inviterName: '',
-      inviteLink: 'invalid',
-    }).success).toBe(false);
   });
 
   it('validates project schemas for valid and invalid payloads', () => {
