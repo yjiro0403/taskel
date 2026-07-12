@@ -648,6 +648,13 @@ export type Database = {
                 Args: Record<PropertyKey, never>;
                 Returns: boolean;
             };
+            delete_task_attachments: {
+                Args: {
+                    attachment_ids: string[];
+                    task_uuid: string;
+                };
+                Returns: number;
+            };
             set_updated_at: {
                 Args: Record<PropertyKey, never>;
                 Returns: unknown;

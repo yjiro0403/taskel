@@ -340,8 +340,9 @@ try {
         });
     assertNoError(memberUploadError, 'member uploads own shared attachment');
 
+    const memberAttachmentId = crypto.randomUUID();
     const { error: memberAttachmentError } = await member.client.from('attachments').insert({
-        id: crypto.randomUUID(),
+        id: memberAttachmentId,
         task_id: taskId,
         url: memberStoragePath,
         storage_path: memberStoragePath,
@@ -361,6 +362,29 @@ try {
         foreignAttachmentScopeMoveAttempt.data,
         'member moves a task containing another uploader attachment'
     );
+
+    const legacyDeleteAttempt = await member.client
+        .from('attachments')
+        .delete()
+        .eq('task_id', taskId)
+        .select('id');
+    assertRejected(
+        legacyDeleteAttempt.error,
+        legacyDeleteAttempt.data,
+        'legacy client deletes all attachment metadata directly'
+    );
+
+    const { data: deletedAttachmentCount, error: deleteAttachmentError } = await member.client.rpc(
+        'delete_task_attachments',
+        {
+            task_uuid: taskId,
+            attachment_ids: [memberAttachmentId],
+        }
+    );
+    assertNoError(deleteAttachmentError, 'current client deletes attachment metadata through RPC');
+    if (deletedAttachmentCount !== 1) {
+        throw new Error(`attachment delete RPC removed ${deletedAttachmentCount} rows instead of 1`);
+    }
 
     const { data: viewerSignedUrl, error: viewerSignedUrlError } = await viewer.client.storage
         .from('attachments')

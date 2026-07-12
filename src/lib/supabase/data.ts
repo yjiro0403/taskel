@@ -594,11 +594,10 @@ export async function syncTaskAttachments(client: Client, taskId: string, attach
         .filter((id) => !requestedIds.has(id));
 
     if (removedIds.length > 0) {
-        const { error: deleteError } = await client
-            .from('attachments')
-            .delete()
-            .eq('task_id', taskId)
-            .in('id', removedIds);
+        const { error: deleteError } = await client.rpc('delete_task_attachments', {
+            task_uuid: taskId,
+            attachment_ids: removedIds,
+        });
 
         if (deleteError) {
             throw new Error(deleteError.message);
