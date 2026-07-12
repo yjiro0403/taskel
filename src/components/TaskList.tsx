@@ -4,7 +4,7 @@ import { useStore } from '@/store/useStore';
 import { Task, Section } from '@/types';
 import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar } from 'lucide-react';
 import clsx from 'clsx';
-import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
+import { calculateTaskSchedule, formatTime, type TimeSlot } from '@/lib/timeUtils';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { addMinutes } from 'date-fns';
 import { INTERVAL_SECTION_PREFIX, isIntervalSection, generateDisplaySections, getSectionForTime } from '@/lib/sectionUtils';
@@ -227,12 +227,13 @@ export default function TaskList() {
         // 対象を開始する。
         const runningTasks = tasks.filter((t) => t.status === 'in_progress' && t.id !== task.id);
         for (const running of runningTasks) {
-            const elapsedMinutes = running.startedAt ? (Date.now() - running.startedAt) / 60000 : 0;
-            await updateTask(running.id, {
+            const elapsedMinutes = running.startedAt ? Math.round((Date.now() - running.startedAt) / 60000) : 0;
+            const stopped = await updateTask(running.id, {
                 status: 'open',
                 startedAt: undefined,
                 actualMinutes: (running.actualMinutes || 0) + elapsedMinutes,
             });
+            if (!stopped) return;
         }
 
         const now = new Date();
@@ -249,7 +250,7 @@ export default function TaskList() {
         if (task.status !== 'in_progress' || !task.startedAt) return;
 
         const now = Date.now();
-        const elapsedMinutes = (now - task.startedAt) / 60000;
+        const elapsedMinutes = Math.round((now - task.startedAt) / 60000);
 
         updateTask(task.id, {
             status: 'done',
@@ -262,7 +263,7 @@ export default function TaskList() {
     const handleStatusToggle = (task: Task) => {
         if (task.status === 'in_progress' && task.startedAt) {
             const now = Date.now();
-            const elapsedMinutes = (now - task.startedAt) / 60000;
+            const elapsedMinutes = Math.round((now - task.startedAt) / 60000);
 
             updateTask(task.id, {
                 status: 'done',
@@ -407,10 +408,20 @@ export default function TaskList() {
     );
 }
 
+interface SectionContainerProps {
+    section: Section;
+    isInterval: boolean;
+    sectionEndTime?: string;
+    taskSectionEndTime: Date | null;
+    tasks: Task[];
+    canEditTask: (task: Task) => boolean;
+    globalSchedule: Map<string, TimeSlot>;
+}
+
 function SectionContainer({
     section, isInterval, sectionEndTime, taskSectionEndTime, tasks,
     canEditTask, globalSchedule
-}: any) {
+}: SectionContainerProps) {
     const { setNodeRef } = useDroppable({
         id: section.id,
     });
@@ -443,7 +454,7 @@ function SectionContainer({
             </div>
 
             <div className="divide-y divide-gray-100 min-h-[50px]">
-                {tasks.map((task: any) => {
+                {tasks.map((task) => {
                     const schedule = globalSchedule.get(task.id);
                     // 全タスクをドラッグ可能にする（タスクシュートの思想）
                     const isSortable = true;

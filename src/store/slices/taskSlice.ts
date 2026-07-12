@@ -69,7 +69,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             set((state) => ({
                 tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
             }));
-            return;
+            return true;
         }
 
         // 失敗時の巻き戻しは「この操作で触れた id のみ」に限定する（無関係タスクの
@@ -167,7 +167,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                     // materialized で slot と異なる実体行がある場合のみ、最後に旧行を削除する。
                     await deleteTaskRecord(taskId);
                 }
-                return;
+                return true;
             }
 
             // 仮想タスクの実体化（日付移動でない通常の編集・完了操作）
@@ -182,10 +182,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                     snapshot.set(fullTaskForCreation.id, tasks.find((task) => task.id === fullTaskForCreation.id) ?? null);
                     set((state) => ({ tasks: [...state.tasks, fullTaskForCreation] }));
                     await replaceTaskRecord(fullTaskForCreation, user.uid);
-                    return;
+                    return true;
                 }
                 console.error('Task not found for update:', taskId);
-                return;
+                return false;
             }
 
             const isProjectChange = updates.projectId !== undefined && updates.projectId !== currentTask.projectId;
@@ -202,10 +202,12 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 const normalized = withClearedNullables(updates);
                 await updateTaskRecord(taskId, normalized as Partial<Task>, user.uid);
             }
+            return true;
         } catch (error) {
             console.error('Error updating task:', error);
             set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
             alert('Failed to update task. Please check your connection.');
+            return false;
         } finally {
             pendingIds.forEach(removePendingTask);
         }

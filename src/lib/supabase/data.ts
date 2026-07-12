@@ -48,6 +48,29 @@ function dateUpdate(value: string | undefined | null): string | null | undefined
     return value === undefined ? undefined : toDateOrNull(value);
 }
 
+// PostgreSQL integer columns reject fractional JSON numbers (for example,
+// elapsed minutes calculated from milliseconds). Normalize at the persistence
+// boundary so every caller, including play/stop and drag ordering, is safe.
+function integerUpdate(value: number | undefined): number | undefined {
+    if (value === undefined) return undefined;
+    return Math.round(value);
+}
+
+function nullableIntegerUpdate(value: number | undefined | null): number | null | undefined {
+    if (value === undefined || value === null) return value;
+    return Math.round(value);
+}
+
+function timestampUpdate(
+    updates: Partial<Task>,
+    key: 'startedAt' | 'completedAt' | 'aiCompletedAt'
+): string | null | undefined {
+    if (!Object.prototype.hasOwnProperty.call(updates, key)) {
+        return undefined;
+    }
+    return millisToIso(updates[key]);
+}
+
 // checklist (ChecklistItem[]) を jsonb 保存用のプレーンな配列へ変換する。
 // 余計なプロパティを持ち込まないよう、既知の3フィールドだけを写す。
 export function checklistToJson(items: ChecklistItem[] | undefined): Json {
@@ -68,8 +91,8 @@ function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['In
         section_id: toUuidOrNull(task.sectionId),
         date: toDateOrNull(task.date),
         status: task.status,
-        estimated_minutes: task.estimatedMinutes,
-        actual_minutes: task.actualMinutes,
+        estimated_minutes: Math.round(task.estimatedMinutes ?? 0),
+        actual_minutes: Math.round(task.actualMinutes ?? 0),
         started_at: millisToIso(task.startedAt),
         completed_at: millisToIso(task.completedAt),
         scheduled_start: task.scheduledStart ?? null,
@@ -82,8 +105,8 @@ function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['In
         assigned_month: task.assignedMonth ?? null,
         assigned_year: task.assignedYear ?? null,
         assigned_date: toDateOrNull(task.assignedDate),
-        score: task.score ?? null,
-        order: task.order,
+        score: task.score === undefined ? null : Math.round(task.score),
+        order: Math.round(task.order ?? 0),
         memo: task.memo ?? null,
         checklist: checklistToJson(task.checklist),
         ai_tags: task.aiTags ?? [],
@@ -471,7 +494,7 @@ export async function bulkUpdateTaskOrders(
     }
 
     const results = await Promise.all(
-        orders.map(({ id, order }) => client.from('tasks').update({ order }).eq('id', id))
+        orders.map(({ id, order }) => client.from('tasks').update({ order: Math.round(order) }).eq('id', id))
     );
 
     const failed = results.find((result) => result.error);
@@ -491,10 +514,10 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         section_id: uuidUpdate(updates.sectionId),
         date: dateUpdate(updates.date),
         status: updates.status,
-        estimated_minutes: updates.estimatedMinutes,
-        actual_minutes: updates.actualMinutes,
-        started_at: updates.startedAt === undefined ? undefined : millisToIso(updates.startedAt),
-        completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
+        estimated_minutes: integerUpdate(updates.estimatedMinutes),
+        actual_minutes: integerUpdate(updates.actualMinutes),
+        started_at: timestampUpdate(updates, 'startedAt'),
+        completed_at: timestampUpdate(updates, 'completedAt'),
         scheduled_start: toNullable(updates.scheduledStart),
         external_link: toNullable(updates.externalLink),
         parent_goal_id: uuidUpdate(updates.parentGoalId),
@@ -505,20 +528,31 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         assigned_month: toNullable(updates.assignedMonth),
         assigned_year: toNullable(updates.assignedYear),
         assigned_date: dateUpdate(updates.assignedDate),
-        score: toNullable(updates.score),
-        order: updates.order,
+        score: nullableIntegerUpdate(updates.score),
+        order: integerUpdate(updates.order),
         memo: toNullable(updates.memo),
         // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
         checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
         ai_tags: updates.aiTags,
         ai_status: toNullable(updates.aiStatus),
         ai_error: toNullable(updates.aiError),
-        ai_completed_at: updates.aiCompletedAt === undefined ? undefined : millisToIso(updates.aiCompletedAt),
+        ai_completed_at: timestampUpdate(updates, 'aiCompletedAt'),
     };
 
-    const { error } = await client.from('tasks').update(payload).eq('id', taskId);
+    // PostgREST の UPDATE は、RLS や削除済み ID により対象が0件でも error=null を
+    // 返し得る。更新行を明示的に返させ、停止失敗を「成功」と誤認して次のタイマーを
+    // 開始しないようにする。
+    const { data: updated, error } = await client
+        .from('tasks')
+        .update(payload)
+        .eq('id', taskId)
+        .select('id')
+        .maybeSingle();
     if (error) {
         throw new Error(error.message);
+    }
+    if (!updated) {
+        throw new Error('Task update did not match an editable task.');
     }
 
     if (updates.tags) {
@@ -544,10 +578,10 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         section_id: uuidUpdate(updates.sectionId),
         date: dateUpdate(updates.date),
         status: updates.status,
-        estimated_minutes: updates.estimatedMinutes,
-        actual_minutes: updates.actualMinutes,
-        started_at: updates.startedAt === undefined ? undefined : millisToIso(updates.startedAt),
-        completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
+        estimated_minutes: integerUpdate(updates.estimatedMinutes),
+        actual_minutes: integerUpdate(updates.actualMinutes),
+        started_at: timestampUpdate(updates, 'startedAt'),
+        completed_at: timestampUpdate(updates, 'completedAt'),
         scheduled_start: toNullable(updates.scheduledStart),
         external_link: toNullable(updates.externalLink),
         parent_goal_id: uuidUpdate(updates.parentGoalId),
@@ -558,15 +592,15 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         assigned_month: toNullable(updates.assignedMonth),
         assigned_year: toNullable(updates.assignedYear),
         assigned_date: dateUpdate(updates.assignedDate),
-        score: toNullable(updates.score),
-        order: updates.order,
+        score: nullableIntegerUpdate(updates.score),
+        order: integerUpdate(updates.order),
         memo: toNullable(updates.memo),
         // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
         checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
         ai_tags: updates.aiTags,
         ai_status: toNullable(updates.aiStatus),
         ai_error: toNullable(updates.aiError),
-        ai_completed_at: updates.aiCompletedAt === undefined ? undefined : millisToIso(updates.aiCompletedAt),
+        ai_completed_at: timestampUpdate(updates, 'aiCompletedAt'),
     };
 
     const { error } = await client

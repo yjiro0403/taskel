@@ -1609,11 +1609,9 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagReferenceByUser: M
         }
     }
 
-    // 005 の部分ユニークインデックス（user_id where status='in_progress' は1件のみ）に
-    // 抵触しないよう、ユーザー単位で in_progress を1件に正規化する。実 Firestore には
-    // タイマー放置・複数日跨ぎ等で複数 in_progress が残りうるため、最新 started_at のみ
-    // in_progress を保持し、他は open へ降格する（従来はそのまま投入し unique 違反で
-    // 2件目以降のタスクが移行失敗＝欠損していた）。
+    // 履歴インポート時に古いタイマーを再開すると、初回の新規タスク開始で数週間分の
+    // 経過時間を加算したり、005 の単一アクティブ制約に衝突する。移行元に残っている
+    // in_progress はすべて open に戻し、started_at もクリアする。タスク本体は保持する。
     const inProgressByUser = new Map<string, TaskInsert[]>();
     for (const row of taskRows) {
         if (row.status === 'in_progress') {
@@ -1623,19 +1621,11 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagReferenceByUser: M
         }
     }
     for (const [normalizeUserId, rows] of inProgressByUser) {
-        if (rows.length <= 1) continue;
-        // 最新 started_at を in_progress として残す。started_at が同値/null の場合は
-        // task id 昇順を tie-break に使い、再実行しても常に同じ1件が残るようにする
-        // （不安定だと再実行時に別の行が残り 005 の部分ユニーク制約に抵触し得る）。
-        rows.sort((a, b) => {
-            const byStarted = (b.started_at ?? '').localeCompare(a.started_at ?? '');
-            if (byStarted !== 0) return byStarted;
-            return String(a.id ?? '').localeCompare(String(b.id ?? ''));
-        });
-        for (let i = 1; i < rows.length; i++) {
-            rows[i].status = 'open';
+        for (const row of rows) {
+            row.status = 'open';
+            row.started_at = null;
         }
-        logWarn(`User ${normalizeUserId}: demoted ${rows.length - 1} extra in_progress task(s) to open (single-active-task constraint)`);
+        logWarn(`User ${normalizeUserId}: reset ${rows.length} imported in_progress task(s) to open.`);
     }
 
     return { taskRows, taskTagRows, attachmentRows };
