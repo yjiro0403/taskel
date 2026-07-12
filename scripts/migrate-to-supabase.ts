@@ -320,8 +320,11 @@ function initializeFirebase() {
 
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     if (serviceAccount) {
+        const parsedServiceAccount = JSON.parse(serviceAccount);
         initializeApp({
-            credential: cert(JSON.parse(serviceAccount)),
+            credential: cert(parsedServiceAccount),
+            projectId: process.env.FIREBASE_PROJECT_ID ?? parsedServiceAccount.project_id,
+            storageBucket: getFirebaseStorageBucketName(),
         });
         return getFirestore();
     }
@@ -332,6 +335,12 @@ function initializeFirebase() {
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
         initializeApp({
             credential: applicationDefault(),
+            // An explicitly configured source project must win over the
+            // credential file's embedded project. This prevents a stale
+            // service-account JSON from silently migrating a different
+            // Firebase environment (for example, dev instead of production).
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            storageBucket: getFirebaseStorageBucketName(),
         });
         return getFirestore();
     }
@@ -351,6 +360,8 @@ function initializeFirebase() {
                 clientEmail,
                 privateKey: privateKey.replace(/\\n/g, '\n'),
             }),
+            projectId,
+            storageBucket: getFirebaseStorageBucketName(),
         });
         return getFirestore();
     }
@@ -1039,6 +1050,7 @@ function buildTags(tags: RawDoc[], tasks: RawDoc[], registry: IdRegistry) {
 function buildProjects(projects: RawDoc[], registry: IdRegistry) {
     const projectRows: ProjectInsert[] = [];
     const memberRows: ProjectMemberInsert[] = [];
+    let skippedExternalMembers = 0;
 
     for (const project of projects) {
         const id = registry.ensure('projects', project.id);
@@ -1072,6 +1084,14 @@ function buildProjects(projects: RawDoc[], registry: IdRegistry) {
         for (const memberSourceId of memberIds) {
             const mappedMemberId = registry.get('users', memberSourceId);
             if (!mappedMemberId) {
+                if (migrationEmail) {
+                    // A focused import intentionally does not create unrelated
+                    // Auth users. Keep the selected user's project ownership,
+                    // but omit external memberships until those accounts are
+                    // migrated separately.
+                    skippedExternalMembers += 1;
+                    continue;
+                }
                 logError(`Skipping project member for project ${project.id}: missing user mapping for ${memberSourceId}`);
                 continue;
             }
@@ -1086,6 +1106,12 @@ function buildProjects(projects: RawDoc[], registry: IdRegistry) {
                 created_at: createdAt,
             });
         }
+    }
+
+    if (skippedExternalMembers > 0) {
+        logWarn(
+            `Projects: omitted ${skippedExternalMembers} external member reference(s) from the single-account migration.`
+        );
     }
 
     return { projectRows, memberRows };

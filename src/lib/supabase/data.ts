@@ -313,31 +313,42 @@ function buildTaskTags(
 }
 
 export async function fetchTasks(client: Client, tags: Tag[]) {
-    const { data: tasks, error: taskError } = await client
-        .from('tasks')
-        .select('*')
-        .order('date', { ascending: true })
-        .order('order', { ascending: true });
+    // PostgREST limits a response to api.max_rows (1,000 in this project).
+    // Fetching without ranges silently truncated migrated accounts, while
+    // passing 1,000 UUIDs to subsequent `.in(...)` requests exceeded the URL
+    // limit and made the entire initial store refresh fail. Page the parent
+    // rows and embed the small related collections in the same request.
+    const pageSize = 500;
+    type TaskWithRelations = Tables['tasks']['Row'] & {
+        task_tags: Tables['task_tags']['Row'][] | null;
+        attachments: Tables['attachments']['Row'][] | null;
+    };
+    const taskRows: Tables['tasks']['Row'][] = [];
+    const taskTagRows: Tables['task_tags']['Row'][] = [];
+    const attachmentRows: Tables['attachments']['Row'][] = [];
 
-    const taskRows = requireData(tasks, taskError);
-    const taskIds = taskRows.map((task) => task.id);
-
-    let taskTagRows: Tables['task_tags']['Row'][] = [];
-    let attachmentRows: Tables['attachments']['Row'][] = [];
-    if (taskIds.length > 0) {
+    for (let from = 0; ; from += pageSize) {
         const { data, error } = await client
-            .from('task_tags')
-            .select('*')
-            .in('task_id', taskIds);
+            .from('tasks')
+            .select('*, task_tags(*), attachments(*)')
+            .order('date', { ascending: true })
+            .order('order', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1);
 
-        taskTagRows = requireData(data, error);
+        // The generated Database type does not currently include relationship
+        // metadata, although PostgREST exposes both foreign-key embeds.
+        const page = requireData(data, error) as unknown as TaskWithRelations[];
+        for (const task of page) {
+            const { task_tags: relatedTags, attachments: relatedAttachments, ...taskRow } = task;
+            taskRows.push(taskRow as Tables['tasks']['Row']);
+            taskTagRows.push(...(relatedTags ?? []));
+            attachmentRows.push(...(relatedAttachments ?? []));
+        }
 
-        const { data: attachments, error: attachmentsError } = await client
-            .from('attachments')
-            .select('*')
-            .in('task_id', taskIds);
-
-        attachmentRows = requireData(attachments, attachmentsError);
+        if (page.length < pageSize) {
+            break;
+        }
     }
 
     return buildTaskTags(taskRows, taskTagRows, tags, attachmentRows);
