@@ -149,8 +149,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 }
 
                 rebuildDataSubscriptions(
-                    projects.map((project) => project.id),
-                    tasks.map((task) => task.id)
+                    projects.map((project) => project.id)
                 );
 
                 set((state) => {
@@ -200,8 +199,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     tasks: state.tasks.filter((task) => task.id !== taskId),
                 }));
                 rebuildDataSubscriptions(
-                    get().projects.map((project) => project.id),
-                    get().tasks.filter((task) => task.id !== taskId).map((task) => task.id)
+                    get().projects.map((project) => project.id)
                 );
                 return;
             }
@@ -220,8 +218,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     tasks: isPendingTask(task.id) ? state.tasks : upsertById(state.tasks, task),
                 }));
                 rebuildDataSubscriptions(
-                    get().projects.map((project) => project.id),
-                    get().tasks.map((entry) => entry.id)
+                    get().projects.map((project) => project.id)
                 );
             } catch (error) {
                 console.error('Failed to sync task:', error);
@@ -365,7 +362,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             });
         };
 
-        const rebuildDataSubscriptions = (projectIds: string[], taskIds: string[]) => {
+        const rebuildDataSubscriptions = (projectIds: string[]) => {
             if (disposed) {
                 return;
             }
@@ -373,12 +370,11 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             // IDの集合を正規化（重複排除＋ソート）し、フィルタ文字列を安定化させる。
             // 並び順の違いだけで無駄な差し替えが起きないようにするため。
             const sortedProjectIds = Array.from(new Set(projectIds)).sort();
-            const sortedTaskIds = Array.from(new Set(taskIds)).sort();
 
             // 購読対象IDの集合が前回と同一なら、全フィルタが不変なので張り直し不要。
             // syncTask が INSERT/UPDATE/DELETE のたびに rebuild を呼んでも、
             // 実際にIDの集合が変化した時だけ以降の差分処理が走る（チャーン抑制）。
-            const subscriptionSignature = `${sortedProjectIds.join(',')}|${sortedTaskIds.join(',')}`;
+            const subscriptionSignature = sortedProjectIds.join(',');
             if (subscriptionSignature === lastSubscriptionSignature && dataChannels.size > 0) {
                 return;
             }
@@ -386,7 +382,6 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
 
             const projectFilter = buildInFilter('id', sortedProjectIds);
             const projectScopedFilter = buildInFilter('project_id', sortedProjectIds);
-            const taskTagFilter = buildInFilter('task_id', sortedTaskIds);
 
             const previousChannels = dataChannels;
             const nextChannels = new Map<string, DataChannel>();
@@ -429,7 +424,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             ensureChannel(
                 `item-templates:${user.uid}`,
                 'item_templates',
-                (payload) => syncCollectionItem('itemTemplates', mapItemTemplate, payload as any),
+                (payload) => syncCollectionItem('itemTemplates', mapItemTemplate, payload),
                 `user_id=eq.${user.uid}`
             );
             ensureChannel(
@@ -504,7 +499,10 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     }
                     void syncTask(taskId, payload.eventType === 'DELETE' ? 'UPDATE' : payload.eventType);
                 },
-                taskTagFilter ?? undefined
+                // RLS on task_tags already limits events to accessible tasks.
+                // Avoid a multi-thousand-UUID Realtime filter, which exceeds
+                // protocol limits on migrated accounts.
+                undefined
             );
 
             // 今回の購読対象から外れた論理キー（例: 全プロジェクト離脱で projectScoped 系が消えた）を破棄する。
@@ -529,8 +527,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         void refreshInitialState();
         void get().fetchBillingInfo();
         rebuildDataSubscriptions(
-            get().projects.map((project) => project.id),
-            get().tasks.map((task) => task.id)
+            get().projects.map((project) => project.id)
         );
 
         channelTopicGeneration += 1;
@@ -559,8 +556,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 }
 
                 rebuildDataSubscriptions(
-                    get().projects.map((project) => project.id),
-                    get().tasks.map((task) => task.id)
+                    get().projects.map((project) => project.id)
                 );
             },
             `user_id=eq.${user.uid}`
