@@ -5,8 +5,7 @@
 
 import { z } from 'zod';
 import { tool } from 'ai';
-import { getDb } from '@/lib/firebaseAdmin';
-import admin from 'firebase-admin';
+import { createClient } from '@/lib/supabase/server';
 import { safeFetch } from '@/lib/safeFetch';
 
 interface WorkspaceToolContext {
@@ -33,20 +32,20 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
       // @ts-ignore
       execute: async (args: any) => {
         const { title, date, estimatedMinutes, memo, tags } = args;
-        const db = getDb();
+        const supabase = await createClient();
 
         const taskId = crypto.randomUUID();
         const now = Date.now();
 
         // ユーザーのセクションを取得して最初のセクションを使用
-        const sectionsSnapshot = await db
-          .collection('sections')
-          .where('userId', '==', ctx.userId)
-          .orderBy('order', 'asc')
-          .limit(1)
-          .get();
+        const { data: sections } = await supabase
+          .from('sections')
+          .select('id')
+          .eq('user_id', ctx.userId)
+          .order('order', { ascending: true })
+          .limit(1);
 
-        const defaultSectionId = sectionsSnapshot.docs[0]?.id || 'section-1';
+        const defaultSectionId = sections?.[0]?.id || 'section-1';
 
         const newTask = {
           id: taskId,
@@ -64,7 +63,18 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
           updatedAt: now,
         };
 
-        await db.collection('tasks').doc(taskId).set(newTask);
+        await supabase.from('tasks').insert({
+          id: taskId,
+          user_id: ctx.userId,
+          title,
+          section_id: defaultSectionId,
+          date: date || ctx.currentDate,
+          status: 'open',
+          estimated_minutes: estimatedMinutes || 30,
+          actual_minutes: 0,
+          order: 999,
+          memo: memo || '',
+        });
 
         return {
           type: 'task_created',
@@ -88,37 +98,23 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
       // @ts-ignore
       execute: async (args: any) => {
         const { content } = args;
-        const db = getDb();
-        const now = Date.now();
+        const supabase = await createClient();
 
-        const commentRef = db
-          .collection('tasks')
-          .doc(ctx.taskId)
-          .collection('comments')
-          .doc();
-
-        const comment = {
-          id: commentRef.id,
-          taskId: ctx.taskId,
-          userId: ctx.userId,
-          authorType: 'ai',
-          authorName: 'Taskel AI',
-          content,
-          createdAt: now,
-          updatedAt: now,
-        };
-
-        const batch = db.batch();
-        batch.set(commentRef, comment);
-        batch.update(db.collection('tasks').doc(ctx.taskId), {
-          commentCount: admin.firestore.FieldValue.increment(1),
-          updatedAt: now,
-        });
-        await batch.commit();
+        const { data: comment } = await supabase
+          .from('task_comments')
+          .insert({
+            task_id: ctx.taskId,
+            user_id: ctx.userId,
+            author_type: 'ai',
+            author_name: 'Taskel AI',
+            content,
+          })
+          .select('id')
+          .single();
 
         return {
           type: 'comment_posted',
-          commentId: commentRef.id,
+          commentId: comment?.id,
           message: 'コメントを投稿しました',
         };
       },

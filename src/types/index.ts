@@ -79,6 +79,7 @@ export interface Task {
     aiError?: string;
     aiCompletedAt?: number;
     commentCount?: number;
+    isVirtual?: boolean;
 }
 
 export interface TaskComment {

@@ -1,122 +1,105 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
-import admin from 'firebase-admin';
 
-/**
- * GET /api/tasks/[taskId]/comments
- * タスクのコメント一覧を取得
- */
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { parseJsonBody } from '@/lib/api/request';
+import { createClient } from '@/lib/supabase/server';
+import { mapTaskComment } from '@/lib/supabase/mappers';
+import { commentCreateSchema } from '@/lib/validations/comment';
+
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
+    await requireAuth();
     const { taskId } = await params;
-    const db = getDb();
+    const supabase = await createClient();
 
-    // タスクの所有権チェック
-    const taskDoc = await db.collection('tasks').doc(taskId).get();
-    if (!taskDoc.exists || taskDoc.data()?.userId !== uid) {
+    const { data: canAccessTask, error: accessError } = await supabase.rpc('can_access_task', {
+      task_uuid: taskId,
+    });
+
+    if (accessError) {
+      throw accessError;
+    }
+
+    if (!canAccessTask) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // コメント取得（createdAt昇順）
-    const commentsSnapshot = await db
-      .collection('tasks')
-      .doc(taskId)
-      .collection('comments')
-      .orderBy('createdAt', 'asc')
-      .get();
+    const { data: task, error: taskError } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('id', taskId)
+      .maybeSingle();
 
-    const comments = commentsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    if (taskError) {
+      throw taskError;
+    }
 
-    return NextResponse.json({ comments });
+    if (!task) {
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    }
+
+    const { data: comments, error: commentError } = await supabase
+      .from('task_comments')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true });
+
+    if (commentError) {
+      throw commentError;
+    }
+
+    return NextResponse.json({ comments: comments.map(mapTaskComment) });
   } catch (error) {
-    console.error('GET comments error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError('GET comments error', error, 'Internal server error');
   }
 }
 
-/**
- * POST /api/tasks/[taskId]/comments
- * 新しいコメントを追加
- */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
+    const user = await requireAuth();
     const { taskId } = await params;
-    const { content, authorType, authorName } = await req.json();
+    const { content, authorName } = await parseJsonBody(req, commentCreateSchema);
+    const supabase = await createClient();
 
-    if (!content || !authorType) {
-      return NextResponse.json({ error: 'content and authorType are required' }, { status: 400 });
+    const { data: task, error: taskError } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (taskError) {
+      throw taskError;
     }
 
-    const db = getDb();
-
-    // タスクの所有権チェック
-    const taskDoc = await db.collection('tasks').doc(taskId).get();
-    if (!taskDoc.exists || taskDoc.data()?.userId !== uid) {
+    if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    const now = Date.now();
-    const commentRef = db.collection('tasks').doc(taskId).collection('comments').doc();
-    const comment = {
-      id: commentRef.id,
-      taskId,
-      userId: uid,
-      authorType,
-      authorName: authorName || (authorType === 'ai' ? 'Taskel AI' : undefined),
-      content,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const { data: insertedComment, error: insertError } = await supabase
+      .from('task_comments')
+      .insert({
+        task_id: taskId,
+        user_id: user.id,
+        author_type: 'user',
+        author_name: authorName ?? null,
+        content,
+      })
+      .select('*')
+      .single();
 
-    // コメント作成 + タスクのcommentCountインクリメント（バッチ）
-    const batch = db.batch();
-    batch.set(commentRef, comment);
-    batch.update(db.collection('tasks').doc(taskId), {
-      commentCount: admin.firestore.FieldValue.increment(1),
-      updatedAt: now,
-    });
-    await batch.commit();
+    if (insertError) {
+      throw insertError;
+    }
 
-    return NextResponse.json({ comment });
+    return NextResponse.json({ comment: mapTaskComment(insertedComment) });
   } catch (error) {
-    console.error('POST comment error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError('POST comment error', error, 'Internal server error');
   }
 }

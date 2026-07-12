@@ -18,4 +18,12 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) =>
     isAddTaskModalOpen: false,
     openAddTaskModal: () => set({ isAddTaskModalOpen: true }),
     closeAddTaskModal: () => set({ isAddTaskModalOpen: false }),
+
+    resetUISlice: () => set({
+        currentTime: new Date(),
+        isRightSidebarOpen: false,
+        isLeftSidebarOpen: false,
+        isDailyNoteModalOpen: false,
+        isAddTaskModalOpen: false,
+    }),
 });

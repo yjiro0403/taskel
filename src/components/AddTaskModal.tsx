@@ -5,10 +5,12 @@ import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
 import { Task, Attachment } from '@/types';
 import { X, Sparkles, MessageSquare } from 'lucide-react';
-import clsx from 'clsx';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
-import { format } from 'date-fns';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
+import { TaskForm } from '@/components/TaskForm';
+import { TaskAttachments } from '@/components/TaskAttachments';
+import { TaskTagSelector } from '@/components/TaskTagSelector';
+import { TaskDatePicker } from '@/components/TaskDatePicker';
 
 type TaskType = 'task' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -439,284 +441,58 @@ export default function AddTaskModal({
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                            placeholder={activeType === 'task' ? "e.g., Check emails" : `e.g., ${activeType} Goal`}
-                            autoFocus
-                        />
-                    </div>
+                    <TaskForm
+                        title={title}
+                        setTitle={setTitle}
+                        activeType={activeType}
+                        projectId={projectId}
+                        setProjectId={setProjectId}
+                        milestoneId={milestoneId}
+                        setMilestoneId={setMilestoneId}
+                        projects={projects}
+                        memo={memo}
+                        setMemo={setMemo}
+                    />
 
-                    {/* Conditional Fields based on Type */}
-                    {activeType === 'task' && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                            <div className="flex items-center gap-3">
-                                <input
-                                    type="date"
-                                    value={date}
-                                    onChange={(e) => setDate(e.target.value)}
-                                    disabled={!date}
-                                    className={clsx(
-                                        "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900",
-                                        !date && "bg-gray-100 text-gray-400"
-                                    )}
-                                />
-                                <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap cursor-pointer hover:text-gray-900 select-none">
-                                    <input
-                                        type="checkbox"
-                                        checked={!date}
-                                        onChange={(e) => {
-                                            if (e.target.checked) setDate('');
-                                            else setDate(currentDate);
-                                        }}
-                                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                                    />
-                                    Unscheduled
-                                </label>
-                            </div>
-                        </div>
-                    )}
+                    <TaskDatePicker
+                        activeType={activeType}
+                        date={date}
+                        setDate={setDate}
+                        currentDate={currentDate}
+                        assignedDate={assignedDate}
+                        setAssignedDate={setAssignedDate}
+                        assignedWeek={assignedWeek}
+                        setAssignedWeek={setAssignedWeek}
+                        assignedMonth={assignedMonth}
+                        setAssignedMonth={setAssignedMonth}
+                        assignedYear={assignedYear}
+                        setAssignedYear={setAssignedYear}
+                        estimatedMinutes={estimatedMinutes}
+                        setEstimatedMinutes={setEstimatedMinutes}
+                        actualMinutes={actualMinutes}
+                        setActualMinutes={setActualMinutes}
+                        sectionId={sectionId}
+                        setSectionId={setSectionId}
+                        scheduledStart={scheduledStart}
+                        setScheduledStart={setScheduledStart}
+                        displaySections={displaySections}
+                        isTimeSectionInconsistent={isTimeSectionInconsistent}
+                    />
 
-                    {activeType === 'daily' && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Target Date</label>
-                            <input
-                                type="date"
-                                value={assignedDate || currentDate}
-                                onChange={(e) => setAssignedDate(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                            />
-                        </div>
-                    )}
-
-                    {activeType === 'weekly' && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Target Week</label>
-                            <input
-                                type="week"
-                                value={assignedWeek}
-                                onChange={(e) => setAssignedWeek(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                            />
-                        </div>
-                    )}
-
-                    {activeType === 'monthly' && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Target Month</label>
-                            <input
-                                type="month"
-                                value={assignedMonth}
-                                onChange={(e) => setAssignedMonth(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                            />
-                        </div>
-                    )}
-
-                    {activeType === 'yearly' && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Target Year</label>
-                            <input
-                                type="number"
-                                min="2020"
-                                max="2030"
-                                value={assignedYear}
-                                onChange={(e) => setAssignedYear(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                            />
-                        </div>
-                    )}
-
-                    {activeType === 'task' && (
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="flex gap-2">
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Est. (min)</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={estimatedMinutes}
-                                        onChange={(e) => setEstimatedMinutes(e.target.value === '' ? '' : Number(e.target.value))}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                                    />
-                                </div>
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Act. (min)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={actualMinutes}
-                                        onChange={(e) => setActualMinutes(e.target.value === '' ? '' : Number(e.target.value))}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
-
-
-                                <select
-                                    value={sectionId}
-                                    onChange={(e) => {
-                                        setSectionId(e.target.value);
-                                        // Exclusive Logic: Clear time if section is manually chosen
-                                        setScheduledStart('');
-                                    }}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white text-gray-900"
-                                >
-                                    {displaySections.map((section, index) => {
-                                        const endTime = section.endTime || (index < displaySections.length - 1 ? displaySections[index + 1].startTime : '24:00');
-                                        return (
-                                            <option key={section.id} value={section.id}>
-                                                {section.name} ({section.startTime || '00:00'} - {endTime})
-                                            </option>
-                                        );
-                                    })}
-                                </select>
-                            </div>
-
-                            <div className="col-span-2">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Scheduled Start Time (Optional)</label>
-                                <input
-                                    type="time"
-                                    value={scheduledStart}
-                                    onChange={(e) => setScheduledStart(e.target.value)}
-                                    className={clsx(
-                                        "w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900",
-                                        isTimeSectionInconsistent ? "border-yellow-400 bg-yellow-50" : "border-gray-300"
-                                    )}
-                                />
-                                {isTimeSectionInconsistent && (
-                                    <p className="mt-1 text-xs text-yellow-700 font-medium">
-                                        ⚠️ 時間 ({scheduledStart}) は別のセクション範囲外です
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Project Selector - Now common for all types */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Project (Optional)</label>
-                        <select
-                            value={projectId}
-                            onChange={(e) => setProjectId(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white text-gray-900"
-                        >
-                            <option value="">No Project</option>
-                            {projects.filter(p => (p.status === 'active' || p.id === projectId)).map((project) => (
-                                <option key={project.id} value={project.id}>
-                                    {project.title}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Milestone Selector (Conditional) */}
-                    {(() => {
-                        const selectedProject = projects.find(p => p.id === projectId);
-                        if (selectedProject?.milestones && selectedProject.milestones.length > 0) {
-                            return (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Schedule</label>
-                                    <select
-                                        value={milestoneId}
-                                        onChange={(e) => setMilestoneId(e.target.value)}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white text-gray-900"
-                                    >
-                                        <option value="">No Schedule</option>
-                                        {selectedProject.milestones.map((milestone) => (
-                                            <option key={milestone.id} value={milestone.id}>
-                                                {milestone.title}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            );
-                        }
-                        return null;
-                    })()}
-
-                    {/* Tags and Score Section */}
-                    <div className="flex gap-4">
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={currentTag}
-                                    onChange={(e) => {
-                                        setCurrentTag(e.target.value);
-                                        setShowSuggestions(true);
-                                    }}
-                                    onFocus={() => setShowSuggestions(true)}
-                                    onKeyDown={handleAddTag}
-                                    onCompositionStart={() => setIsComposing(true)}
-                                    onCompositionEnd={() => setIsComposing(false)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 placeholder:text-gray-400"
-                                    placeholder="Type tag and press Enter"
-                                    enterKeyHint="enter"
-                                />
-                                {showSuggestions && currentTag && filteredTags.length > 0 && (
-                                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                                        {filteredTags.map(tag => (
-                                            <button
-                                                key={tag}
-                                                type="button"
-                                                onClick={() => addTagToTask(tag)}
-                                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
-                                            >
-                                                {tag}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                            {tags.length > 0 && (
-                                <div className="flex flex-wrap gap-2 mt-2">
-                                    {tags.map(tag => (
-                                        <span key={tag} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                            {tag}
-                                            <button
-                                                type="button"
-                                                onClick={() => removeTag(tag)}
-                                                className="ml-1 text-blue-600 hover:text-blue-800 focus:outline-none"
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        <div className="w-24">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Score</label>
-                            <input
-                                type="number"
-                                value={score}
-                                onChange={(e) => setScore(e.target.value === '' ? '' : Number(e.target.value))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                                placeholder="0"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Memo Section */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Memo (Markdown)</label>
-                        <textarea
-                            value={memo}
-                            onChange={(e) => setMemo(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 min-h-[100px] font-mono text-sm"
-                            placeholder="Add notes, meeting minutes..."
-                        />
-                    </div>
+                    <TaskTagSelector
+                        currentTag={currentTag}
+                        setCurrentTag={setCurrentTag}
+                        showSuggestions={showSuggestions}
+                        setShowSuggestions={setShowSuggestions}
+                        handleAddTag={handleAddTag}
+                        setIsComposing={setIsComposing}
+                        filteredTags={filteredTags}
+                        addTagToTask={addTagToTask}
+                        tags={tags}
+                        removeTag={removeTag}
+                        score={score}
+                        setScore={setScore}
+                    />
 
                     {/* Taskel AI Toggle + Inline Prompt - コメントアウト: エラー多発のため一旦無効化 */}
                     {/* {activeType === 'task' && (
@@ -781,41 +557,12 @@ export default function AddTaskModal({
                         </div>
                     )} */}
 
-                    {/* Attachments Section */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Attachments</label>
-                        <div className="flex flex-wrap gap-2 mb-2">
-                            {attachments.map((att) => (
-                                <div key={att.id} className="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-200">
-                                    <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
-                                    <button
-                                        type="button"
-                                        onClick={() => handleRemoveAttachment(att.id)}
-                                        className="absolute top-1 right-1 bg-black/50 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        <X size={12} />
-                                    </button>
-                                </div>
-                            ))}
-                            {isUploading && (
-                                <div className="w-20 h-20 flex items-center justify-center bg-gray-50 rounded-lg border border-gray-200">
-                                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                </div>
-                            )}
-                            <label className="w-20 h-20 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 cursor-pointer transition-colors">
-                                <span className="text-2xl text-gray-400">+</span>
-                                <input
-                                    type="file"
-                                    multiple
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={handleFileSelect}
-                                    disabled={isUploading}
-                                />
-                            </label>
-                        </div>
-                        <p className="text-xs text-gray-400">Supported images (Max 5MB). Auto-compressed.</p>
-                    </div>
+                    <TaskAttachments
+                        attachments={attachments}
+                        isUploading={isUploading}
+                        handleFileSelect={handleFileSelect}
+                        handleRemoveAttachment={handleRemoveAttachment}
+                    />
 
                     {/* Taskel AI Conversation (既存のai-workspaceタスク編集時のみ) */}
                     {targetTask && targetTask.aiTags?.includes('ai-workspace') && (

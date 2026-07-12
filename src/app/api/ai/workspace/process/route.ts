@@ -1,36 +1,32 @@
 import { generateText, stepCountIs } from 'ai';
 import { google } from '@ai-sdk/google';
 import { format } from 'date-fns';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
 import { checkQuota, incrementRequestCount, recordTokenUsage } from '@/lib/billing/usage';
 import { buildWorkspaceProcessPrompt } from '@/lib/ai/workspacePrompts';
 import { createWorkspaceTools } from '@/lib/ai/workspaceTools';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError, jsonError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
+import { parseJsonBody } from '@/lib/api/request';
+import { createClient } from '@/lib/supabase/server';
+import { taskIdRequestSchema } from '@/lib/validations/task';
 
 const MODEL = 'gemini-2.5-flash';
 
 export async function POST(req: Request) {
   console.log('==== AI Workspace Process API Called ====');
   try {
-    // 1. Bearer token認証
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    const rateLimitResponse = applyRateLimit(req, {
+      key: '/api/ai/workspace/process',
+      limit: 10,
+      windowMs: 60_000,
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
 
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    const user = await requireAuth();
+    const uid = user.id;
 
     // 2. クォータチェック
     const quota = await checkQuota(uid);
@@ -48,32 +44,30 @@ export async function POST(req: Request) {
 
     await incrementRequestCount(uid);
 
-    const { taskId } = await req.json();
-    if (!taskId) {
-      return new Response(JSON.stringify({ error: 'taskId is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    const { taskId } = await parseJsonBody(req, taskIdRequestSchema);
 
-    const db = getDb();
+    const supabase = await createClient();
 
     // 3. タスク取得 + 所有権チェック
-    const taskDoc = await db.collection('tasks').doc(taskId).get();
-    if (!taskDoc.exists || taskDoc.data()?.userId !== uid) {
-      return new Response(JSON.stringify({ error: 'Task not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    const { data: taskData, error: taskError } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', taskId)
+      .eq('user_id', uid)
+      .maybeSingle();
+    if (taskError) {
+      throw taskError;
+    }
+    if (!taskData) {
+      return jsonError('Task not found', 404);
     }
 
-    const taskData = taskDoc.data()!;
-
     // 4. ステータスを processing に更新
-    await db.collection('tasks').doc(taskId).update({
-      aiStatus: 'processing',
-      updatedAt: Date.now(),
-    });
+    await supabase
+      .from('tasks')
+      .update({ ai_status: 'processing' })
+      .eq('id', taskId)
+      .eq('user_id', uid);
 
     const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -82,8 +76,8 @@ export async function POST(req: Request) {
       const systemPrompt = buildWorkspaceProcessPrompt({
         currentDate: today,
         taskTitle: taskData.title,
-        taskMemo: taskData.memo,
-        taskTags: taskData.tags,
+        taskMemo: taskData.memo ?? undefined,
+        taskTags: [],
       });
 
       const tools = createWorkspaceTools({
@@ -113,32 +107,24 @@ export async function POST(req: Request) {
       // 7. AIのテキスト応答もコメントとして投稿（ツールでpostCommentしなかった場合）
       if (result.text && result.text.trim()) {
         const now = Date.now();
-        const commentRef = db.collection('tasks').doc(taskId).collection('comments').doc();
-        const batch = db.batch();
-        batch.set(commentRef, {
-          id: commentRef.id,
-          taskId,
-          userId: uid,
-          authorType: 'ai',
-          authorName: 'Taskel AI',
+        await supabase.from('task_comments').insert({
+          task_id: taskId,
+          user_id: uid,
+          author_type: 'ai',
+          author_name: 'Taskel AI',
           content: result.text,
-          createdAt: now,
-          updatedAt: now,
         });
-        const admin = await import('firebase-admin');
-        batch.update(db.collection('tasks').doc(taskId), {
-          commentCount: admin.default.firestore.FieldValue.increment(1),
-          updatedAt: now,
-        });
-        await batch.commit();
       }
 
       // 8. ステータスを completed に更新
-      await db.collection('tasks').doc(taskId).update({
-        aiStatus: 'completed',
-        aiCompletedAt: Date.now(),
-        updatedAt: Date.now(),
-      });
+      await supabase
+        .from('tasks')
+        .update({
+          ai_status: 'completed',
+          ai_completed_at: new Date().toISOString(),
+        })
+        .eq('id', taskId)
+        .eq('user_id', uid);
 
       return new Response(
         JSON.stringify({ status: 'completed', taskId }),
@@ -148,12 +134,15 @@ export async function POST(req: Request) {
       console.error('AI processing error:', aiError);
 
       // エラー時のステータス更新
-      const errorMessage = aiError instanceof Error ? aiError.message : 'Unknown AI error';
-      await db.collection('tasks').doc(taskId).update({
-        aiStatus: 'error',
-        aiError: errorMessage,
-        updatedAt: Date.now(),
-      });
+      const errorMessage = 'AI processing failed';
+      await supabase
+        .from('tasks')
+        .update({
+          ai_status: 'error',
+          ai_error: errorMessage,
+        })
+        .eq('id', taskId)
+        .eq('user_id', uid);
 
       return new Response(
         JSON.stringify({ status: 'error', error: errorMessage }),
@@ -161,11 +150,6 @@ export async function POST(req: Request) {
       );
     }
   } catch (error) {
-    console.error('Workspace Process API Error:', error);
-    const message = error instanceof Error ? error.message : 'Internal Server Error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return handleApiError('Workspace Process API Error', error);
   }
 }

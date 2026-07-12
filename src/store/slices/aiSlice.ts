@@ -44,6 +44,7 @@ export interface AISlice {
   // --- A1: Timer Integration ---
   /** 候補を確定して即座にタイマー開始（実行中タスクがあれば自動停止） */
   confirmAndStartTask: (tempId: string) => Promise<void>;
+  resetAISlice: () => void;
 }
 
 export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, get) => ({
@@ -228,4 +229,11 @@ export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, ge
     // 5. Firestoreに保存
     await addTask(newTask);
   },
+
+  resetAISlice: () => set({
+    isAIPanelOpen: false,
+    taskCandidates: [],
+    cachedGoalSummaries: [],
+    cachedCalibrationHint: null,
+  }),
 });

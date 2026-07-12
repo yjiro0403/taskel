@@ -1,89 +1,74 @@
-
 import { NextResponse } from 'next/server';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
-import { Invitation } from '@/types';
 import nodemailer from 'nodemailer';
-import { escapeHtml } from '@/lib/escapeHtml';
-import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
+
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { parseJsonBody } from '@/lib/api/request';
+import { getAppUrl } from '@/lib/api/url';
+import { escapeHtml } from '@/lib/email/escape';
+import { createClient } from '@/lib/supabase/server';
+import { projectInviteRequestSchema } from '@/lib/validations/project';
 
 export async function POST(request: Request, props: { params: Promise<{ projectId: string }> }) {
     try {
         const params = await props.params;
         const { projectId } = params;
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-        const token = authHeader.split('Bearer ')[1];
+        const user = await requireAuth();
+        const inviterName =
+            user.user_metadata?.display_name ||
+            user.user_metadata?.full_name ||
+            user.email ||
+            'A Taskel user';
+        const { email, role } = await parseJsonBody(request, projectInviteRequestSchema);
+        const supabase = await createClient();
 
-        let inviterId;
-        let inviterName = 'A Taskel user'; // Fallback
+        const { data: canManageProject, error: permissionError } = await supabase.rpc('can_manage_project', {
+            project_uuid: projectId,
+        });
 
-        try {
-            const decodedToken = await getAuth().verifyIdToken(token);
-            inviterId = decodedToken.uid;
-            inviterName = decodedToken.name || decodedToken.email || 'A Taskel user';
-        } catch (authError) {
-            console.error('Auth verification failed:', authError);
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
-        // レート制限（招待メール乱発の抑止）
-        const limit = rateLimit(`project-invite:${inviterId}`, 20, 10 * 60 * 1000);
-        if (!limit.ok) return rateLimitResponse(limit);
-
-        const { email, role } = await request.json();
-
-        if (!email) {
-            return NextResponse.json({ error: 'Email is required' }, { status: 400 });
+        if (permissionError) {
+            throw permissionError;
         }
 
-        const db = getDb();
-
-        // Verify Project
-        const projectRef = db.collection('projects').doc(projectId);
-        const projectSnap = await projectRef.get();
-        if (!projectSnap.exists) {
-            return NextResponse.json({ error: 'Project not found' }, { status: 404 });
-        }
-
-        const projectData = projectSnap.data();
-        if (!projectData) {
-            return NextResponse.json({ error: 'Project data missing' }, { status: 500 });
-        }
-
-        const userRole = projectData.roles?.[inviterId];
-        const isOwner = projectData.ownerId === inviterId;
-
-        if (!isOwner && userRole !== 'owner' && userRole !== 'admin') {
+        if (!canManageProject) {
             return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
         }
 
-        // Create Invitation
-        const inviteId = crypto.randomUUID();
-        const now = Date.now();
-        const expiresAt = now + 7 * 24 * 60 * 60 * 1000; // 7 days
+        const { data: project, error: projectError } = await supabase
+            .from('projects')
+            .select('title')
+            .eq('id', projectId)
+            .single();
 
-        const invitation: Invitation = {
-            id: inviteId,
-            projectId,
-            email,
-            role: role || 'member',
-            inviterId,
-            status: 'pending',
-            createdAt: now,
-            expiresAt,
-            isReusable: false
-        };
+        if (projectError) {
+            return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+        }
 
-        await db.collection('invitations').doc(inviteId).set(invitation);
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: invitation, error: insertError } = await supabase
+            .from('invitations')
+            .insert({
+                project_id: projectId,
+                email,
+                role: role || 'member',
+                inviter_id: user.id,
+                status: 'pending',
+                expires_at: expiresAt,
+                is_reusable: false,
+            })
+            .select('id')
+            .single();
 
-        // Generate Join Link
-        const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'https://taskel.vercel.app';
-        const joinLink = `${origin}/join?token=${inviteId}`;
-        const projectTitle = projectData.title || 'Untitled Project';
+        if (insertError) {
+            throw insertError;
+        }
 
-        // Send Email
+        const joinLink = `${getAppUrl()}/join?token=${invitation.id}`;
+        const projectTitle = project.title || 'Untitled Project';
+        const safeInviterName = escapeHtml(inviterName);
+        const safeProjectTitle = escapeHtml(projectTitle);
+        const safeEmail = escapeHtml(email);
+        const safeJoinLink = escapeHtml(joinLink);
         const smtpConfig = {
             host: process.env.SMTP_HOST,
             port: Number(process.env.SMTP_PORT) || 587,
@@ -101,13 +86,7 @@ export async function POST(request: Request, props: { params: Promise<{ projectI
             console.log(`To: ${email}`);
             console.log(`Link: ${joinLink}`);
             console.log('-----------------------');
-            // Allow success even if mock
         } else {
-            // 差込値はすべてエスケープ（HTML/コンテンツインジェクション防止）
-            const safeInviter = escapeHtml(inviterName);
-            const safeProject = escapeHtml(projectTitle);
-            const safeLink = escapeHtml(joinLink);
-
             const transporter = nodemailer.createTransport(smtpConfig);
             await transporter.verify();
             await transporter.sendMail({
@@ -115,25 +94,24 @@ export async function POST(request: Request, props: { params: Promise<{ projectI
                 to: email,
                 subject: `Invitation to join ${projectTitle} on Taskel`,
                 html: `
-                    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                        <h2>You've been invited!</h2>
-                        <p><strong>${safeInviter}</strong> has invited you to collaborate on the project <strong>"${safeProject}"</strong> using Taskel.</p>
-                        <p>To accept the invitation, please click the button below:</p>
-                        <div style="margin: 32px 0;">
-                            <a href="${safeLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                                Join Project
-                            </a>
-                        </div>
-                        <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${safeLink}</p>
-                    </div>
-                `,
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>You've been invited!</h2>
+                <p><strong>${safeInviterName}</strong> has invited you to collaborate on the project <strong>"${safeProjectTitle}"</strong> using Taskel.</p>
+                <p>To accept the invitation, please click the button below:</p>
+                <div style="margin: 32px 0;">
+                    <a href="${safeJoinLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                        Join Project
+                    </a>
+                </div>
+                <p style="color: #666; font-size: 14px;">Or paste this link in your browser: <br>${safeJoinLink}</p>
+                <p style="color: #666; font-size: 14px;">Please sign in or sign up with this email address: ${safeEmail}</p>
+            </div>
+        `,
             });
         }
 
         return NextResponse.json({ success: true, message: 'Invitation sent' });
-
     } catch (error) {
-        console.error('Error sending invitation:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return handleApiError('Error sending invitation', error);
     }
 }

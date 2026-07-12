@@ -17,15 +17,17 @@ import DailyGoalList from './DailyGoalList';
 import { SortableTaskItem } from './SortableTaskItem';
 import { TaskContextProvider } from '@/contexts/TaskContext';
 import { useTour } from '@/hooks/useTour';
+import { BottomDropZone } from './BottomDropZone';
 
 // DnD Imports
 // DnD Imports removed (lifted to wrapper), but useDroppable is needed for SectionContainer
-import { useDroppable, useDndContext } from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
 import {
     SortableContext,
     verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { AIChatPanel } from './AIChatPanel';
+import { createClient } from '@/lib/supabase/client';
 
 export default function TaskList() {
     const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
@@ -64,20 +66,29 @@ export default function TaskList() {
         setIsSyncing(true);
 
         try {
-            const { googleProvider, auth } = await import('@/lib/firebase');
-            const { signInWithPopup, GoogleAuthProvider } = await import('firebase/auth');
-
-            // Force re-consent
-            googleProvider.setCustomParameters({ prompt: 'consent' });
-
-            const result = await signInWithPopup(auth, googleProvider);
-            const credential = GoogleAuthProvider.credentialFromResult(result);
-            const accessToken = credential?.accessToken;
+            const supabase = createClient();
+            const { data } = await supabase.auth.getSession();
+            const accessToken = data.session?.provider_token;
 
             if (accessToken) {
                 await syncGoogleCalendar(accessToken, currentDate);
             } else {
-                alert("Could not get access token.");
+                localStorage.setItem('pending_google_calendar_sync', currentDate);
+                const redirectTo = `${window.location.origin}/auth/callback?next=/tasks`;
+                const { error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        redirectTo,
+                        scopes: 'https://www.googleapis.com/auth/calendar.readonly',
+                        queryParams: {
+                            access_type: 'offline',
+                            prompt: 'consent',
+                        },
+                    },
+                });
+                if (error) {
+                    throw error;
+                }
             }
         } catch (e) {
             console.error("Sync failed", e);
@@ -86,6 +97,22 @@ export default function TaskList() {
             setIsSyncing(false);
         }
     };
+
+    useEffect(() => {
+        const pendingDate = localStorage.getItem('pending_google_calendar_sync');
+        if (!pendingDate || !user) return;
+
+        const syncPending = async () => {
+            const { data } = await createClient().auth.getSession();
+            const accessToken = data.session?.provider_token;
+            if (!accessToken) return;
+
+            localStorage.removeItem('pending_google_calendar_sync');
+            await syncGoogleCalendar(accessToken, pendingDate);
+        };
+
+        void syncPending();
+    }, [syncGoogleCalendar, user]);
 
     const handleEditTask = (task: Task) => {
         setEditingTask(task);
@@ -116,7 +143,7 @@ export default function TaskList() {
     const filteredTasks = useMemo(() => {
         return getMergedTasks(currentDate);
         // routines を依存に含める。含めないと、起動時に tasks が routines より先に
-        // 届いた場合などにルーチン仮想タスクが再計算されず「今日のルーチンが出ない」
+        // 反映された場合などにルーチン仮想タスクが再計算されず「今日のルーチンが出ない」
         // 間欠不具合になる。
     }, [getMergedTasks, currentDate, tasks, routines]);
 
@@ -190,13 +217,28 @@ export default function TaskList() {
         return role !== 'viewer';
     };
 
-    const handlePlay = (task: Task) => {
+    const handlePlay = async (task: Task) => {
         if (task.status === 'in_progress') return;
+
+        // 005 の単一アクティブ制約: 既に実行中のタスクがあると、新規開始の UPDATE が
+        // tasks_single_active_per_user_idx（status='in_progress' の部分ユニーク）に違反して
+        // 失敗し alert が出る。開始前に実行中タスクを停止する（status を open に戻し、経過時間を
+        // 実績へ加算）。停止の永続化が済むまでインデックスは解放されないため、必ず await してから
+        // 対象を開始する。
+        const runningTasks = tasks.filter((t) => t.status === 'in_progress' && t.id !== task.id);
+        for (const running of runningTasks) {
+            const elapsedMinutes = running.startedAt ? (Date.now() - running.startedAt) / 60000 : 0;
+            await updateTask(running.id, {
+                status: 'open',
+                startedAt: undefined,
+                actualMinutes: (running.actualMinutes || 0) + elapsedMinutes,
+            });
+        }
 
         const now = new Date();
         const currentSectionId = getSectionForTime(sections, now);
 
-        updateTask(task.id, {
+        await updateTask(task.id, {
             status: 'in_progress',
             startedAt: now.getTime(),
             sectionId: currentSectionId
@@ -423,24 +465,7 @@ function SectionContainer({
                     </div>
                 )}
             </div>
-
-            {/* Bottom Drop Zone Indicator */}
-            {(() => {
-                // eslint-disable-next-line react-hooks/rules-of-hooks
-                const { active, over } = useDndContext();
-                const isOverSection = over?.id === section.id && active?.id !== over?.id;
-
-                return (
-                    <div className={clsx(
-                        "transition-all duration-200 mx-2 mb-2 rounded border-2 border-dashed flex items-center justify-center text-sm font-medium",
-                        isOverSection
-                            ? "h-12 bg-blue-50 border-blue-400 text-blue-600 opacity-100"
-                            : "h-2 border-transparent text-transparent opacity-0"
-                    )}>
-                        {isOverSection && "Drop here to add to end"}
-                    </div>
-                );
-            })()}
+            <BottomDropZone sectionId={section.id} />
         </div>
     );
 }

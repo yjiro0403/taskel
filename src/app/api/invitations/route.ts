@@ -1,86 +1,64 @@
-
 import { NextResponse } from 'next/server';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
-import { Invitation } from '@/types';
+
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
+import { parseJsonBody } from '@/lib/api/request';
+import { getAppUrl } from '@/lib/api/url';
+import { createClient } from '@/lib/supabase/server';
+import { invitationCreateRequestSchema } from '@/lib/validations/invitation';
 
 export async function POST(request: Request) {
     try {
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-        const token = authHeader.split('Bearer ')[1];
-
-        // Verify User
-        let userId;
-        try {
-            const decodedToken = await getAuth().verifyIdToken(token);
-            userId = decodedToken.uid;
-        } catch (authError) {
-            console.error('Auth verification failed:', authError);
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        const rateLimitResponse = applyRateLimit(request, {
+            key: '/api/invitations',
+            limit: 10,
+            windowMs: 60_000,
+        });
+        if (rateLimitResponse) {
+            return rateLimitResponse;
         }
 
-        const { projectId, email, role } = await request.json();
+        const user = await requireAuth();
+        const { projectId, email, role } = await parseJsonBody(request, invitationCreateRequestSchema);
+        const supabase = await createClient();
 
-        if (!projectId) {
-            return NextResponse.json({ error: 'Missing projectId' }, { status: 400 });
+        const { data: canManageProject, error: permissionError } = await supabase.rpc('can_manage_project', {
+            project_uuid: projectId,
+        });
+
+        if (permissionError) {
+            throw permissionError;
         }
 
-        const db = getDb();
-
-        // Verify Project Ownership/Role
-        // Only owner or admin can invite?
-        const projectRef = db.collection('projects').doc(projectId);
-        const projectSnap = await projectRef.get();
-        if (!projectSnap.exists) {
-            return NextResponse.json({ error: 'Project not found' }, { status: 404 });
-        }
-
-        const projectData = projectSnap.data();
-        if (!projectData) {
-            return NextResponse.json({ error: 'Project data missing' }, { status: 500 });
-        }
-
-        const userRole = projectData.roles?.[userId];
-        const isOwner = projectData.ownerId === userId;
-
-        if (!isOwner && userRole !== 'owner' && userRole !== 'admin') {
+        if (!canManageProject) {
             return NextResponse.json({ error: 'Insufficient permissions to invite' }, { status: 403 });
         }
 
-        // Create Invitation
-        const inviteId = crypto.randomUUID();
-        const now = Date.now();
-        const expiresAt = now + 7 * 24 * 60 * 60 * 1000; // 7 days expiration for link
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        const isReusable = !email;
 
-        const isReusable = !email; // If no email, reusable link
+        const { data: invitation, error: insertError } = await supabase
+            .from('invitations')
+            .insert({
+                project_id: projectId,
+                email: email ?? null,
+                role: role || 'member',
+                inviter_id: user.id,
+                status: 'pending',
+                expires_at: expiresAt,
+                is_reusable: isReusable,
+            })
+            .select('id')
+            .single();
 
-        const invitation: Invitation = {
-            id: inviteId,
-            projectId,
-            role: role || 'member',
-            inviterId: userId,
-            status: 'pending',
-            createdAt: now,
-            expiresAt,
-            isReusable
-        };
-
-        if (email) {
-            invitation.email = email;
+        if (insertError) {
+            throw insertError;
         }
 
-        await db.collection('invitations').doc(inviteId).set(invitation);
-
-        // Generate Join Link
-        // Use origin from request if available, otherwise fallback
-        const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'https://taskel.vercel.app';
-        const joinLink = `${origin}/join?token=${inviteId}`;
-
+        const joinLink = `${getAppUrl()}/join?token=${invitation.id}`;
         return NextResponse.json({ success: true, joinLink });
     } catch (error) {
-        console.error('Error generating invitation:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return handleApiError('Error generating invitation', error);
     }
 }
