@@ -2,7 +2,7 @@
 
 import { Task } from '@/types';
 import clsx from 'clsx';
-import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical, MessageSquare, Sparkles } from 'lucide-react';
+import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical, ListChecks, MessageSquare, Sparkles } from 'lucide-react';
 import { formatTime } from '@/lib/timeUtils';
 import { AIStatusBadge } from '@/components/ai/AIStatusBadge';
 import { AttachmentImage } from '@/components/AttachmentImage';
@@ -196,6 +196,20 @@ export function TaskItem({
                         </span>
                     )}
                     {task.aiStatus && <AIStatusBadge status={task.aiStatus} />}
+                    {task.checklist && task.checklist.length > 0 && (
+                        <span
+                            className={clsx(
+                                'inline-flex items-center gap-0.5',
+                                task.checklist.every((item) => item.checked) ? 'text-green-600' : 'text-amber-600'
+                            )}
+                            title="持ち物リスト"
+                        >
+                            <ListChecks size={10} />
+                            <span className="text-[10px]">
+                                {task.checklist.filter((item) => item.checked).length}/{task.checklist.length}
+                            </span>
+                        </span>
+                    )}
                     {task.commentCount && task.commentCount > 0 && (
                         <span className="inline-flex items-center gap-0.5 text-gray-400" title="Comments">
                             <MessageSquare size={10} />

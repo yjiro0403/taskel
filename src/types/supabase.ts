@@ -18,6 +18,7 @@ export type Database = {
                     size: number | null;
                     storage_path: string;
                     task_id: string;
+                    uploader_id: string;
                     url: string;
                 };
                 Insert: {
@@ -28,6 +29,7 @@ export type Database = {
                     size?: number | null;
                     storage_path: string;
                     task_id: string;
+                    uploader_id?: string;
                     url: string;
                 };
                 Update: {
@@ -38,6 +40,7 @@ export type Database = {
                     size?: number | null;
                     storage_path?: string;
                     task_id?: string;
+                    uploader_id?: string;
                     url?: string;
                 };
                 Relationships: [];
@@ -410,6 +413,33 @@ export type Database = {
                 };
                 Relationships: [];
             };
+            item_templates: {
+                Row: {
+                    created_at: string;
+                    id: string;
+                    items: Json;
+                    name: string;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    id?: string;
+                    items?: Json;
+                    name: string;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    id?: string;
+                    items?: Json;
+                    name?: string;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
             task_tags: {
                 Row: {
                     tag_id: string;
@@ -437,6 +467,7 @@ export type Database = {
                     assigned_week: string | null;
                     assigned_year: string | null;
                     assignee_id: string | null;
+                    checklist: Json;
                     comment_count: number;
                     completed_at: string | null;
                     created_at: string;
@@ -471,6 +502,7 @@ export type Database = {
                     assigned_week?: string | null;
                     assigned_year?: string | null;
                     assignee_id?: string | null;
+                    checklist?: Json;
                     comment_count?: number;
                     completed_at?: string | null;
                     created_at?: string;
@@ -505,6 +537,7 @@ export type Database = {
                     assigned_week?: string | null;
                     assigned_year?: string | null;
                     assignee_id?: string | null;
+                    checklist?: Json;
                     comment_count?: number;
                     completed_at?: string | null;
                     created_at?: string;
@@ -610,6 +643,17 @@ export type Database = {
                     project_uuid: string;
                 };
                 Returns: boolean;
+            };
+            consume_invitation_send_attempt: {
+                Args: Record<PropertyKey, never>;
+                Returns: boolean;
+            };
+            delete_task_attachments: {
+                Args: {
+                    attachment_ids: string[];
+                    task_uuid: string;
+                };
+                Returns: number;
             };
             set_updated_at: {
                 Args: Record<PropertyKey, never>;

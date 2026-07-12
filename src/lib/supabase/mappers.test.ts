@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { mapProject, mapSection, mapTag, mapTask } from './mappers';
+import { mapItemTemplate, mapProject, mapSection, mapTag, mapTask, parseChecklist, parseTemplateItems } from './mappers';
 import type { Database } from '../../types/supabase';
 
 type Tables = Database['public']['Tables'];
@@ -54,6 +54,7 @@ describe('supabase mappers', () => {
       score: null,
       order: 3,
       memo: null,
+      checklist: [{ id: 'item-1', name: '充電器', checked: true }],
       created_at: '2026-04-11T01:00:00.000Z',
       updated_at: '2026-04-11T02:00:00.000Z',
       ai_status: null,
@@ -81,9 +82,74 @@ describe('supabase mappers', () => {
       aiTags: ['focus'],
       tags: ['backend'],
       commentCount: 2,
+      checklist: [{ id: 'item-1', name: '充電器', checked: true }],
     });
     expect(mapTask(taskRow, tagRows.map(mapTag)).assigneeId).toBeUndefined();
     expect(mapTask(taskRow, tagRows.map(mapTag)).createdAt).toBe(new Date(taskRow.created_at).getTime());
+  });
+
+  it('parses checklist jsonb defensively', () => {
+    // 正常系: 配列順を保ち、checked は真偽値に正規化される
+    expect(
+      parseChecklist([
+        { id: 'a', name: 'ノートPC', checked: true },
+        { id: 'b', name: '名刺', checked: false },
+      ])
+    ).toEqual([
+      { id: 'a', name: 'ノートPC', checked: true },
+      { id: 'b', name: '名刺', checked: false },
+    ]);
+
+    // 異常系: 非配列・型崩れ要素・空文字 name は落とす
+    expect(parseChecklist(null)).toEqual([]);
+    expect(parseChecklist('broken')).toEqual([]);
+    expect(parseChecklist({ name: 'x' })).toEqual([]);
+    expect(
+      parseChecklist([
+        'just-a-string',
+        42,
+        null,
+        ['nested'],
+        { id: 'c', name: '', checked: true },
+        { id: 'd', name: '   ', checked: true },
+        { id: 'e', name: '有効な項目', checked: 'yes' },
+      ])
+    ).toEqual([{ id: 'e', name: '有効な項目', checked: false }]);
+
+    // id 欠落・非文字列 id は新しい id を採番して救済する
+    const rescued = parseChecklist([{ name: '傘', checked: true }, { id: 7, name: '鍵', checked: false }]);
+    expect(rescued).toHaveLength(2);
+    expect(rescued[0]).toMatchObject({ name: '傘', checked: true });
+    expect(rescued[0].id).toBeTruthy();
+    expect(rescued[1]).toMatchObject({ name: '鍵', checked: false });
+    expect(typeof rescued[1].id).toBe('string');
+  });
+
+  it('parses template items jsonb defensively', () => {
+    expect(parseTemplateItems(['充電器', 'ノートPC'])).toEqual(['充電器', 'ノートPC']);
+    expect(parseTemplateItems(null)).toEqual([]);
+    expect(parseTemplateItems('broken')).toEqual([]);
+    expect(parseTemplateItems(['有効', '', '   ', 42, null, { name: 'x' }])).toEqual(['有効']);
+  });
+
+  it('maps item template rows to camelCase', () => {
+    const row = {
+      id: 'template-1',
+      user_id: 'user-1',
+      name: '現場セット',
+      items: ['ヘルメット', '軍手'],
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-07-02T00:00:00.000Z',
+    };
+
+    expect(mapItemTemplate(row)).toEqual({
+      id: 'template-1',
+      userId: 'user-1',
+      name: '現場セット',
+      items: ['ヘルメット', '軍手'],
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime(),
+    });
   });
 
   it('includes owner and deduplicated member ids in mapped projects', () => {

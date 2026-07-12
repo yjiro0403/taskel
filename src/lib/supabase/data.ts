@@ -3,11 +3,12 @@ import type {
     SupabaseClient,
 } from '@supabase/supabase-js';
 
-import type { Attachment, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
-import type { Database } from '@/types/supabase';
+import type { Attachment, ChecklistItem, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task } from '@/types';
+import type { Database, Json } from '@/types/supabase';
 import {
     mapAttachment,
     mapGoal,
+    mapItemTemplate,
     mapProject,
     mapRoutine,
     mapSection,
@@ -47,6 +48,16 @@ function dateUpdate(value: string | undefined | null): string | null | undefined
     return value === undefined ? undefined : toDateOrNull(value);
 }
 
+// checklist (ChecklistItem[]) を jsonb 保存用のプレーンな配列へ変換する。
+// 余計なプロパティを持ち込まないよう、既知の3フィールドだけを写す。
+export function checklistToJson(items: ChecklistItem[] | undefined): Json {
+    return (items ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        checked: item.checked,
+    }));
+}
+
 function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
     return {
         id: task.id,
@@ -74,6 +85,7 @@ function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['In
         score: task.score ?? null,
         order: task.order,
         memo: task.memo ?? null,
+        checklist: checklistToJson(task.checklist),
         ai_tags: task.aiTags ?? [],
         ai_status: task.aiStatus ?? null,
         ai_error: task.aiError ?? null,
@@ -193,6 +205,14 @@ export async function createDefaultWorkspace(client: Client, userId: string) {
     if (taskError) {
         throw new Error(taskError.message);
     }
+}
+
+export async function fetchItemTemplates(client: Client) {
+    const { data, error } = await client
+        .from('item_templates')
+        .select('*')
+        .order('created_at', { ascending: true });
+    return requireData(data, error).map(mapItemTemplate);
 }
 
 export async function fetchTags(client: Client) {
@@ -477,6 +497,8 @@ export async function updateTaskRow(client: Client, taskId: string, updates: Par
         score: toNullable(updates.score),
         order: updates.order,
         memo: toNullable(updates.memo),
+        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
+        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
         ai_tags: updates.aiTags,
         ai_status: toNullable(updates.aiStatus),
         ai_error: toNullable(updates.aiError),
@@ -528,6 +550,8 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         score: toNullable(updates.score),
         order: updates.order,
         memo: toNullable(updates.memo),
+        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
+        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
         ai_tags: updates.aiTags,
         ai_status: toNullable(updates.aiStatus),
         ai_error: toNullable(updates.aiError),
@@ -551,20 +575,38 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
     await Promise.all(taskIds.map((taskId) => syncTaskTags(client, taskId, userId, updates.tags ?? [])));
 }
 
-// タスクの添付メタを attachments テーブルへ同期する（現状全削除→再挿入の単純差分）。
-// アプリは添付を Task.attachments 配列で保持するが、従来は DB へ一切書かれず、
-// Storage へ上げてもリロードで消えていた。ここで tasks 保存時に結線する。
+// タスクの添付メタを attachments テーブルへ同期する。
+// 既存行は uploader/storage_path の所有関係を保持するため不変とし、削除と新規追加だけを行う。
 export async function syncTaskAttachments(client: Client, taskId: string, attachments: Attachment[]) {
-    const { error: deleteError } = await client.from('attachments').delete().eq('task_id', taskId);
-    if (deleteError) {
-        throw new Error(deleteError.message);
+    const { data: existingRows, error: selectError } = await client
+        .from('attachments')
+        .select('id')
+        .eq('task_id', taskId);
+
+    if (selectError) {
+        throw new Error(selectError.message);
     }
 
-    if (attachments.length === 0) {
-        return;
+    const requestedIds = new Set(attachments.map((attachment) => attachment.id));
+    const existingIds = new Set((existingRows ?? []).map((attachment) => attachment.id));
+    const removedIds = (existingRows ?? [])
+        .map((attachment) => attachment.id)
+        .filter((id) => !requestedIds.has(id));
+
+    if (removedIds.length > 0) {
+        const { error: deleteError } = await client.rpc('delete_task_attachments', {
+            task_uuid: taskId,
+            attachment_ids: removedIds,
+        });
+
+        if (deleteError) {
+            throw new Error(deleteError.message);
+        }
     }
 
-    const rows = attachments.map((attachment) => ({
+    const rows = attachments
+        .filter((attachment) => !existingIds.has(attachment.id))
+        .map((attachment) => ({
         id: attachment.id,
         task_id: taskId,
         url: attachment.url,
@@ -572,7 +614,11 @@ export async function syncTaskAttachments(client: Client, taskId: string, attach
         name: attachment.name,
         file_type: attachment.type,
         size: attachment.size ?? null,
-    }));
+        }));
+
+    if (rows.length === 0) {
+        return;
+    }
 
     const { error: insertError } = await client.from('attachments').insert(rows);
     if (insertError) {

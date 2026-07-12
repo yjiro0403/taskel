@@ -1306,6 +1306,7 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
             attachmentRows.push({
                 id: attachmentId,
                 task_id: id,
+                uploader_id: userId,
                 url,
                 storage_path: targetStoragePath,
                 name: attachmentName,

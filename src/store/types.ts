@@ -1,7 +1,7 @@
 // Store全体の型定義
 // 各スライスのインターフェースをここで統合
 
-import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
+import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, ItemTemplate, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
 import type { AppUser } from '@/types/auth';
 import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
@@ -43,8 +43,8 @@ export interface ProjectSlice {
     addProject: (project: Omit<Project, 'ownerId' | 'memberIds' | 'roles'>) => Promise<void>;
     updateProject: (projectId: string, updates: Partial<Project>) => Promise<void>;
     deleteProject: (projectId: string) => Promise<void>;
-    inviteMember: (projectId: string, email: string) => Promise<{ success: boolean; message: string }>;
-    generateInviteLink: (projectId: string, email?: string, role?: HubRole) => Promise<{ success: boolean; joinLink?: string; message: string }>;
+    inviteMember: (projectId: string, email: string, role?: Exclude<HubRole, 'owner'>) => Promise<{ success: boolean; message: string }>;
+    generateInviteLink: (projectId: string, email?: string, role?: Exclude<HubRole, 'owner'>) => Promise<{ success: boolean; joinLink?: string; message: string }>;
     joinProjectWithToken: (token: string) => Promise<{ success: boolean; projectId?: string; message: string }>;
     resetProjectSlice: () => void;
 }
@@ -64,6 +64,14 @@ export interface TagSlice {
     deleteTag: (tagId: string) => void;
     getUniqueTags: () => string[];
     resetTagSlice: () => void;
+}
+
+export interface ItemTemplateSlice {
+    itemTemplates: ItemTemplate[];
+    addItemTemplate: (template: ItemTemplate) => Promise<boolean>;
+    updateItemTemplate: (templateId: string, updates: Partial<Pick<ItemTemplate, 'name' | 'items'>>) => Promise<boolean>;
+    deleteItemTemplate: (templateId: string) => Promise<boolean>;
+    resetItemTemplateSlice: () => void;
 }
 
 export interface NoteSlice {
@@ -112,6 +120,7 @@ export type StoreState =
     ProjectSlice &
     RoutineSlice &
     TagSlice &
+    ItemTemplateSlice &
     NoteSlice &
     AuthSlice &
     UISlice &
