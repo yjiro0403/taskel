@@ -28,8 +28,8 @@ export const projectSchema = z.object({
 });
 
 export const projectInviteRequestSchema = z.object({
-  email: z.string().email(),
-  role: hubRoleSchema.optional(),
+  email: z.string().trim().toLowerCase().email().max(254),
+  role: z.enum(['admin', 'member', 'viewer']).optional(),
 });
 
 export const userLookupRequestSchema = z.object({

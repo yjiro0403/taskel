@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "smoke:supabase": "node scripts/smoke-supabase.mjs",
+    "smoke:supabase:collaboration": "node scripts/smoke-supabase-collaboration.mjs",
     "screenshots": "playwright test e2e/screenshots.spec.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",

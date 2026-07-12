@@ -8,6 +8,7 @@ import { createSectionSlice } from './slices/sectionSlice';
 import { createProjectSlice } from './slices/projectSlice';
 import { createRoutineSlice } from './slices/routineSlice';
 import { createTagSlice } from './slices/tagSlice';
+import { createItemTemplateSlice } from './slices/itemTemplateSlice';
 import { createNoteSlice } from './slices/noteSlice';
 import { createAuthSlice } from './slices/authSlice';
 import { createUISlice } from './slices/uiSlice';
@@ -23,6 +24,7 @@ export const useStore = create<StoreState>()((...a) => ({
     ...createProjectSlice(...a),
     ...createRoutineSlice(...a),
     ...createTagSlice(...a),
+    ...createItemTemplateSlice(...a),
     ...createNoteSlice(...a),
     ...createAuthSlice(...a),
     ...createUISlice(...a),

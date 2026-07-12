@@ -57,14 +57,14 @@ export const createProjectSlice: StateCreator<StoreState, [], [], ProjectSlice> 
         }
     },
 
-    inviteMember: async (projectId, email) => {
+    inviteMember: async (projectId, email, role = 'member') => {
         try {
             const response = await fetch(`/api/projects/${projectId}/invite`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ email }),
+                body: JSON.stringify({ email, role }),
             });
 
             const data = await response.json();

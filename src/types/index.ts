@@ -71,6 +71,7 @@ export interface Task {
     order: number;
     tags?: string[];
     memo?: string;
+    checklist?: ChecklistItem[]; // 持ち物リスト（NEW）
     attachments?: Attachment[];
     createdAt?: number;
     updatedAt?: number;
@@ -80,6 +81,23 @@ export interface Task {
     aiCompletedAt?: number;
     commentCount?: number;
     isVirtual?: boolean;
+}
+
+// 持ち物リストの1項目。タスクの checklist (jsonb) に配列で保持され、並び順は配列順。
+export interface ChecklistItem {
+    id: string; // UUID（配列内での識別用。DBのPKではない）
+    name: string;
+    checked: boolean;
+}
+
+// 「毎回持っていくもの」のテンプレート。タスクへは適用時にコピーされる。
+export interface ItemTemplate {
+    id: string; // UUID
+    userId: string;
+    name: string;
+    items: string[]; // 持ち物名のリスト（チェック状態は持たない）
+    createdAt: number;
+    updatedAt: number;
 }
 
 export interface TaskComment {

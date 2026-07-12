@@ -26,14 +26,19 @@ const rateLimitStore = (() => {
 })();
 
 function getClientIp(request: Request) {
-    const cloudflareIp = request.headers.get('cf-connecting-ip');
-    if (cloudflareIp) {
-        return cloudflareIp;
+    const vercelForwardedFor = request.headers.get('x-vercel-forwarded-for');
+    if (vercelForwardedFor) {
+        return vercelForwardedFor.split(',')[0]?.trim() || null;
     }
 
     const forwardedFor = request.headers.get('x-forwarded-for');
     if (forwardedFor) {
         return forwardedFor.split(',')[0]?.trim() || null;
+    }
+
+    const cloudflareIp = request.headers.get('cf-connecting-ip');
+    if (cloudflareIp) {
+        return cloudflareIp;
     }
 
     return request.headers.get('x-real-ip') || null;
