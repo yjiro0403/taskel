@@ -13,6 +13,10 @@ FIREBASE_SERVICE_ACCOUNT_KEY=
 # または JSON ファイルの絶対パス
 GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
 
+# JSON利用時も移行元を明示（dev/prod取り違え防止）
+FIREBASE_PROJECT_ID=your-source-firebase-project-id
+FIREBASE_STORAGE_BUCKET=your-source-firebase-storage-bucket
+
 # または既存の分割形式（3項目すべて必須）
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -21,6 +25,8 @@ FIREBASE_PRIVATE_KEY=
 
 移行先には `NEXT_PUBLIC_SUPABASE_URL` と `SUPABASE_SERVICE_ROLE_KEY`、
 添付コピーには `FIREBASE_STORAGE_BUCKET` も必要です。
+`FIREBASE_PROJECT_ID` と Service Account JSON 内の `project_id` が、移行したい環境を
+指していることを dry-run の前に必ず確認してください。
 
 最初に必ず dry-run を実行します。
 
