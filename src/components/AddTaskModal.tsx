@@ -318,7 +318,9 @@ export default function AddTaskModal({
                 milestoneId: milestoneId || undefined,
                 estimatedMinutes: activeType === 'task' ? Number(estimatedMinutes) : 0,
                 actualMinutes: activeType === 'task' ? Number(actualMinutes) : 0,
-                scheduledStart: activeType === 'task' ? (scheduledStart || '') : '',
+                // 空文字は time 列(scheduled_start)に渡せないため undefined を送る。
+                // 明示的 undefined は withClearedNullables で null（クリア）に変換される。
+                scheduledStart: activeType === 'task' ? (scheduledStart || undefined) : undefined,
                 date: activeType === 'task' ? date : '',
                 assignedDate: activeType === 'daily' ? (assignedDate || currentDate) : undefined,
                 assignedWeek: activeType === 'weekly' ? assignedWeek : undefined,
@@ -349,7 +351,8 @@ export default function AddTaskModal({
                 status: 'open' as const,
                 estimatedMinutes: activeType === 'task' ? Number(estimatedMinutes) : 0,
                 actualMinutes: activeType === 'task' ? Number(actualMinutes) : 0,
-                scheduledStart: activeType === 'task' ? (scheduledStart || '') : '',
+                // 空文字は time 列(scheduled_start)に渡せないため undefined を送る（未設定）。
+                scheduledStart: activeType === 'task' ? (scheduledStart || undefined) : undefined,
                 order: newOrder,
                 tags: finalTags,
                 memo,

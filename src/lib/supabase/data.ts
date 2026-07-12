@@ -15,37 +15,26 @@ import {
     mapTag,
     mapTask,
     millisToIso,
-} from '@/lib/supabase/mappers';
+    // 同一ディレクトリのため相対 import。vitest の unit プロジェクトは '@' エイリアスを
+    // 継承しないため、値 import をエイリアス経由にすると data.ts を単体テストできない。
+} from './mappers';
+import {
+    dateUpdate,
+    timeUpdate,
+    toDateOrNull,
+    toTimeOrNull,
+    toUuidOrNull,
+    uuidUpdate,
+} from './normalize';
 
 type Client = SupabaseClient<Database>;
 type Tables = Database['public']['Tables'];
 
+// text 列など「空文字が正当な値」の列専用。uuid/date/time 列には使わないこと
+// （'' がそのまま渡り、`invalid input syntax for type ...` で書き込み全体が落ちる）。
+// それらの列には ./normalize の型別ヘルパーを使う。
 function toNullable<T>(value: T | undefined) {
     return value === undefined ? undefined : value ?? null;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// UUID 列（section_id/project_id 等）向け: 空文字・センチネル('goal')・非UUIDは null に正規化。
-// アプリは日付なしタスク(ゴール)を sectionId:'goal'、プロジェクト未指定を projectId:'' で扱うが、
-// Postgres の uuid 列は空文字/非UUIDを受け付けず INSERT/UPDATE が失敗するため。
-function toUuidOrNull(value: string | undefined | null): string | null {
-    if (!value) return null;
-    return UUID_RE.test(value) ? value : null;
-}
-
-// DATE 列（date/assigned_date）向け: 空文字は null に正規化（アプリの date:'' = 日付なし）。
-function toDateOrNull(value: string | undefined | null): string | null {
-    if (!value) return null;
-    return value;
-}
-
-// UPDATE 経路用: undefined は「更新しない（省略）」を維持しつつ、値がある場合のみ正規化する。
-function uuidUpdate(value: string | undefined | null): string | null | undefined {
-    return value === undefined ? undefined : toUuidOrNull(value);
-}
-function dateUpdate(value: string | undefined | null): string | null | undefined {
-    return value === undefined ? undefined : toDateOrNull(value);
 }
 
 // PostgreSQL integer columns reject fractional JSON numbers (for example,
@@ -81,7 +70,7 @@ export function checklistToJson(items: ChecklistItem[] | undefined): Json {
     }));
 }
 
-function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
+export function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
     return {
         id: task.id,
         user_id: userId,
@@ -95,7 +84,7 @@ function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['In
         actual_minutes: Math.round(task.actualMinutes ?? 0),
         started_at: millisToIso(task.startedAt),
         completed_at: millisToIso(task.completedAt),
-        scheduled_start: task.scheduledStart ?? null,
+        scheduled_start: toTimeOrNull(task.scheduledStart),
         external_link: task.externalLink ?? null,
         parent_goal_id: toUuidOrNull(task.parentGoalId),
         project_id: toUuidOrNull(task.projectId),
@@ -114,6 +103,46 @@ function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['In
         ai_error: task.aiError ?? null,
         ai_completed_at: millisToIso(task.aiCompletedAt),
         created_at: millisToIso(task.createdAt) ?? undefined,
+    };
+}
+
+// UPDATE 用ペイロード。単体更新(updateTaskRow)と一括更新(bulkUpdateTaskRows)で共通。
+// undefined は「更新しない（省略）」、null は「クリア」を意味する。
+export function buildTaskUpdatePayload(updates: Partial<Task>): Tables['tasks']['Update'] {
+    return {
+        title: updates.title,
+        // assignee_id/reporter_id は uuid 列。insert 経路(toUuidOrNull)と対称に、空文字・
+        // 非UUIDは null へ正規化する。素通し(toNullable)だと空文字が uuid 列に渡り
+        // UPDATE 全体が失敗し、無関係な項目の更新まで巻き添えで落ちるため。
+        assignee_id: uuidUpdate(updates.assigneeId),
+        reporter_id: uuidUpdate(updates.reporterId),
+        section_id: uuidUpdate(updates.sectionId),
+        date: dateUpdate(updates.date),
+        status: updates.status,
+        estimated_minutes: integerUpdate(updates.estimatedMinutes),
+        actual_minutes: integerUpdate(updates.actualMinutes),
+        started_at: timestampUpdate(updates, 'startedAt'),
+        completed_at: timestampUpdate(updates, 'completedAt'),
+        // scheduled_start は time 列。空文字は null へ正規化する（insert 経路と対称）。
+        scheduled_start: timeUpdate(updates.scheduledStart),
+        external_link: toNullable(updates.externalLink),
+        parent_goal_id: uuidUpdate(updates.parentGoalId),
+        project_id: uuidUpdate(updates.projectId),
+        milestone_id: toNullable(updates.milestoneId),
+        routine_id: uuidUpdate(updates.routineId),
+        assigned_week: toNullable(updates.assignedWeek),
+        assigned_month: toNullable(updates.assignedMonth),
+        assigned_year: toNullable(updates.assignedYear),
+        assigned_date: dateUpdate(updates.assignedDate),
+        score: nullableIntegerUpdate(updates.score),
+        order: integerUpdate(updates.order),
+        memo: toNullable(updates.memo),
+        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
+        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
+        ai_tags: updates.aiTags,
+        ai_status: toNullable(updates.aiStatus),
+        ai_error: toNullable(updates.aiError),
+        ai_completed_at: timestampUpdate(updates, 'aiCompletedAt'),
     };
 }
 
@@ -504,40 +533,7 @@ export async function bulkUpdateTaskOrders(
 }
 
 export async function updateTaskRow(client: Client, taskId: string, updates: Partial<Task>, userId: string) {
-    const payload: Tables['tasks']['Update'] = {
-        title: updates.title,
-        // assignee_id/reporter_id は uuid 列。insert 経路(toUuidOrNull)と対称に、空文字・
-        // 非UUIDは null へ正規化する。素通し(toNullable)だと空文字が uuid 列に渡り
-        // UPDATE 全体が失敗し、無関係な項目の更新まで巻き添えで落ちるため。
-        assignee_id: uuidUpdate(updates.assigneeId),
-        reporter_id: uuidUpdate(updates.reporterId),
-        section_id: uuidUpdate(updates.sectionId),
-        date: dateUpdate(updates.date),
-        status: updates.status,
-        estimated_minutes: integerUpdate(updates.estimatedMinutes),
-        actual_minutes: integerUpdate(updates.actualMinutes),
-        started_at: timestampUpdate(updates, 'startedAt'),
-        completed_at: timestampUpdate(updates, 'completedAt'),
-        scheduled_start: toNullable(updates.scheduledStart),
-        external_link: toNullable(updates.externalLink),
-        parent_goal_id: uuidUpdate(updates.parentGoalId),
-        project_id: uuidUpdate(updates.projectId),
-        milestone_id: toNullable(updates.milestoneId),
-        routine_id: uuidUpdate(updates.routineId),
-        assigned_week: toNullable(updates.assignedWeek),
-        assigned_month: toNullable(updates.assignedMonth),
-        assigned_year: toNullable(updates.assignedYear),
-        assigned_date: dateUpdate(updates.assignedDate),
-        score: nullableIntegerUpdate(updates.score),
-        order: integerUpdate(updates.order),
-        memo: toNullable(updates.memo),
-        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
-        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
-        ai_tags: updates.aiTags,
-        ai_status: toNullable(updates.aiStatus),
-        ai_error: toNullable(updates.aiError),
-        ai_completed_at: timestampUpdate(updates, 'aiCompletedAt'),
-    };
+    const payload = buildTaskUpdatePayload(updates);
 
     // PostgREST の UPDATE は、RLS や削除済み ID により対象が0件でも error=null を
     // 返し得る。更新行を明示的に返させ、停止失敗を「成功」と誤認して次のタイマーを
@@ -570,38 +566,8 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         return;
     }
 
-    const payload: Tables['tasks']['Update'] = {
-        title: updates.title,
-        // uuid 列は空文字・非UUIDを null 正規化（updateTaskRow と対称）。
-        assignee_id: uuidUpdate(updates.assigneeId),
-        reporter_id: uuidUpdate(updates.reporterId),
-        section_id: uuidUpdate(updates.sectionId),
-        date: dateUpdate(updates.date),
-        status: updates.status,
-        estimated_minutes: integerUpdate(updates.estimatedMinutes),
-        actual_minutes: integerUpdate(updates.actualMinutes),
-        started_at: timestampUpdate(updates, 'startedAt'),
-        completed_at: timestampUpdate(updates, 'completedAt'),
-        scheduled_start: toNullable(updates.scheduledStart),
-        external_link: toNullable(updates.externalLink),
-        parent_goal_id: uuidUpdate(updates.parentGoalId),
-        project_id: uuidUpdate(updates.projectId),
-        milestone_id: toNullable(updates.milestoneId),
-        routine_id: uuidUpdate(updates.routineId),
-        assigned_week: toNullable(updates.assignedWeek),
-        assigned_month: toNullable(updates.assignedMonth),
-        assigned_year: toNullable(updates.assignedYear),
-        assigned_date: dateUpdate(updates.assignedDate),
-        score: nullableIntegerUpdate(updates.score),
-        order: integerUpdate(updates.order),
-        memo: toNullable(updates.memo),
-        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
-        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
-        ai_tags: updates.aiTags,
-        ai_status: toNullable(updates.aiStatus),
-        ai_error: toNullable(updates.aiError),
-        ai_completed_at: timestampUpdate(updates, 'aiCompletedAt'),
-    };
+    // uuid/date/time 列の正規化は単体更新と共通（updateTaskRow と対称）。
+    const payload = buildTaskUpdatePayload(updates);
 
     const { error } = await client
         .from('tasks')

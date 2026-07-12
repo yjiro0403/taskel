@@ -425,6 +425,10 @@ function SectionContainer({
     const { setNodeRef } = useDroppable({
         id: section.id,
     });
+    // 初期ロードは2段階（セクション等が先に描画され、タスクは後から届く）。
+    // その間 getMergedTasks はルーチンの仮想タスクを生成しないため、ここで
+    // 「タスクなし」と断定するとデータが消えたように見える。読み込み中を明示する。
+    const tasksLoaded = useStore((state) => state.tasksLoaded);
 
     return (
         <div
@@ -449,7 +453,7 @@ function SectionContainer({
                     )}
                 </div>
                 <span className="text-xs text-gray-400">
-                    {tasks.length} tasks
+                    {tasksLoaded ? `${tasks.length} tasks` : '読み込み中…'}
                 </span>
             </div>
 
@@ -471,9 +475,17 @@ function SectionContainer({
                 })}
 
                 {tasks.length === 0 && (
-                    <div className="p-8 text-center text-gray-400 text-sm italic">
-                        No tasks in this section
-                    </div>
+                    tasksLoaded ? (
+                        <div className="p-8 text-center text-gray-400 text-sm italic">
+                            No tasks in this section
+                        </div>
+                    ) : (
+                        <div className="p-4 space-y-2" aria-busy="true" aria-label="タスクを読み込み中">
+                            {[0, 1].map((i) => (
+                                <div key={i} className="h-10 rounded bg-gray-100 animate-pulse" />
+                            ))}
+                        </div>
+                    )
                 )}
             </div>
             <BottomDropZone sectionId={section.id} />

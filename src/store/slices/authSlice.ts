@@ -132,10 +132,30 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         let membershipChannel: ReturnType<typeof subscribeTable> | null = null;
 
         const refreshInitialState = async () => {
+            // ロード開始時点で必ず未ロード状態にする。ユーザー切替時は resetStore を経由しない
+            // 経路があるため（setUser で user だけ差し替わる）、ここでも明示的に落とす。
+            // これが false の間は getMergedTasks が仮想ルーチンタスクを合成しないため、
+            // 「routines だけ載って tasks が空」の窓での実体行上書き（データ破壊）が起きない。
+            set({ tasksLoaded: false });
+
             try {
                 const tags = await fetchTags(supabase);
-                const [tasks, routines, sections, projects, goals, notes, itemTemplates] = await Promise.all([
-                    fetchTasks(supabase, tags),
+
+                // 初期ロードの体感速度対策（2フェーズ化）。
+                // fetchTasks はユーザーの全タスク履歴を 500 件/ページでページングするため
+                // 数秒かかることがある一方、sections / routines / projects / itemTemplates 等は軽い。
+                // 以前は Promise.all + 末尾の単一 set() だったので、軽いデータまで
+                // fetchTasks の完了を待たされ、画面が数秒間空のままになっていた。
+                //
+                // そこで tasks の取得は「先に走らせるが await しない」ことで並列性は維持しつつ、
+                // 軽いデータが揃った時点で先に set() して描画させ、tasks は後追いで流し込む。
+                const tasksPromise = fetchTasks(supabase, tags);
+                // 軽量フェーズが先に throw / return した場合に unhandled rejection にならないよう、
+                // ハンドラだけ先に張っておく（実際の await は後段で行い、そこで catch される）。
+                tasksPromise.catch(() => {});
+
+                // --- Fast phase: 軽いデータを取得して即描画 ---
+                const [routines, sections, projects, goals, notes, itemTemplates] = await Promise.all([
                     fetchRoutines(supabase),
                     fetchSections(supabase),
                     fetchProjects(supabase),
@@ -152,24 +172,18 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     projects.map((project) => project.id)
                 );
 
-                set((state) => {
-                    const localPendingTasks = state.tasks.filter((task) => isPendingTask(task.id));
-                    const taskMap = new Map(tasks.map((task) => [task.id, task]));
-                    localPendingTasks.forEach((task) => taskMap.set(task.id, task));
-
-                    return {
-                        tasks: Array.from(taskMap.values()),
-                        tags,
-                        routines,
-                        sections: sortSections(sections),
-                        projects,
-                        goals,
-                        itemTemplates,
-                        dailyNotes: notes.dailyNotes,
-                        weeklyNotes: notes.weeklyNotes,
-                        monthlyNotes: notes.monthlyNotes,
-                        yearlyNotes: notes.yearlyNotes,
-                    };
+                // tasks キーを含めないことで、ローカルの楽観的（pending）タスクを潰さない。
+                set({
+                    tags,
+                    routines,
+                    sections: sortSections(sections),
+                    projects,
+                    goals,
+                    itemTemplates,
+                    dailyNotes: notes.dailyNotes,
+                    weeklyNotes: notes.weeklyNotes,
+                    monthlyNotes: notes.monthlyNotes,
+                    yearlyNotes: notes.yearlyNotes,
                 });
 
                 if (sections.length === 0) {
@@ -181,11 +195,56 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({}),
                         });
+                        // オンボーディング後は再帰呼び出しが最新の tasks まで set() する。
+                        // ここで return しないと、オンボーディング前に投げた（古い）tasksPromise が
+                        // 後から解決して新しいタスクを上書きしてしまう。
                         await refreshInitialState();
+                        return;
                     }
                 }
+
+                // --- Slow phase: tasks が揃い次第あとから流し込む ---
+                let tasks;
+                try {
+                    tasks = await tasksPromise;
+                } catch (error) {
+                    // タスク取得の失敗を握り潰さない。ここで tasksLoaded を true にすると
+                    // 「タスク0件で読み込み完了」＝仮想ルーチンタスクが実体行を上書きし得る
+                    // 最も危険な状態になるため、必ず false のままにしてユーザーに通知する。
+                    console.error('Failed to fetch tasks:', error);
+                    if (!disposed) {
+                        get().showToast(
+                            'タスクの読み込みに失敗しました。通信環境を確認して、ページを再読み込みしてください。',
+                            'error'
+                        );
+                    }
+                    return;
+                }
+
+                if (disposed) {
+                    return;
+                }
+
+                set((state) => {
+                    const localPendingTasks = state.tasks.filter((task) => isPendingTask(task.id));
+                    const taskMap = new Map(tasks.map((task) => [task.id, task]));
+                    localPendingTasks.forEach((task) => taskMap.set(task.id, task));
+
+                    return {
+                        tasks: Array.from(taskMap.values()),
+                        // tasks が実際に着弾したこの set() でのみ true にする。
+                        // 以降 getMergedTasks は仮想ルーチンタスクの合成を再開する。
+                        tasksLoaded: true,
+                    };
+                });
             } catch (error) {
                 console.error('Failed to refresh Supabase state:', error);
+                if (!disposed) {
+                    get().showToast(
+                        'データの読み込みに失敗しました。通信環境を確認して、ページを再読み込みしてください。',
+                        'error'
+                    );
+                }
             }
         };
 
