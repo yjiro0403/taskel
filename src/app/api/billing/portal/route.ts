@@ -1,28 +1,20 @@
 import { NextResponse } from 'next/server';
-import { getAuth, getDb } from '@/lib/firebaseAdmin';
 import { getStripe } from '@/lib/billing/stripe';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
   try {
-    // Bearer トークン認証
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const user = await requireAuth();
+    const uid = user.id;
 
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
-    const db = getDb();
-    const userSnap = await db.collection('users').doc(uid).get();
-    const stripeCustomerId = userSnap.data()?.stripeCustomerId;
+    const { data: subscription } = await (await createClient())
+      .from('subscriptions')
+      .select('stripe_customer_id')
+      .eq('user_id', uid)
+      .maybeSingle();
+    const stripeCustomerId = subscription?.stripe_customer_id;
 
     if (!stripeCustomerId) {
       return NextResponse.json({ error: 'No billing account found' }, { status: 404 });
@@ -38,7 +30,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error('Portal session error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return handleApiError('Portal session error', error);
   }
 }

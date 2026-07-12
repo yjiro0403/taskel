@@ -3,9 +3,12 @@ import { google } from '@ai-sdk/google';
 import { format } from 'date-fns';
 import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
-import { getAuth } from '@/lib/firebaseAdmin';
 import { checkQuota, incrementRequestCount, recordTokenUsage } from '@/lib/billing/usage';
-import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
+import { parseJsonBody } from '@/lib/api/request';
+import { aiChatRequestSchema } from '@/lib/validations/ai';
 
 // メッセージの正規化ヘルパー
 function normalizeMessages(messages: any[]) {
@@ -15,44 +18,20 @@ function normalizeMessages(messages: any[]) {
   }));
 }
 
-// 使用可能なモデルのホワイトリスト
-const ALLOWED_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-3-flash',
-  'gemini-2.5-pro',
-  'gemini-3-pro',
-  'gemini-1.5-pro',
-  'gemini-1.5-flash',
-];
-
 export async function POST(req: Request) {
   console.log('==== AI Chat API Called ====');
   try {
-    // 1. Bearer トークン認証
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    const rateLimitResponse = applyRateLimit(req, {
+      key: '/api/ai/chat',
+      limit: 20,
+      windowMs: 60_000,
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
 
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-    } catch {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // 1.5. バーストレート制限（月次クォータとは別に、短時間の乱用/課金枯渇を抑止）
-    const burst = rateLimit(`ai-chat:${uid}`, 20, 60 * 1000);
-    if (!burst.ok) return rateLimitResponse(burst);
+    const user = await requireAuth();
+    const uid = user.id;
 
     // 2. クォータチェック
     const quota = await checkQuota(uid);
@@ -74,7 +53,7 @@ export async function POST(req: Request) {
     // 3. リクエストカウントを事前インクリメント（並行リクエスト対策）
     await incrementRequestCount(uid);
 
-    const json = await req.json();
+    const json = await parseJsonBody(req, aiChatRequestSchema);
     const {
       messages,
       currentDate,
@@ -84,8 +63,7 @@ export async function POST(req: Request) {
       calibrationHint,
     } = json;
 
-    // 要求されたモデルが許可されていない場合はデフォルトを使用
-    const modelName = ALLOWED_MODELS.includes(requestedModel) ? requestedModel : 'gemini-2.5-flash';
+    const modelName = requestedModel ?? 'gemini-2.5-flash';
     console.log(`Using model: ${modelName}`);
 
     const today = currentDate || format(new Date(), 'yyyy-MM-dd');
@@ -114,11 +92,6 @@ export async function POST(req: Request) {
     // ai SDK v6: useChat互換のUIMessageStreamResponseを使用
     return result.toUIMessageStreamResponse();
   } catch (error: unknown) {
-    console.error('AI Chat API Error:', error);
-    const message = error instanceof Error ? error.message : 'Internal Server Error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return handleApiError('AI Chat API Error', error);
   }
 }

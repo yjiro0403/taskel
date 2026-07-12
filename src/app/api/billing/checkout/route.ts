@@ -1,31 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getAuth } from '@/lib/firebaseAdmin';
 import { getStripe, getOrCreateStripeCustomer } from '@/lib/billing/stripe';
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { parseJsonBody } from '@/lib/api/request';
+import { billingCheckoutRequestSchema } from '@/lib/validations/ai';
 
 export async function POST(request: Request) {
   try {
-    // Bearer トークン認証
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let uid: string;
-    let email: string;
-
-    try {
-      const decoded = await getAuth().verifyIdToken(token);
-      uid = decoded.uid;
-      email = decoded.email || '';
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
-    const { priceId } = await request.json();
-    if (!priceId) {
-      return NextResponse.json({ error: 'priceId is required' }, { status: 400 });
-    }
+    const user = await requireAuth();
+    const uid = user.id;
+    const email = user.email || '';
+    const { priceId } = await parseJsonBody(request, billingCheckoutRequestSchema);
 
     const customerId = await getOrCreateStripeCustomer(uid, email);
     const stripe = getStripe();
@@ -47,7 +32,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error('Checkout session error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return handleApiError('Checkout session error', error);
   }
 }

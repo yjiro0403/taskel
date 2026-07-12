@@ -11,7 +11,6 @@ import { ChatInput } from './ai/ChatInput';
 import { ModelSelector } from './ai/ModelSelector';
 import { QuotaExceededDialog } from './ai/QuotaExceededDialog';
 import { TaskCandidate } from '@/lib/ai/types';
-import { auth } from '@/lib/firebase';
 
 export const AIChatPanel: React.FC = () => {
     const {
@@ -54,17 +53,8 @@ export const AIChatPanel: React.FC = () => {
     const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
     const [quotaInfo, setQuotaInfo] = useState({ used: 0, limit: 20, plan: 'free' });
 
-    // Bearer トークンを取得するヘルパー
-    const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
-        const currentUser = auth.currentUser;
-        if (!currentUser) return {};
-        const token = await currentUser.getIdToken();
-        return { Authorization: `Bearer ${token}` };
-    }, []);
-
     const { messages, sendMessage, status } = useChat({
         api: '/api/ai/chat',
-        headers: async () => getAuthHeaders(),
         body: {
             model: selectedModel,
             currentDate,
@@ -138,12 +128,10 @@ export const AIChatPanel: React.FC = () => {
         if (!input.trim()) return;
         const value = input;
         setInput('');
-        const headers = await getAuthHeaders();
         // ai SDK v6: text形式で送信
         await sendMessage(
             { text: value },
             {
-                headers,
                 body: {
                     model: selectedModel,
                     currentDate,

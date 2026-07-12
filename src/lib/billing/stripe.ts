@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
-import { getDb } from '@/lib/firebaseAdmin';
+
+import { createAdminClient } from '@/lib/supabase/admin';
 
 let stripeInstance: Stripe | null = null;
 
@@ -12,32 +13,31 @@ export function getStripe(): Stripe {
   return stripeInstance;
 }
 
-/**
- * ユーザーのStripe Customerを取得、なければ作成してFirestoreに保存
- */
 export async function getOrCreateStripeCustomer(
   userId: string,
   email: string
 ): Promise<string> {
-  const db = getDb();
-  const userRef = db.collection('users').doc(userId);
-  const userSnap = await userRef.get();
-  const userData = userSnap.data();
+  const supabase = createAdminClient();
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('stripe_customer_id')
+    .eq('user_id', userId)
+    .maybeSingle();
 
-  if (userData?.stripeCustomerId) {
-    return userData.stripeCustomerId;
+  if (subscription?.stripe_customer_id) {
+    return subscription.stripe_customer_id;
   }
 
   const stripe = getStripe();
   const customer = await stripe.customers.create({
     email,
-    metadata: { firebaseUserId: userId },
+    metadata: { userId },
   });
 
-  await userRef.set(
-    { stripeCustomerId: customer.id },
-    { merge: true }
-  );
+  await supabase.from('subscriptions').upsert({
+    user_id: userId,
+    stripe_customer_id: customer.id,
+  });
 
   return customer.id;
 }

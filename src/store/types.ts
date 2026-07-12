@@ -2,7 +2,7 @@
 // 各スライスのインターフェースをここで統合
 
 import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
-import type { User } from 'firebase/auth';
+import type { AppUser } from '@/types/auth';
 import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
 import type { BillingSlice } from './slices/billingSlice';
@@ -26,7 +26,7 @@ export interface TaskSlice {
     clearSelection: () => void;
     reorderTasks: (taskIds: string[]) => Promise<void>;
     getMergedTasks: (date: string) => Task[];
-    migrateTasks: () => Promise<{ success: boolean; message: string; count: number }>;
+    resetTaskSlice: () => void;
 }
 
 export interface SectionSlice {
@@ -35,6 +35,7 @@ export interface SectionSlice {
     updateSection: (sectionId: string, updates: Partial<Section>) => Promise<void>;
     deleteSection: (sectionId: string) => Promise<void>;
     rebuildSections: () => Promise<void>;
+    resetSectionSlice: () => void;
 }
 
 export interface ProjectSlice {
@@ -45,6 +46,7 @@ export interface ProjectSlice {
     inviteMember: (projectId: string, email: string) => Promise<{ success: boolean; message: string }>;
     generateInviteLink: (projectId: string, email?: string, role?: HubRole) => Promise<{ success: boolean; joinLink?: string; message: string }>;
     joinProjectWithToken: (token: string) => Promise<{ success: boolean; projectId?: string; message: string }>;
+    resetProjectSlice: () => void;
 }
 
 export interface RoutineSlice {
@@ -52,6 +54,7 @@ export interface RoutineSlice {
     addRoutine: (routine: Routine) => void;
     updateRoutine: (routineId: string, updates: Partial<Routine>) => void;
     deleteRoutine: (routineId: string) => void;
+    resetRoutineSlice: () => void;
 }
 
 export interface TagSlice {
@@ -60,6 +63,7 @@ export interface TagSlice {
     updateTag: (tagId: string, updates: Partial<Tag>) => void;
     deleteTag: (tagId: string) => void;
     getUniqueTags: () => string[];
+    resetTagSlice: () => void;
 }
 
 export interface NoteSlice {
@@ -71,12 +75,15 @@ export interface NoteSlice {
     saveWeeklyNote: (weekId: string, content: string) => Promise<void>;
     saveMonthlyNote: (monthId: string, content: string) => Promise<void>;
     saveYearlyNote: (yearId: string, content: string) => Promise<void>;
+    resetNoteSlice: () => void;
 }
 
 export interface AuthSlice {
-    user: User | null;
+    user: AppUser | null;
     unsubscribe: (() => void) | null;
-    setUser: (user: User | null) => void;
+    setUser: (user: AppUser | null) => void;
+    signOut: () => Promise<void>;
+    resetStore: () => void;
 }
 
 export interface UISlice {
@@ -91,6 +98,7 @@ export interface UISlice {
     isAddTaskModalOpen: boolean;
     openAddTaskModal: () => void;
     closeAddTaskModal: () => void;
+    resetUISlice: () => void;
 }
 
 export interface CalendarSlice {

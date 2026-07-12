@@ -1,48 +1,50 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useStore } from '@/store/useStore';
-import { updateProfile } from 'firebase/auth';
-import { auth, storage, db } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { User, Save, Loader2, Camera, Trash2, Edit2, AlertTriangle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { writeBatch, collection, query, getDocs } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 
 import SettingsLayout from '@/components/SettingsLayout';
-import ReauthModal from './ReauthModal';
+import { createClient } from '@/lib/supabase/client';
+import { useStore } from '@/store/useStore';
 
 export default function AccountSettingsPage() {
     const { user, setUser } = useStore();
-    const router = useRouter();
-
-    // State
     const [displayName, setDisplayName] = useState('');
     const [isEditingName, setIsEditingName] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isUploadingImage, setIsUploadingImage] = useState(false);
-    const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Initial Load
     useEffect(() => {
         if (user) {
             setDisplayName(user.displayName || '');
         }
     }, [user]);
 
-    // Handlers
     const handleNameSave = async () => {
         if (!user) return;
         setMessage(null);
         setIsLoading(true);
+
         try {
-            await updateProfile(user, { displayName });
+            const supabase = createClient();
+            const { error: authError } = await supabase.auth.updateUser({
+                data: { display_name: displayName },
+            });
+            if (authError) throw authError;
+
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({ display_name: displayName })
+                .eq('id', user.uid);
+            if (profileError) throw profileError;
+
             setUser({ ...user, displayName });
             setMessage({ type: 'success', text: '名前を更新しました。' });
             setIsEditingName(false);
         } catch (error) {
-            console.error("Error updating name:", error);
+            console.error('Error updating name:', error);
             setMessage({ type: 'error', text: '名前の更新に失敗しました。' });
         } finally {
             setIsLoading(false);
@@ -57,125 +59,135 @@ export default function AccountSettingsPage() {
             setMessage({ type: 'error', text: '画像ファイルをアップロードしてください。' });
             return;
         }
-        if (file.size > 5 * 1024 * 1024) {
-            setMessage({ type: 'error', text: '画像サイズは5MB以下にしてください。' });
-            return;
-        }
 
         setIsUploadingImage(true);
         setMessage(null);
 
-        const oldPhotoURL = user.photoURL;
-
         try {
-            const storageRef = ref(storage, `users/${user.uid}/profile_${Date.now()}`);
-            await uploadBytes(storageRef, file);
-            const downloadURL = await getDownloadURL(storageRef);
+            const supabase = createClient();
+            const ext = file.name.split('.').pop() || 'png';
+            // avatars バケットは public。パスの第1階層を uid にして、書き込みRLS
+            // 「本人フォルダ（(storage.foldername(name))[1] = auth.uid()）のみ許可」に一致させる。
+            // 読み取りは公開（他ユーザーのメンバー一覧等でも <img src> でそのまま表示するため public を維持）。
+            const path = `${user.uid}/profile_${Date.now()}.${ext}`;
+            const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, {
+                upsert: true,
+            });
+            if (uploadError) throw uploadError;
 
-            await updateProfile(user, { photoURL: downloadURL });
-            setUser({ ...user, photoURL: downloadURL });
+            // public バケットのため getPublicUrl の恒久URLをそのまま profiles/auth メタに保存する。
+            const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+            const photoURL = data.publicUrl;
 
-            const { doc, setDoc } = await import('firebase/firestore');
-            await setDoc(doc(db, 'users', user.uid), { photoURL: downloadURL }, { merge: true });
+            const { error: authError } = await supabase.auth.updateUser({
+                data: { avatar_url: photoURL },
+            });
+            if (authError) throw authError;
 
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({ avatar_url: photoURL })
+                .eq('id', user.uid);
+            if (profileError) throw profileError;
+
+            setUser({ ...user, photoURL });
             setMessage({ type: 'success', text: 'プロフィール画像を更新しました。' });
-
-            if (oldPhotoURL && oldPhotoURL.includes('firebasestorage.googleapis.com')) {
-                try {
-                    const oldRef = ref(storage, oldPhotoURL);
-                    await deleteObject(oldRef);
-                } catch (delError) {
-                    console.warn("Failed to delete old profile image:", delError);
-                }
-            }
         } catch (error) {
-            console.error("Error uploading image:", error);
+            console.error('Error uploading image:', error);
             setMessage({ type: 'error', text: '画像のアップロードに失敗しました。' });
         } finally {
             setIsUploadingImage(false);
         }
     };
 
-    const [showReauthModal, setShowReauthModal] = useState(false);
-
-    // ... existing handlers ...
-
-
-
-    const deleteAccountLogic = async () => {
-        if (!user) return;
-        setIsLoading(true);
-        try {
-            const batch = writeBatch(db);
-            const q = query(collection(db, 'users', user.uid, 'tasks'));
-            const snapshot = await getDocs(q);
-            snapshot.docs.forEach((doc) => {
-                batch.delete(doc.ref);
-            });
-            await batch.commit();
-            await user.delete();
-            router.push('/');
-        } catch (e: any) {
-            console.error("Error deleting account", e);
-            if (e.code === 'auth/requires-recent-login') {
-                setShowReauthModal(true);
-                // Don't show alert here, simply show modal
-            } else {
-                alert("アカウントの削除に失敗しました。再ログインが必要な場合があります。");
-            }
-        } finally {
-            setIsLoading(false);
-        }
-    }
-
     const onDeleteClick = async () => {
-        if (!window.confirm("本当にアカウントを削除しますか？この操作は取り消せません。")) return;
-        await deleteAccountLogic();
-    };
-
-    const handleReauthSuccess = async () => {
-        setShowReauthModal(false);
-        await deleteAccountLogic();
+        alert('Supabase Auth のアカウント削除フローは未実装です。管理者対応が必要です。');
     };
 
     return (
         <SettingsLayout>
             <div className="space-y-8">
-                {/* ... existing UI ... */}
+                <section className="rounded-xl border border-gray-200 bg-white p-6">
+                    <div className="mb-4">
+                        <h2 className="font-semibold text-gray-900">プロフィール</h2>
+                        <p className="text-sm text-gray-500">表示名とプロフィール画像を更新できます。</p>
+                    </div>
 
-                {/* 危険な操作 */}
-                <section className="bg-red-50 rounded-xl border border-red-200 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-red-100">
+                    <div className="space-y-4">
+                        <div>
+                            <label className="mb-1 block text-sm font-medium text-gray-700">表示名</label>
+                            <div className="flex gap-2">
+                                <input
+                                    value={displayName}
+                                    onChange={(e) => setDisplayName(e.target.value)}
+                                    disabled={!isEditingName}
+                                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                {isEditingName ? (
+                                    <button
+                                        onClick={handleNameSave}
+                                        disabled={isLoading}
+                                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+                                    >
+                                        保存
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => setIsEditingName(true)}
+                                        className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium"
+                                    >
+                                        編集
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="mb-1 block text-sm font-medium text-gray-700">プロフィール画像</label>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleImageUpload}
+                            />
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isUploadingImage}
+                                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium"
+                            >
+                                {isUploadingImage ? 'アップロード中...' : '画像をアップロード'}
+                            </button>
+                        </div>
+
+                        {message && (
+                            <p className={message.type === 'success' ? 'text-sm text-green-600' : 'text-sm text-red-600'}>
+                                {message.text}
+                            </p>
+                        )}
+                    </div>
+                </section>
+
+                <section className="overflow-hidden rounded-xl border border-red-200 bg-red-50">
+                    <div className="border-b border-red-100 px-6 py-4">
                         <div className="flex items-center gap-2 text-red-800">
                             <AlertTriangle size={18} />
                             <h3 className="font-semibold">アカウント削除</h3>
                         </div>
                     </div>
                     <div className="p-6">
-                        <p className="text-sm text-red-700 mb-4">
-                            アカウントと関連するすべてのデータが完全に削除されます。この操作は取り消せません。
+                        <p className="mb-4 text-sm text-red-700">
+                            Supabase 移行後の削除フローはまだ未実装です。必要なら管理者対応を追加します。
                         </p>
                         <button
                             onClick={onDeleteClick}
-                            disabled={isLoading}
-                            className="px-4 py-2 bg-white border border-red-400 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all text-sm font-medium shadow-sm"
+                            className="rounded-lg border border-red-400 bg-white px-4 py-2 text-sm font-medium text-red-600"
                         >
-                            {isLoading ? '削除中...' : 'アカウントを削除'}
+                            アカウント削除
                         </button>
                     </div>
                 </section>
             </div>
-
-            {user && (
-                <ReauthModal
-                    isOpen={showReauthModal}
-                    onClose={() => setShowReauthModal(false)}
-                    onReauthSuccess={handleReauthSuccess}
-                    user={user}
-                />
-            )}
         </SettingsLayout>
     );
 }
-
-

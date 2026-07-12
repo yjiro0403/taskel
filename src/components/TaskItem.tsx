@@ -5,6 +5,8 @@ import clsx from 'clsx';
 import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical, MessageSquare, Sparkles } from 'lucide-react';
 import { formatTime } from '@/lib/timeUtils';
 import { AIStatusBadge } from '@/components/ai/AIStatusBadge';
+import { AttachmentImage } from '@/components/AttachmentImage';
+import { getAttachmentSignedUrl } from '@/lib/storage';
 import { addMinutes } from 'date-fns';
 import { useStore } from '@/store/useStore';
 import { CSSProperties } from 'react';
@@ -167,13 +169,17 @@ export function TaskItem({
                         {task.attachments.map(att => (
                             <div
                                 key={att.id}
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                     e.stopPropagation();
-                                    if (!isOverlay) onImageClick(att.url);
+                                    if (isOverlay || !att.path) return;
+                                    // attachments バケットは private のため、拡大表示には
+                                    // storage_path から署名付きURLを都度生成して渡す。
+                                    const signed = await getAttachmentSignedUrl(att.path);
+                                    if (signed) onImageClick(signed);
                                 }}
                                 className="relative w-16 h-16 rounded-md overflow-hidden border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
                             >
-                                <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
+                                <AttachmentImage attachment={att} className="w-full h-full object-cover" />
                             </div>
                         ))}
                     </div>

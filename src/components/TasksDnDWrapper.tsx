@@ -104,11 +104,9 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
         if (overTask) {
             const newSectionId = overTask.sectionId;
             const isSameSection = activeTask.sectionId === newSectionId;
-            // 純粋仮想タスク（merged にはあるが実タスクに未存在）は実体化が必要
-            const activeIsPureVirtual = !useStore.getState().tasks.some(t => t.id === activeTask.id);
 
             // 1) セクション移動 or 仮想タスクの実体化が必要なら先に確定（await して順序を保証）
-            if (!isSameSection || activeIsPureVirtual) {
+            if (!isSameSection || activeTask.isVirtual) {
                 await updateTask(String(active.id), { sectionId: newSectionId, date: currentDate });
             }
 
@@ -126,9 +124,9 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
             const newOrderIds = arrayMove(ids, fromIdx, toIdx);
 
             // 3) 実タスク（純粋仮想を除く。実体化済みルーチンは含む）のみ 0..n に再採番。
-            //    整数の連番のため精度枯渇も起きない。
-            const realTasks = useStore.getState().tasks;
-            const realIds = newOrderIds.filter(id => realTasks.some(t => t.id === id));
+            //    整数連番のため精度枯渇も起きない。
+            const virtualIds = new Set(freshSection.filter(t => t.isVirtual).map(t => t.id));
+            const realIds = newOrderIds.filter(id => !virtualIds.has(id));
             if (realIds.length > 0) {
                 await reorderTasks(realIds);
             }

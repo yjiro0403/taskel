@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Users, Trash2 } from 'lucide-react';
 import { Project } from '@/types';
-import { auth } from '@/lib/firebase';
-import { useStore } from '@/store/useStore';
+import { createClient } from '@/lib/supabase/client';
 
 interface ProjectMembersProps {
     project: Project;
@@ -18,62 +17,46 @@ interface UserData {
 }
 
 export default function ProjectMembers({ project, currentUserRole, currentUserId }: ProjectMembersProps) {
-    const { updateProject } = useStore();
     const [members, setMembers] = useState<UserData[]>([]);
 
-    // Fetch Member Data（サーバー API 経由。安全な項目のみ返る）
+    // Fetch Member Data
     useEffect(() => {
         const fetchMembers = async () => {
-            if (!project.memberIds || project.memberIds.length === 0) {
-                setMembers([]);
+            if (!project.memberIds) return;
+            const { data, error } = await createClient()
+                .from('profiles')
+                .select('*')
+                .in('id', project.memberIds);
+
+            if (error || !data) {
+                setMembers(project.memberIds.map((uid) => ({ uid, displayName: 'Error Loading', email: null, photoURL: null })));
                 return;
             }
 
-            const buildFallback = (label: string): UserData[] =>
-                project.memberIds.map((uid) => ({ uid, displayName: label, email: null, photoURL: null }));
-
-            try {
-                const currentUser = auth.currentUser;
-                if (!currentUser) {
-                    setMembers(buildFallback('Unknown User'));
-                    return;
-                }
-                const token = await currentUser.getIdToken();
-                const res = await fetch('/api/users/profile', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({ uids: project.memberIds }),
-                });
-                if (!res.ok) throw new Error('Failed to fetch members');
-                const data = await res.json();
-                const byUid = new Map<string, UserData>(
-                    (data.members as UserData[]).map((m) => [m.uid, m])
-                );
-                // API から返らなかった uid はフォールバック表示にする
-                setMembers(
-                    project.memberIds.map(
-                        (uid) => byUid.get(uid) ?? { uid, displayName: 'Unknown User', email: null, photoURL: null }
-                    )
-                );
-            } catch (e) {
-                console.error('fetchMembers error:', e);
-                setMembers(buildFallback('Error Loading'));
-            }
+            const map = new Map(data.map((profile) => [profile.id, profile]));
+            setMembers(project.memberIds.map((uid) => {
+                const profile = map.get(uid);
+                return {
+                    uid,
+                    displayName: profile?.display_name ?? 'Unknown User',
+                    email: profile?.email ?? null,
+                    photoURL: profile?.avatar_url ?? null,
+                };
+            }));
         };
         fetchMembers();
     }, [project.memberIds]);
 
     const handleRemoveMember = async (uid: string) => {
         if (!confirm('Remove this member from the project?')) return;
-
-        const newMemberIds = project.memberIds.filter(id => id !== uid);
-        const newRoles = { ...project.roles };
-        delete newRoles[uid];
-
-        await updateProject(project.id, { memberIds: newMemberIds, roles: newRoles });
+        const { error } = await createClient()
+            .from('project_members')
+            .delete()
+            .eq('project_id', project.id)
+            .eq('user_id', uid);
+        if (error) {
+            console.error('Failed to remove project member:', error);
+        }
     };
 
     const isOwner = currentUserRole === 'owner';

@@ -1,58 +1,86 @@
-
 import { NextResponse } from 'next/server';
-import { getAuth } from '@/lib/firebaseAdmin';
-import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
+
+import { requireAuth } from '@/lib/api/auth';
+import { handleApiError } from '@/lib/api/errors';
+import { applyRateLimit } from '@/lib/api/rateLimit';
+import { parseJsonBody } from '@/lib/api/request';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
+import { userLookupRequestSchema } from '@/lib/validations/project';
 
 export async function POST(request: Request) {
-    try {
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            // Optional: allow public check if needed? No, better secure.
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
-        // Verify token
-        const token = authHeader.split('Bearer ')[1];
-        let requesterUid: string;
-        try {
-            const decoded = await getAuth().verifyIdToken(token);
-            requesterUid = decoded.uid;
-        } catch {
-            return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-        }
-
-        // メールアドレス列挙攻撃の抑止（1ユーザーあたり 10 分で 30 回まで）
-        const limit = rateLimit(`user-lookup:${requesterUid}`, 30, 10 * 60 * 1000);
-        if (!limit.ok) return rateLimitResponse(limit);
-
-        const { email } = await request.json();
-
-        if (!email) {
-            return NextResponse.json({ error: 'Email required' }, { status: 400 });
-        }
-
-        try {
-            const userRecord = await getAuth().getUserByEmail(email);
-
-            // Return public info
-            return NextResponse.json({
-                found: true,
-                user: {
-                    uid: userRecord.uid,
-                    email: userRecord.email,
-                    displayName: userRecord.displayName,
-                    photoURL: userRecord.photoURL,
-                }
-            });
-        } catch (error: any) {
-            if (error.code === 'auth/user-not-found') {
-                return NextResponse.json({ found: false });
-            }
-            throw error;
-        }
-
-    } catch (error) {
-        console.error('User lookup error:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  try {
+    // メールアドレス列挙の緩和。招待相手の存在確認は認可済みメンバーにしか許さないが、
+    // それでも総当たりを抑止する。
+    const rateLimitResponse = applyRateLimit(request, {
+      key: '/api/users/lookup',
+      limit: 20,
+      windowMs: 60_000,
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
+
+    const user = await requireAuth();
+    const { email, projectId } = await parseJsonBody(request, userLookupRequestSchema);
+    const supabase = await createClient();
+
+    // 認可チェックは「呼び出し元ユーザーの権限」で行う必要があるため、
+    // ユーザースコープのクライアントのまま維持する。
+    const { data: membership, error: membershipError } = await supabase
+      .from('project_members')
+      .select('project_id')
+      .eq('project_id', projectId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (membershipError) {
+      throw membershipError;
+    }
+
+    if (!membership) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // ここから先は「呼び出し元が当該プロジェクトのメンバーである」ことが確定している。
+    // profiles の SELECT RLS（migration 003）は本人または既存の共有プロジェクトメンバー
+    // のみを許可するため、ユーザースコープのクライアントでは「まだ共有関係のない招待相手」
+    // が常に見えず found:false になり、招待機能が成立しない。
+    // 認可は上で済ませているので、ここだけ service_role で RLS をバイパスする。
+    const admin = createAdminClient();
+
+    const { data: profile, error: profileError } = await admin
+      .from('profiles')
+      .select('id, email, display_name, avatar_url')
+      .ilike('email', email)
+      .maybeSingle();
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    if (!profile) {
+      return NextResponse.json({ found: false });
+    }
+
+    const { data: existingMember } = await admin
+      .from('project_members')
+      .select('project_id')
+      .eq('project_id', projectId)
+      .eq('user_id', profile.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      found: true,
+      user: {
+        uid: profile.id,
+        email: profile.email,
+        displayName: profile.display_name,
+        photoURL: profile.avatar_url,
+        alreadyMember: Boolean(existingMember),
+      },
+    });
+  } catch (error) {
+    return handleApiError('User lookup error', error);
+  }
 }

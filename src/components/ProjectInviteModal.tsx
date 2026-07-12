@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { Users, Link as LinkIcon, Copy, Loader2, Trash2, Mail, Check, AlertTriangle, User, Send } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 import { useStore } from '@/store/useStore';
 import { HubRole } from '@/types';
-import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-
 interface ProjectInviteModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -20,7 +18,7 @@ interface FoundUser {
 }
 
 export default function ProjectInviteModal({ isOpen, onClose, projectId, existingMemberIds }: ProjectInviteModalProps) {
-    const { generateInviteLink, updateProject, inviteMember, projects, user } = useStore();
+    const { generateInviteLink, inviteMember, projects, user } = useStore();
 
     // Determine current project to robustly handle updates if needed, though projectId is passed
     const project = projects.find(p => p.id === projectId);
@@ -71,14 +69,12 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
 
         try {
             // Use API instead of direct Firestore query to avoid permission issues
-            const token = await user?.getIdToken();
             const response = await fetch('/api/users/lookup', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ email: email.trim() })
+                body: JSON.stringify({ email: email.trim(), projectId })
             });
 
             if (!response.ok) {
@@ -115,16 +111,14 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
 
         try {
             if (foundUser) {
-                // Direct Add (if allowed by rules) or use API ideally
-                // For now keep direct update if rules allow, or fallback to inviteMember?
-                // Actually, let's try direct add first as it's faster, but if it fails...
-                // Ideally we should use an API for adding members too, but let's stick to existing logic for found users if possible.
-                // However, "users" query failed, so maybe "update project" works?
-                // Rules say: match /projects/{projectId} { allow read, write: if isAuthenticated(); }
-                // So this should work fine.
-                const newMemberIds = [...project.memberIds, foundUser.uid];
-                const newRoles = { ...project.roles, [foundUser.uid]: inviteRole };
-                await updateProject(projectId, { memberIds: newMemberIds, roles: newRoles });
+                const { error } = await createClient().from('project_members').upsert({
+                    project_id: projectId,
+                    user_id: foundUser.uid,
+                    role: inviteRole,
+                });
+                if (error) {
+                    throw error;
+                }
                 setStatus({ loading: false, message: `Added ${foundUser.displayName || foundUser.email}!`, type: 'success' });
             } else {
                 // Pending Invite via API (avoids client-side permission issues)
