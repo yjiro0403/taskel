@@ -28,16 +28,37 @@ FIREBASE_PRIVATE_KEY=
 npm run migrate:supabase -- --dry-run
 ```
 
+特定のアカウントだけを移行する場合は、全工程で同じ `--email` を指定します。
+このモードでは対象メールに紐づくユーザーデータと、そのユーザーが所有するプロジェクトだけを扱い、
+他ユーザーや旧招待は移行しません。
+
+```bash
+npm run migrate:supabase -- --dry-run --email user@example.com
+```
+
 件数、警告、失敗行を確認してから本移行を実行します。
 
 ```bash
 npm run migrate:supabase
 ```
 
+単一アカウント移行:
+
+```bash
+npm run migrate:supabase -- --email user@example.com
+```
+
 初回パスワード設定メールも送る場合は SMTP 設定後に実行します。
 
 ```bash
 npm run migrate:supabase -- --send-reset-emails
+```
+
+`--send-reset-emails` を付けたwrite実行では、新規・既存どちらの移行対象にも
+再設定メールを送ります。重複送信を避けるため、通常は最初の本実行で1回だけ指定します。
+
+```bash
+npm run migrate:supabase -- --email user@example.com --send-reset-emails
 ```
 
 詳細は [Supabase 移行 Runbook](../docs/supabase-migration-runbook.md) を参照してください。

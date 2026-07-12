@@ -125,6 +125,22 @@ type BatchResult = {
 const BATCH_SIZE = 100;
 const dryRun = process.argv.includes('--dry-run');
 const sendResetEmails = process.argv.includes('--send-reset-emails');
+const migrationEmail = (() => {
+    const inlineValue = process.argv.find((argument) => argument.startsWith('--email='))?.slice('--email='.length);
+    const flagIndex = process.argv.indexOf('--email');
+    const separateValue = flagIndex >= 0 ? process.argv[flagIndex + 1] : undefined;
+    const value = (inlineValue ?? separateValue)?.trim().toLowerCase();
+
+    if (!value) {
+        return null;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        throw new Error('The --email migration filter must be a valid email address.');
+    }
+
+    return value;
+})();
 
 const counts: EntityCounts = {
     profiles: 0,
@@ -192,14 +208,6 @@ function logError(message: string, error?: unknown) {
     }
 }
 
-function requireEnv(name: string) {
-    const value = process.env[name];
-    if (!value) {
-        throw new Error(`Missing required environment variable: ${name}`);
-    }
-    return value;
-}
-
 function getSupabaseClient() {
     const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -245,7 +253,9 @@ async function getSmtpTransport() {
         const transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,
             port: Number(process.env.SMTP_PORT) || 587,
-            secure: false,
+            secure:
+                process.env.SMTP_SECURE === 'true' ||
+                Number(process.env.SMTP_PORT) === 465,
             auth: {
                 user: process.env.SMTP_USER,
                 pass: process.env.SMTP_PASS,
@@ -283,6 +293,26 @@ async function deliverPasswordResetLink(email: string, resetLink: string) {
     counts.reset_emails_sent += 1;
 }
 
+async function sendMigrationPasswordReset(supabase: Client, email: string, sourceUserId: string) {
+    try {
+        const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+            type: 'recovery',
+            email,
+            options: {
+                redirectTo: `${getAppUrl()}/auth/callback?next=/reset-password`,
+            },
+        });
+
+        if (linkError) {
+            throw new Error(linkError.message);
+        }
+
+        await deliverPasswordResetLink(email, linkData.properties.action_link);
+    } catch (resetError) {
+        logError(`Failed to deliver password reset link for users/${sourceUserId}`, resetError);
+    }
+}
+
 function initializeFirebase() {
     if (getApps().length > 0) {
         return getFirestore();
@@ -292,6 +322,16 @@ function initializeFirebase() {
     if (serviceAccount) {
         initializeApp({
             credential: cert(JSON.parse(serviceAccount)),
+        });
+        return getFirestore();
+    }
+
+    // Prefer the standard credential file when configured. Some legacy local
+    // environments still contain stale split credentials alongside a current
+    // GOOGLE_APPLICATION_CREDENTIALS file.
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        initializeApp({
+            credential: applicationDefault(),
         });
         return getFirestore();
     }
@@ -315,11 +355,9 @@ function initializeFirebase() {
         return getFirestore();
     }
 
-    requireEnv('GOOGLE_APPLICATION_CREDENTIALS');
-    initializeApp({
-        credential: applicationDefault(),
-    });
-    return getFirestore();
+    throw new Error(
+        'Configure FIREBASE_SERVICE_ACCOUNT_KEY, GOOGLE_APPLICATION_CREDENTIALS, or all split Firebase credentials.'
+    );
 }
 
 function chunk<T>(items: T[], size: number) {
@@ -390,6 +428,10 @@ function asStringArray(value: unknown): string[] {
 
 function asNumber(value: unknown, fallback = 0): number {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function asInteger(value: unknown, fallback = 0): number {
+    return Math.round(asNumber(value, fallback));
 }
 
 function asBoolean(value: unknown, fallback = false): boolean {
@@ -490,16 +532,47 @@ async function readCollection<T = Record<string, unknown>>(path: string): Promis
     }));
 }
 
+async function readCollectionByField<T = Record<string, unknown>>(
+    path: string,
+    field: string,
+    values: string[]
+): Promise<RawDoc<T>[]> {
+    if (values.length === 0) {
+        return [];
+    }
+
+    const db = initializeFirebase();
+    const rows = new Map<string, RawDoc<T>>();
+    for (const valueBatch of chunk(Array.from(new Set(values)), 30)) {
+        const snapshot = await db.collection(path).where(field, 'in', valueBatch).get();
+        for (const doc of snapshot.docs) {
+            rows.set(doc.id, { id: doc.id, data: doc.data() as T });
+        }
+    }
+    return Array.from(rows.values());
+}
+
 async function readTaskComments(tasks: RawDoc[]): Promise<TaskCommentDoc[]> {
+    const taskIds = new Set(tasks.map((task) => task.id));
     const nestedComments: TaskCommentDoc[] = [];
 
-    for (const [index, task] of tasks.entries()) {
-        logInfo(`Reading task comments ${index + 1}/${tasks.length}: ${task.id}`);
-        const comments = await readCollection(`tasks/${task.id}/comments`);
-        nestedComments.push(...comments.map((comment) => ({
-            ...comment,
-            taskId: task.id,
-        })));
+    // One collection-group read replaces the legacy N+1 query per task. This
+    // materially reduces Firebase read quota usage during large migrations.
+    try {
+        const snapshot = await initializeFirebase().collectionGroup('comments').get();
+        for (const doc of snapshot.docs) {
+            const taskId = doc.ref.parent.parent?.id;
+            if (!taskId || !taskIds.has(taskId)) {
+                continue;
+            }
+            nestedComments.push({
+                id: doc.id,
+                data: doc.data(),
+                taskId,
+            });
+        }
+    } catch (error) {
+        logWarn(`Nested task comments could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
 
     let topLevelComments: TaskCommentDoc[] = [];
@@ -507,7 +580,10 @@ async function readTaskComments(tasks: RawDoc[]): Promise<TaskCommentDoc[]> {
         const comments = await readCollection('task_comments');
         topLevelComments = comments.flatMap((comment) => {
             const taskId = asString(comment.data.taskId);
-            if (!taskId) {
+            if (!taskId || !taskIds.has(taskId)) {
+                if (taskId) {
+                    return [];
+                }
                 logWarn(`Skipping top-level task comment ${comment.id}: missing taskId`);
                 return [];
             }
@@ -530,27 +606,75 @@ async function readTaskComments(tasks: RawDoc[]): Promise<TaskCommentDoc[]> {
 }
 
 async function loadDataset(): Promise<MigrationDataset> {
-    const users = await readCollection('users');
-    logInfo(`Loaded users: ${users.length}`);
+    const users = migrationEmail
+        ? await readCollectionByField('users', 'email', [migrationEmail])
+        : await readCollection('users');
 
-    const [tags, projects, invitations, subscriptions, tasks] = await Promise.all([
-        readCollection('tags'),
-        readCollection('projects'),
-        readCollection('invitations'),
-        readCollection('subscriptions'),
-        readCollection('tasks'),
-    ]);
-    const taskComments = await readTaskComments(tasks);
+    if (migrationEmail && users.length === 0) {
+        throw new Error('No Firestore user matched the requested --email migration filter.');
+    }
+
+    const selectedUserIds = new Set(users.map((user) => user.id));
+    logInfo(`Loaded users: ${users.length}`);
+    if (migrationEmail) {
+        logInfo('Single-account migration filter is active.');
+    }
+
+    const selectedIds = Array.from(selectedUserIds);
+    const [tags, projects, allInvitations, subscriptions, filteredRootTasks, rootGoals] = migrationEmail
+        ? await Promise.all([
+            readCollectionByField('tags', 'userId', selectedIds),
+            (async () => {
+                const [ownedByOwnerId, ownedByLegacyUserId] = await Promise.all([
+                    readCollectionByField('projects', 'ownerId', selectedIds),
+                    readCollectionByField('projects', 'userId', selectedIds),
+                ]);
+                return Array.from(new Map(
+                    [...ownedByOwnerId, ...ownedByLegacyUserId].map((project) => [project.id, project] as const)
+                ).values());
+            })(),
+            Promise.resolve([] as RawDoc[]),
+            readCollectionByField('subscriptions', 'userId', selectedIds),
+            readCollectionByField('tasks', 'userId', selectedIds),
+            readCollectionByField('goals', 'userId', selectedIds),
+        ])
+        : await Promise.all([
+            readCollection('tags'),
+            readCollection('projects'),
+            readCollection('invitations'),
+            readCollection('subscriptions'),
+            readCollection('tasks'),
+            readCollection('goals'),
+        ]);
+
+    // Legacy invitations are cross-account records. A single-account import
+    // deliberately excludes them so no unrelated Auth users are created and
+    // stale links cannot be revived.
+    const invitations = migrationEmail ? [] : allInvitations;
+    if (migrationEmail) {
+        logWarn('Single-account migration excludes legacy invitations.');
+    }
 
     const goals: UserScopedDoc[] = [];
     const sections: UserScopedDoc[] = [];
     const routines: UserScopedDoc[] = [];
     const notes: NoteDoc[] = [];
+    const nestedTasks: RawDoc[] = [];
+
+    // Some historical versions stored goals at the top level while newer
+    // versions used users/{uid}/goals. Normalize both into one user-scoped set.
+    for (const goal of rootGoals) {
+        const sourceUserId = asString(goal.data.userId);
+        if (sourceUserId && (!migrationEmail || selectedUserIds.has(sourceUserId))) {
+            goals.push({ ...goal, userId: sourceUserId });
+        }
+    }
 
     for (const [index, user] of users.entries()) {
         logInfo(`Reading user subcollections ${index + 1}/${users.length}: ${user.id}`);
 
-        const [userGoals, userSections, userRoutines, dailyNotes, weeklyNotes, monthlyNotes, yearlyNotes] = await Promise.all([
+        const [userTasks, userGoals, userSections, userRoutines, dailyNotes, weeklyNotes, monthlyNotes, yearlyNotes] = await Promise.all([
+            readCollection(`users/${user.id}/tasks`),
             readCollection(`users/${user.id}/goals`),
             readCollection(`users/${user.id}/sections`),
             readCollection(`users/${user.id}/routines`),
@@ -560,6 +684,12 @@ async function loadDataset(): Promise<MigrationDataset> {
             readCollection(`users/${user.id}/yearlyNotes`),
         ]);
 
+        nestedTasks.push(...userTasks.map((entry) => ({
+            ...entry,
+            // The parent user path is the ownership authority for legacy
+            // subcollection tasks; old documents did not always carry userId.
+            data: { ...entry.data, userId: user.id },
+        })));
         goals.push(...userGoals.map((entry) => ({ ...entry, userId: user.id })));
         sections.push(...userSections.map((entry) => ({ ...entry, userId: user.id })));
         routines.push(...userRoutines.map((entry) => ({ ...entry, userId: user.id })));
@@ -572,13 +702,34 @@ async function loadDataset(): Promise<MigrationDataset> {
         );
     }
 
+    const taskById = new Map(filteredRootTasks.map((task) => [task.id, task] as const));
+    let duplicateNestedTaskCount = 0;
+    for (const task of nestedTasks) {
+        if (taskById.has(task.id)) {
+            duplicateNestedTaskCount += 1;
+            continue;
+        }
+        taskById.set(task.id, task);
+    }
+    if (duplicateNestedTaskCount > 0) {
+        logWarn(`Tasks: ignored ${duplicateNestedTaskCount} nested duplicate(s) already present at the top level.`);
+    }
+    const tasks = Array.from(taskById.values());
+
+    const goalByUserAndId = new Map<string, UserScopedDoc>();
+    for (const goal of goals) {
+        goalByUserAndId.set(`${goal.userId}:${goal.id}`, goal);
+    }
+    const dedupedGoals = Array.from(goalByUserAndId.values());
+    const taskComments = await readTaskComments(tasks);
+
     logInfo(`Loaded tags: ${tags.length}`);
     logInfo(`Loaded projects: ${projects.length}`);
     logInfo(`Loaded invitations: ${invitations.length}`);
     logInfo(`Loaded subscriptions: ${subscriptions.length}`);
     logInfo(`Loaded tasks: ${tasks.length}`);
     logInfo(`Loaded task comments: ${taskComments.length}`);
-    logInfo(`Loaded goals: ${goals.length}`);
+    logInfo(`Loaded goals: ${dedupedGoals.length}`);
     logInfo(`Loaded sections: ${sections.length}`);
     logInfo(`Loaded routines: ${routines.length}`);
     logInfo(`Loaded notes: ${notes.length}`);
@@ -591,7 +742,7 @@ async function loadDataset(): Promise<MigrationDataset> {
         subscriptions,
         tasks,
         taskComments,
-        goals,
+        goals: dedupedGoals,
         sections,
         routines,
         notes,
@@ -629,6 +780,7 @@ async function loadExistingAuthUsers(supabase: Client) {
 
 async function ensureUserMappings(supabase: Client, registry: IdRegistry, users: RawDoc[]) {
     logInfo('Resolving user ID mappings via Supabase Auth');
+    const passwordResetRecipients: { email: string; sourceUserId: string }[] = [];
     const existingUsers = await loadExistingAuthUsers(supabase);
     const authUserByEmail = new Map(
         existingUsers
@@ -649,6 +801,9 @@ async function ensureUserMappings(supabase: Client, registry: IdRegistry, users:
             registry.set('users', user.id, existingId);
             counts.auth_users_reused += 1;
             logInfo(`Mapped user ${index + 1}/${users.length}: ${user.id} -> existing auth user`);
+            if (sendResetEmails && !dryRun) {
+                passwordResetRecipients.push({ email, sourceUserId: user.id });
+            }
             continue;
         }
 
@@ -688,30 +843,14 @@ async function ensureUserMappings(supabase: Client, registry: IdRegistry, users:
             logInfo(`Created auth user ${index + 1}/${users.length}: ${email}`);
 
             if (sendResetEmails) {
-                try {
-                    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-                        type: 'recovery',
-                        email,
-                        options: {
-                            // /auth/callback で code を session に交換してから /reset-password へ。
-                            // 従来は /login 直行だが /login にはパスワード設定処理が無かった。
-                            redirectTo: `${getAppUrl()}/auth/callback?next=/reset-password`,
-                        },
-                    });
-
-                    if (linkError) {
-                        throw new Error(linkError.message);
-                    }
-
-                    await deliverPasswordResetLink(email, linkData.properties.action_link);
-                } catch (resetError) {
-                    logError(`Failed to deliver password reset link for users/${user.id}`, resetError);
-                }
+                passwordResetRecipients.push({ email, sourceUserId: user.id });
             }
         } catch (error) {
             logError(`Failed to create auth user for users/${user.id}`, error);
         }
     }
+
+    return passwordResetRecipients;
 }
 
 async function upsertTable<T extends Record<string, unknown>>(
@@ -802,11 +941,11 @@ function buildProfiles(users: RawDoc[], registry: IdRegistry): ProfileInsert[] {
     });
 }
 
-function buildTags(tags: RawDoc[], registry: IdRegistry) {
+function buildTags(tags: RawDoc[], tasks: RawDoc[], registry: IdRegistry) {
     const rows: TagInsert[] = [];
-    // (user_id, 正規化name) -> 生存者タグの Supabase UUID。task_tags は名前で引くため、
-    // このマップが name ベースの参照解決も兼ねる（キーは trim 済み name で統一する）。
-    const tagNameByUser = new Map<string, string>();
+    // Legacy tasks contain a mixture of tag names and Firestore tag IDs.
+    // Resolve both forms to the surviving Supabase tag UUID.
+    const tagReferenceByUser = new Map<string, string>();
     let mergedCount = 0;
 
     for (const tag of tags) {
@@ -826,12 +965,13 @@ function buildTags(tags: RawDoc[], registry: IdRegistry) {
         // unique(user_id, name) 違反を防ぐため (user_id, trim済みname) 単位で重複排除する。
         // 大小文字は変えない（実データの意味を壊さない）。最初の1件を生存者とする。
         const dedupeKey = `${userId}:${name.trim()}`;
-        const survivorId = tagNameByUser.get(dedupeKey);
+        const survivorId = tagReferenceByUser.get(dedupeKey);
         if (survivorId) {
             // 重複タグは投入しない。この Firestore ID の参照を生存者 UUID に張り替え、
             // 名前ベースの task_tags 紐づけも生存者へ集約する（従来は2件目の INSERT が
             // unique 違反で落ち、その名前を参照するタスクの task_tags が欠損していた）。
             registry.set('tags', tag.id, survivorId);
+            tagReferenceByUser.set(`${userId}:${tag.id}`, survivorId);
             mergedCount += 1;
             continue;
         }
@@ -847,14 +987,53 @@ function buildTags(tags: RawDoc[], registry: IdRegistry) {
             updated_at: normalizeTimestamp(tag.data.updatedAt) ?? undefined,
         });
 
-        tagNameByUser.set(dedupeKey, id);
+        tagReferenceByUser.set(dedupeKey, id);
+        tagReferenceByUser.set(`${userId}:${tag.id}`, id);
     }
 
     if (mergedCount > 0) {
         logWarn(`Tags: merged ${mergedCount} duplicate (user, name) tag(s) into their survivor to satisfy unique(user_id, name)`);
     }
 
-    return { rows, tagNameByUser };
+    let synthesizedCount = 0;
+    for (const task of tasks) {
+        const sourceUserId = asString(task.data.userId);
+        const userId = registry.get('users', sourceUserId);
+        if (!sourceUserId || !userId) {
+            continue;
+        }
+
+        for (const rawReference of asStringArray(task.data.tags)) {
+            const reference = rawReference.trim();
+            if (!reference) {
+                continue;
+            }
+            const referenceKey = `${userId}:${reference}`;
+            if (tagReferenceByUser.has(referenceKey)) {
+                continue;
+            }
+
+            // Keep legacy free-form tags even when their tag document was
+            // deleted or never created. The visible reference becomes the tag
+            // name instead of silently disappearing from the migrated task.
+            const id = registry.ensure('tags', `synthetic:${userId}:${reference}`);
+            rows.push({
+                id,
+                user_id: userId,
+                name: reference,
+                memo: null,
+                color: null,
+            });
+            tagReferenceByUser.set(referenceKey, id);
+            synthesizedCount += 1;
+        }
+    }
+
+    if (synthesizedCount > 0) {
+        logWarn(`Tags: synthesized ${synthesizedCount} missing legacy tag(s) referenced by tasks.`);
+    }
+
+    return { rows, tagReferenceByUser };
 }
 
 function buildProjects(projects: RawDoc[], registry: IdRegistry) {
@@ -1076,10 +1255,10 @@ function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
             assigned_month: scope.assigned_month,
             assigned_week: scope.assigned_week,
             status,
-            progress: Math.max(0, Math.min(100, asNumber(goal.data.progress, 0))),
+            progress: Math.max(0, Math.min(100, asInteger(goal.data.progress, 0))),
             parent_goal_id: resolvedParentKey ? idByKey.get(resolvedParentKey)! : null,
             project_id: registry.get('projects', asString(goal.data.projectId)),
-            priority: Math.max(1, Math.min(5, asNumber(goal.data.priority, 3))),
+            priority: Math.max(1, Math.min(5, asInteger(goal.data.priority, 3))),
             tags: asStringArray(goal.data.tags),
             reflection: asString(goal.data.reflection),
             ai_analysis: asJson(goal.data.aiAnalysis),
@@ -1098,7 +1277,12 @@ function buildGoals(goals: UserScopedDoc[], registry: IdRegistry) {
     return topologicalSortGoals(works);
 }
 
-function buildSections(sections: UserScopedDoc[], registry: IdRegistry) {
+function buildSections(
+    sections: UserScopedDoc[],
+    tasks: RawDoc[],
+    routines: UserScopedDoc[],
+    registry: IdRegistry
+) {
     const rows: SectionInsert[] = [];
     // (user_id, 正規化name) -> 生存者セクションの Supabase UUID
     const survivorByUserName = new Map<string, string>();
@@ -1135,12 +1319,88 @@ function buildSections(sections: UserScopedDoc[], registry: IdRegistry) {
             name,
             start_time: normalizeTime(section.data.startTime),
             end_time: normalizeTime(section.data.endTime),
-            order: asNumber(section.data.order, 0),
+            order: asInteger(section.data.order, 0),
         });
     }
 
     if (mergedCount > 0) {
         logWarn(`Sections: merged ${mergedCount} duplicate (user, name) section(s) into their survivor; referencing tasks/routines repointed`);
+    }
+
+    const intentionallySectionless = new Set([
+        '',
+        'goal',
+        'weekly-goals',
+        'monthly-goals',
+        'yearly-goals',
+        'unplanned',
+    ]);
+    const importedSectionByUser = new Map<string, string>();
+    const maxOrderByUser = new Map<string, number>();
+    for (const row of rows) {
+        maxOrderByUser.set(row.user_id, Math.max(maxOrderByUser.get(row.user_id) ?? -1, row.order ?? 0));
+    }
+
+    const getImportedSection = (userId: string) => {
+        const cached = importedSectionByUser.get(userId);
+        if (cached) {
+            return cached;
+        }
+
+        const nameKey = `${userId}:Imported Tasks`;
+        const existing = survivorByUserName.get(nameKey);
+        if (existing) {
+            importedSectionByUser.set(userId, existing);
+            return existing;
+        }
+
+        const id = registry.ensure('sections', `imported:${userId}`);
+        rows.push({
+            id,
+            user_id: userId,
+            name: 'Imported Tasks',
+            start_time: '00:00',
+            end_time: '23:59',
+            order: (maxOrderByUser.get(userId) ?? -1) + 1,
+        });
+        survivorByUserName.set(nameKey, id);
+        importedSectionByUser.set(userId, id);
+        return id;
+    };
+
+    let rescuedReferences = 0;
+    const rescueReference = (sourceUserId: string | null, rawSectionId: string | null, allowSectionless: boolean) => {
+        if (!sourceUserId || !rawSectionId || (allowSectionless && intentionallySectionless.has(rawSectionId))) {
+            return;
+        }
+        const registryKey = `${sourceUserId}:${rawSectionId}`;
+        if (registry.get('sections', registryKey)) {
+            return;
+        }
+        const userId = registry.get('users', sourceUserId);
+        if (!userId) {
+            return;
+        }
+
+        registry.set('sections', registryKey, getImportedSection(userId));
+        rescuedReferences += 1;
+    };
+
+    for (const task of tasks) {
+        rescueReference(
+            asString(task.data.userId),
+            asString(task.data.sectionId),
+            true
+        );
+    }
+    for (const routine of routines) {
+        rescueReference(routine.userId, asString(routine.data.sectionId), false);
+    }
+
+    if (rescuedReferences > 0) {
+        logWarn(
+            `Sections: rescued ${rescuedReferences} unresolved task/routine reference(s) into "Imported Tasks".`
+        );
     }
 
     return rows;
@@ -1189,7 +1449,7 @@ function buildRoutines(routines: UserScopedDoc[], registry: IdRegistry) {
             next_run: nextRun,
             start_time: normalizeTime(routine.data.startTime),
             section_id: sectionId,
-            estimated_minutes: Math.max(0, asNumber(routine.data.estimatedMinutes, 0)),
+            estimated_minutes: Math.max(0, asInteger(routine.data.estimatedMinutes, 0)),
             active: asBoolean(routine.data.active, true),
             project_id: registry.get('projects', asString(routine.data.projectId)),
             tags: asStringArray(routine.data.tags),
@@ -1202,10 +1462,11 @@ function buildRoutines(routines: UserScopedDoc[], registry: IdRegistry) {
     return rows;
 }
 
-function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<string, string>) {
+function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagReferenceByUser: Map<string, string>) {
     const taskRows: TaskInsert[] = [];
     const taskTagRows: TaskTagInsert[] = [];
     const attachmentRows: PendingAttachmentInsert[] = [];
+    const taskTagKeys = new Set<string>();
 
     for (const task of tasks) {
         const sourceUserId = asString(task.data.userId);
@@ -1238,8 +1499,8 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
             section_id: sectionId,
             date,
             status: pickEnumValue(task.data.status, ['open', 'in_progress', 'done', 'skipped'] as const, 'open') as TaskStatus,
-            estimated_minutes: Math.max(0, asNumber(task.data.estimatedMinutes, 0)),
-            actual_minutes: Math.max(0, asNumber(task.data.actualMinutes, 0)),
+            estimated_minutes: Math.max(0, asInteger(task.data.estimatedMinutes, 0)),
+            actual_minutes: Math.max(0, asInteger(task.data.actualMinutes, 0)),
             started_at: normalizeTimestamp(task.data.startedAt),
             completed_at: normalizeTimestamp(task.data.completedAt),
             scheduled_start: normalizeTime(task.data.scheduledStart),
@@ -1252,8 +1513,8 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
             assigned_month: asString(task.data.assignedMonth),
             assigned_year: asString(task.data.assignedYear),
             assigned_date: normalizeDate(task.data.assignedDate),
-            score: typeof task.data.score === 'number' ? task.data.score : null,
-            order: asNumber(task.data.order, 0),
+            score: typeof task.data.score === 'number' ? asInteger(task.data.score) : null,
+            order: asInteger(task.data.order, 0),
             memo: asString(task.data.memo),
             ai_tags: asStringArray(task.data.aiTags),
             ai_status: typeof task.data.aiStatus === 'string'
@@ -1261,20 +1522,23 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagNameByUser: Map<st
                 : null,
             ai_error: asString(task.data.aiError),
             ai_completed_at: normalizeTimestamp(task.data.aiCompletedAt),
-            comment_count: Math.max(0, asNumber(task.data.commentCount, 0)),
+            comment_count: Math.max(0, asInteger(task.data.commentCount, 0)),
             created_at: normalizeTimestamp(task.data.createdAt) ?? undefined,
             updated_at: normalizeTimestamp(task.data.updatedAt) ?? undefined,
         });
 
         for (const tagName of tags) {
-            // buildTags は (user_id, trim済みname) をキーに重複排除・登録しているため、
-            // 参照側も trim して引く（前後空白違いで別タグ扱いにならないよう統一する）。
-            const tagId = tagNameByUser.get(`${userId}:${tagName.trim()}`);
+            const tagId = tagReferenceByUser.get(`${userId}:${tagName.trim()}`);
             if (!tagId) {
                 logWarn(`Task ${task.id} references unknown tag "${tagName}"`);
                 continue;
             }
 
+            const taskTagKey = `${id}:${tagId}`;
+            if (taskTagKeys.has(taskTagKey)) {
+                continue;
+            }
+            taskTagKeys.add(taskTagKey);
             taskTagRows.push({
                 task_id: id,
                 tag_id: tagId,
@@ -1641,18 +1905,25 @@ async function main() {
     logInfo(`Starting Firestore -> Supabase migration (${dryRun ? 'dry-run' : 'write'})`);
 
     const supabase = getSupabaseClient();
+    if (sendResetEmails && !dryRun) {
+        const transport = await getSmtpTransport();
+        if (!transport) {
+            throw new Error('SMTP is required when --send-reset-emails is used for a production migration.');
+        }
+        logInfo('SMTP preflight succeeded.');
+    }
     const dataset = await loadDataset();
     const registry = new IdRegistry();
 
-    await ensureUserMappings(supabase, registry, dataset.users);
+    const passwordResetRecipients = await ensureUserMappings(supabase, registry, dataset.users);
 
     const profiles = buildProfiles(dataset.users, registry);
-    const { rows: tagRows, tagNameByUser } = buildTags(dataset.tags, registry);
+    const { rows: tagRows, tagReferenceByUser } = buildTags(dataset.tags, dataset.tasks, registry);
     const { projectRows, memberRows } = buildProjects(dataset.projects, registry);
     const goalRows = buildGoals(dataset.goals, registry);
-    const sectionRows = buildSections(dataset.sections, registry);
+    const sectionRows = buildSections(dataset.sections, dataset.tasks, dataset.routines, registry);
     const routineRows = buildRoutines(dataset.routines, registry);
-    const { taskRows, taskTagRows, attachmentRows } = buildTasks(dataset.tasks, registry, tagNameByUser);
+    const { taskRows, taskTagRows, attachmentRows } = buildTasks(dataset.tasks, registry, tagReferenceByUser);
     const taskCommentRows = buildTaskComments(dataset.taskComments, registry);
     const invitationRows = buildInvitations(dataset.invitations, registry);
     const subscriptionRows = buildSubscriptions(dataset.subscriptions, registry);
@@ -1675,6 +1946,16 @@ async function main() {
     await upsertTable(supabase, 'invitations', invitationRows, 'id', 'invitations');
     await upsertTable(supabase, 'subscriptions', subscriptionRows, 'user_id', 'subscriptions');
     await upsertTable(supabase, 'notes', noteRows, 'user_id,type,period_key', 'notes');
+
+    // Do not grant login access to a partially migrated account. Recovery
+    // emails are only delivered after every table write has succeeded.
+    if (errorCount === 0 && totalWriteFailures() === 0) {
+        for (const recipient of passwordResetRecipients) {
+            await sendMigrationPasswordReset(supabase, recipient.email, recipient.sourceUserId);
+        }
+    } else if (passwordResetRecipients.length > 0) {
+        logWarn('Password reset emails were withheld because the data migration was incomplete.');
+    }
 
     printSummary();
 
