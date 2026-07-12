@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import { StateCreator } from 'zustand';
 
 import { createClient } from '@/lib/supabase/client';
+import { timeUpdate, toTimeOrNull, toUuidOrNull, uuidUpdate } from '@/lib/supabase/normalize';
 import type { Database } from '@/types/supabase';
 import { StoreState, RoutineSlice } from '../types';
 
@@ -21,11 +22,11 @@ export const createRoutineSlice: StateCreator<StoreState, [], [], RoutineSlice> 
             interval: routine.interval ?? null,
             start_date: routine.startDate || format(new Date(), 'yyyy-MM-dd'),
             next_run: routine.nextRun,
-            start_time: routine.startTime ?? null,
-            section_id: routine.sectionId,
+            start_time: toTimeOrNull(routine.startTime),
+            section_id: toUuidOrNull(routine.sectionId),
             estimated_minutes: routine.estimatedMinutes,
             active: routine.active,
-            project_id: routine.projectId ?? null,
+            project_id: toUuidOrNull(routine.projectId),
             tags: routine.tags ?? [],
             memo: routine.memo ?? null,
         };
@@ -44,11 +45,11 @@ export const createRoutineSlice: StateCreator<StoreState, [], [], RoutineSlice> 
             interval: updates.interval === undefined ? undefined : updates.interval ?? null,
             start_date: updates.startDate,
             next_run: updates.nextRun,
-            start_time: updates.startTime === undefined ? undefined : updates.startTime ?? null,
-            section_id: updates.sectionId,
+            start_time: timeUpdate(updates.startTime),
+            section_id: uuidUpdate(updates.sectionId),
             estimated_minutes: updates.estimatedMinutes,
             active: updates.active,
-            project_id: updates.projectId === undefined ? undefined : updates.projectId ?? null,
+            project_id: uuidUpdate(updates.projectId),
             tags: updates.tags,
             memo: updates.memo === undefined ? undefined : updates.memo ?? null,
         };

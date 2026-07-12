@@ -36,6 +36,9 @@ function rollbackTasks(current: Task[], snapshot: Map<string, Task | null>): Tas
 
 export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set, get) => ({
     tasks: [],
+    // 初期ロード完了フラグ。authSlice.refreshInitialState の slow phase（tasks 着弾）で true になる。
+    // 取得失敗時は false のままとし、「0件で読み込み完了」という危険な状態を作らない。
+    tasksLoaded: false,
     selectedTaskIds: [],
     // ローカルタイムゾーン基準の当日。toISOString() は UTC 基準のため、JST では
     // 深夜0〜9時に「前日」を指してしまいルーチン表示とズレる。
@@ -59,7 +62,9 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         } catch (error) {
             console.error('Error adding task:', error);
             set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
-            alert('Failed to add task. Please check your connection.');
+            // alert() はレンダラをブロックしてタブごと固まらせるため、非ブロッキングな
+            // トースト通知に置き換える（同一ストアなので get() で ui スライスへ委譲）。
+            get().showToast('タスクの追加に失敗しました。通信環境を確認してください。', 'error');
         }
     },
 
@@ -172,6 +177,15 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
             // 仮想タスクの実体化（日付移動でない通常の編集・完了操作）
             if (!currentTask) {
+                // 【データ破壊防止・多重防御】tasks 未ロード中は仮想タスクの実体化を行わない。
+                // 実体化は決定的ID(createVirtualRoutineTaskId)での upsert なので、
+                // DB上の完了済み実体行を「ルーチンの初期値」で上書きしてしまう。
+                // 通常この経路は getMergedTasks 側のガードで到達不能だが、破壊的な書き込みの
+                // 直前でも再確認する。
+                if (!get().tasksLoaded) {
+                    console.warn('Skipped materializing a routine task before tasks finished loading:', taskId);
+                    return false;
+                }
                 if (virtualTask) {
                     const fullTaskForCreation: Task = {
                         ...virtualTask,
@@ -206,7 +220,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         } catch (error) {
             console.error('Error updating task:', error);
             set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
-            alert('Failed to update task. Please check your connection.');
+            // alert() はレンダラをブロックしてタブごと固まらせる。updateTask は完了チェック・
+            // タイマー開始/停止・ドラッグのたびに走る最ホットパスなので、非ブロッキングな
+            // トースト通知に置き換える（addTask と同じパターン）。
+            get().showToast('タスクの更新に失敗しました。通信環境を確認してください。', 'error');
             return false;
         } finally {
             pendingIds.forEach(removePendingTask);
@@ -414,9 +431,21 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     },
 
     getMergedTasks: (dateStr: string) => {
-        const { tasks, routines } = get();
+        const { tasks, routines, tasksLoaded } = get();
         const dbTasks = tasks.filter((task) => task.date === dateStr);
         const virtualTasks: Task[] = [];
+
+        // 【データ破壊防止】tasks のロードが完了するまでは仮想ルーチンタスクを合成しない。
+        // 初期ロードは2フェーズ（routines 等が先着 → tasks が後着）のため、その窓では
+        // dbTasks が空になり得る。空の dbTasks に対して重複判定を行うと、DB上は既に実体化・
+        // 完了済みのルーチン実績が「未着手の仮想タスク」として復活してしまう。この状態で
+        // ユーザーが完了チェック/タイマー開始/編集を行うと、決定的ID(createVirtualRoutineTaskId)
+        // による upsert が実体行を初期値で上書きし、status/actualMinutes/memo 等が失われる。
+        // 未ロード中は実タスク（= []）のみを返し、この経路を到達不能にする。
+        // ※ ルーチン以外の挙動（実タスクの日付フィルタ・skipped 除外）は従来どおり。
+        if (!tasksLoaded) {
+            return dbTasks.filter((task) => task.status !== 'skipped');
+        }
 
         routines.forEach((routine) => {
             if (!routine.active) return;
@@ -464,6 +493,9 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     resetTaskSlice: () => set({
         tasks: [],
+        // サインアウト／ユーザー切替時は必ず未ロード状態へ戻す。true のまま tasks が空だと
+        // 「0件で読み込み完了」と誤認され、次ユーザーの初期ロード窓で仮想タスクが復活する。
+        tasksLoaded: false,
         selectedTaskIds: [],
         currentDate: format(new Date(), 'yyyy-MM-dd'),
     }),
