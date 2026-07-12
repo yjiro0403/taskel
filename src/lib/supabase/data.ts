@@ -216,8 +216,8 @@ export async function fetchGoals(client: Client) {
 }
 
 export async function fetchProjects(client: Client) {
-    const { data: projects, error: projectError } = await (client
-        .from('projects') as any)
+    const { data: projects, error: projectError } = await client
+        .from('projects')
         .select('*, project_members(user_id, role)')
         .order('created_at', { ascending: true });
 
@@ -241,8 +241,8 @@ export async function fetchProjects(client: Client) {
 }
 
 export async function fetchProjectById(client: Client, projectId: string) {
-    const { data: project, error: projectError } = await (client
-        .from('projects') as any)
+    const { data: project, error: projectError } = await client
+        .from('projects')
         .select('*, project_members(user_id, role)')
         .eq('id', projectId)
         .maybeSingle();

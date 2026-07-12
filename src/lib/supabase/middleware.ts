@@ -6,7 +6,7 @@ import type { Database } from '@/types/supabase';
 
 export async function updateSession(request: NextRequest, response = NextResponse.next({ request })) {
     const { url, anonKey } = getSupabaseConfig();
-    let nextResponse = response;
+    const nextResponse = response;
 
     const supabase = createServerClient<Database>(url, anonKey, {
         cookies: {

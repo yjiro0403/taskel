@@ -21,6 +21,11 @@ import { StoreState, AuthSlice } from '../types';
 import { isPendingTask } from '../helpers/pendingTasks';
 
 type Tables = Database['public']['Tables'];
+type RealtimePayload<Row extends Record<string, unknown> = Record<string, unknown>> = {
+    eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+    new: Row;
+    old: Row;
+};
 
 function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
     const nextItems = items.filter((item) => item.id !== nextItem.id);
@@ -247,8 +252,8 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
 
         const syncCollectionItem = <T extends { id: string }>(
             key: 'tags' | 'sections' | 'routines' | 'goals',
-            mapper: (row: any) => T,
-            payload: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; new: any; old: any }
+            mapper: (row: never) => T,
+            payload: RealtimePayload
         ) => {
             const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
             if (!row?.id) {
@@ -256,7 +261,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'tags') {
-                const mapped = mapper(row) as unknown as Tag;
+                const mapped = mapper(row as never) as unknown as Tag;
                 set((state) => ({
                     tags:
                         payload.eventType === 'DELETE'
@@ -267,7 +272,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'sections') {
-                const mapped = mapper(row) as unknown as Section;
+                const mapped = mapper(row as never) as unknown as Section;
                 set((state) => ({
                     sections:
                         payload.eventType === 'DELETE'
@@ -278,7 +283,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'routines') {
-                const mapped = mapper(row) as unknown as Routine;
+                const mapped = mapper(row as never) as unknown as Routine;
                 set((state) => ({
                     routines:
                         payload.eventType === 'DELETE'
@@ -288,7 +293,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 return;
             }
 
-            const mapped = mapper(row) as unknown as Goal;
+            const mapped = mapper(row as never) as unknown as Goal;
             set((state) => ({
                 goals:
                     payload.eventType === 'DELETE'
@@ -297,13 +302,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }));
         };
 
-        const syncNote = (
-            payload: {
-                eventType: 'INSERT' | 'UPDATE' | 'DELETE';
-                new: Tables['notes']['Row'];
-                old: Tables['notes']['Row'];
-            }
-        ) => {
+        const syncNote = (payload: RealtimePayload<Tables['notes']['Row']>) => {
             const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
             if (!row?.period_key) {
                 return;
@@ -409,7 +408,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             ensureChannel(
                 `tags:${user.uid}`,
                 'tags',
-                (payload) => syncCollectionItem('tags', mapTag, payload as any),
+                (payload) => syncCollectionItem('tags', mapTag, payload),
                 `user_id=eq.${user.uid}`
             );
             ensureChannel(
@@ -437,41 +436,41 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             ensureChannel(
                 `routines:personal:${user.uid}`,
                 'routines',
-                (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
+                (payload) => syncCollectionItem('routines', mapRoutine, payload),
                 `user_id=eq.${user.uid}`
             );
             if (projectScopedFilter) {
                 ensureChannel(
                     `routines:projects:${user.uid}`,
                     'routines',
-                    (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
+                    (payload) => syncCollectionItem('routines', mapRoutine, payload),
                     projectScopedFilter
                 );
             }
             ensureChannel(
                 `sections:${user.uid}`,
                 'sections',
-                (payload) => syncCollectionItem('sections', mapSection, payload as any),
+                (payload) => syncCollectionItem('sections', mapSection, payload),
                 `user_id=eq.${user.uid}`
             );
             ensureChannel(
                 `goals:personal:${user.uid}`,
                 'goals',
-                (payload) => syncCollectionItem('goals', mapGoal, payload as any),
+                (payload) => syncCollectionItem('goals', mapGoal, payload),
                 `user_id=eq.${user.uid}`
             );
             if (projectScopedFilter) {
                 ensureChannel(
                     `goals:projects:${user.uid}`,
                     'goals',
-                    (payload) => syncCollectionItem('goals', mapGoal, payload as any),
+                    (payload) => syncCollectionItem('goals', mapGoal, payload),
                     projectScopedFilter
                 );
             }
             ensureChannel(
                 `notes:${user.uid}`,
                 'notes',
-                (payload) => syncNote(payload as any),
+                (payload) => syncNote(payload as RealtimePayload<Tables['notes']['Row']>),
                 `user_id=eq.${user.uid}`
             );
             ensureChannel(
