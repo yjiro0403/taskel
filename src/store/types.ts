@@ -124,6 +124,7 @@ export interface UISlice {
     setCurrentTime: (time: Date) => void;
     isRightSidebarOpen: boolean;
     toggleRightSidebar: () => void;
+    setRightSidebarOpen: (open: boolean) => void;
     isLeftSidebarOpen: boolean;
     toggleLeftSidebar: () => void;
     isDailyNoteModalOpen: boolean;
@@ -131,6 +132,12 @@ export interface UISlice {
     isAddTaskModalOpen: boolean;
     openAddTaskModal: () => void;
     closeAddTaskModal: () => void;
+    isSearchModalOpen: boolean;
+    openSearchModal: () => void;
+    closeSearchModal: () => void;
+    /** Search jump target; TaskList / RightSidebar highlight + scroll to this id. */
+    highlightedTaskId: string | null;
+    setHighlightedTaskId: (taskId: string | null) => void;
     toasts: Toast[];
     showToast: (message: string, type?: ToastType) => void;
     dismissToast: (id: string) => void;

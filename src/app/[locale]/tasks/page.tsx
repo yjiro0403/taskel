@@ -8,7 +8,7 @@ import LeftSidebar from '@/components/LeftSidebar'; // NEW
 import DailyNoteModal from '@/components/DailyNoteModal'; // NEW
 import SelectionHeader from '@/components/SelectionHeader'; // NEW
 import TasksDnDWrapper from '@/components/TasksDnDWrapper'; // NEW
-import { Plus, Clock, PanelRight, Menu } from 'lucide-react'; // Added Menu
+import { Plus, Clock, PanelRight, Menu, Search } from 'lucide-react'; // Added Menu
 import { useStore } from '@/store/useStore';
 import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
 import Image from 'next/image';
@@ -16,7 +16,8 @@ import { useTranslations } from 'next-intl';
 
 export default function Home() {
   const t = useTranslations('TaskList');
-  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal } = useStore();
+  const tSearch = useTranslations('Search');
+  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal, openSearchModal } = useStore();
   const [finishTime, setFinishTime] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -98,6 +99,15 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            <button
+              onClick={openSearchModal}
+              className="p-2 rounded-lg transition-colors text-gray-500 hover:bg-gray-100 hover:text-blue-600"
+              title={tSearch('open_button')}
+              aria-label={tSearch('open_button')}
+            >
+              <Search size={20} />
+            </button>
 
             <button
               onClick={toggleRightSidebar}

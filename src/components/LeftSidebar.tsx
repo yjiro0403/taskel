@@ -1,7 +1,7 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
-import { X, Calendar, Repeat, LogOut, Trash2, Settings, Briefcase, BarChart, ListTodo, CalendarRange, CalendarDays } from 'lucide-react';
+import { X, Calendar, Repeat, LogOut, Trash2, Settings, Briefcase, BarChart, ListTodo, CalendarRange, CalendarDays, Search } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import clsx from 'clsx';
@@ -13,7 +13,8 @@ import { useTranslations } from 'next-intl';
 export default function LeftSidebar() {
     const t = useTranslations('Sidebar');
     const tNav = useTranslations('Navigation');
-    const { isLeftSidebarOpen, toggleLeftSidebar, user } = useStore();
+    const tSearch = useTranslations('Search');
+    const { isLeftSidebarOpen, toggleLeftSidebar, user, openSearchModal } = useStore();
     const router = useRouter();
     const pathname = usePathname();
 
@@ -61,6 +62,17 @@ export default function LeftSidebar() {
                     {/* Navigation */}
                     <div className="space-y-2">
                         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t('navigation')}</p>
+                        <button
+                            type="button"
+                            className="flex w-full items-center gap-3 p-2 rounded-lg transition-colors text-gray-700 hover:text-blue-600 hover:bg-blue-50"
+                            onClick={() => {
+                                toggleLeftSidebar();
+                                openSearchModal();
+                            }}
+                        >
+                            <Search size={18} />
+                            <span>{tSearch('open_button')}</span>
+                        </button>
                         <Link
                             href="/tasks"
                             className={getLinkClass('/tasks')}

@@ -8,6 +8,7 @@ import { ensureProfile, createDefaultWorkspace } from '@/lib/supabase/data';
 import { mapSupabaseUser } from '@/lib/supabase/auth';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useStore } from '@/store/useStore';
+import TaskSearchModal from '@/components/TaskSearchModal';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const setUser = useStore((state) => state.setUser);
@@ -70,5 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
     }, [pathname, router, setUser]);
 
-    return <>{children}</>;
+    return (
+        <>
+            {children}
+            <TaskSearchModal />
+        </>
+    );
 }
