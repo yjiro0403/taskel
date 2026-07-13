@@ -1610,8 +1610,8 @@ function buildTasks(tasks: RawDoc[], registry: IdRegistry, tagReferenceByUser: M
     }
 
     // 履歴インポート時に古いタイマーを再開すると、初回の新規タスク開始で数週間分の
-    // 経過時間を加算したり、005 の単一アクティブ制約に衝突する。移行元に残っている
-    // in_progress はすべて open に戻し、started_at もクリアする。タスク本体は保持する。
+    // 経過時間を加算してしまう。移行元に残っている in_progress はすべて open に戻し、
+    // started_at もクリアする。タスク本体は保持する。
     const inProgressByUser = new Map<string, TaskInsert[]>();
     for (const row of taskRows) {
         if (row.status === 'in_progress') {
