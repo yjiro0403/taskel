@@ -4,7 +4,7 @@ import { useStore } from '@/store/useStore';
 import { Task } from '@/types';
 import { X, Calendar, Play, Square, Circle, CheckCircle2, Search, Filter, Tag as TagIcon } from 'lucide-react';
 import clsx from 'clsx';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import AddTaskModal from './AddTaskModal';
 import { getSectionForTime } from '@/lib/sectionUtils';
 import { useDraggable } from '@dnd-kit/core';
@@ -20,7 +20,8 @@ export default function RightSidebar() {
         selectedTaskIds,
         toggleTaskSelection,
         projects,
-        getUniqueTags // NEW: Get available tags
+        getUniqueTags, // NEW: Get available tags
+        highlightedTaskId,
     } = useStore();
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,12 +36,32 @@ export default function RightSidebar() {
     type SortOption = 'score' | 'date' | 'order';
     const [sortBy, setSortBy] = useState<SortOption>('score');
 
+    // 検索ジャンプ先が未スケジュール側にあるとき、サイドバー内へスクロール
+    useEffect(() => {
+        if (!isRightSidebarOpen || !highlightedTaskId) return;
+        const timer = window.setTimeout(() => {
+            const el = document.querySelector<HTMLElement>(
+                `[data-task-id="${highlightedTaskId}"]`
+            );
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 80);
+        return () => window.clearTimeout(timer);
+    }, [isRightSidebarOpen, highlightedTaskId]);
+
     if (!isRightSidebarOpen) return null;
 
-    // Filter tasks that have NO date set (empty string or null/undefined)
+    // Filter tasks that have NO date set (empty string or null/undefined).
+    // 検索ジャンプ先は完了済みでも見えるように、ハイライト中は done 除外を緩和する。
     const unscheduledTasks = tasks
-        .filter(t => !t.date && t.status !== 'done')
         .filter(t => {
+            if (t.date) return false;
+            if (t.status === 'done' && t.id !== highlightedTaskId) return false;
+            return true;
+        })
+        .filter(t => {
+            // Always keep the search jump target visible even if sidebar filters would hide it
+            if (highlightedTaskId && t.id === highlightedTaskId) return true;
+
             // Text Filter
             if (filterText && !t.title.toLowerCase().includes(filterText.toLowerCase())) {
                 return false;
@@ -292,6 +313,7 @@ export default function RightSidebar() {
                             handlePlay={handlePlay}
                             handleStop={handleStop}
                             projects={projects}
+                            isHighlighted={highlightedTaskId === task.id}
                         />
                     ))
                 )}

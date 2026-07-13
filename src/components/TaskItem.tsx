@@ -30,6 +30,8 @@ export interface TaskItemProps {
     onImageClick: (url: string) => void;
     isOverlay?: boolean;
     className?: string;
+    /** Temporary emphasis when jumped to from global search */
+    isHighlighted?: boolean;
 }
 
 export function TaskItem({
@@ -50,13 +52,15 @@ export function TaskItem({
     onTagClick,
     onImageClick,
     isOverlay,
-    className
+    className,
+    isHighlighted = false,
 }: TaskItemProps) {
     const { projects, tags } = useStore();
 
     return (
         <div
             ref={innerRef}
+            data-task-id={task.id}
             style={style}
             className={clsx(
                 "group flex items-center p-3 transition-colors bg-white",
@@ -66,6 +70,7 @@ export function TaskItem({
                 isDragging && "opacity-40 border-2 border-dashed border-gray-300 bg-gray-50/50",
                 // Overlay item: fully opaque, elevated, and styled
                 isOverlay && "opacity-100 shadow-2xl rounded-lg ring-2 ring-blue-500 cursor-grabbing bg-white scale-[1.02] z-50",
+                isHighlighted && !isOverlay && "ring-2 ring-amber-400 bg-amber-50 shadow-md",
                 className
             )}
         >

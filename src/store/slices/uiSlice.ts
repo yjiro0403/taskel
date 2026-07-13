@@ -19,6 +19,7 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) =>
 
     isRightSidebarOpen: false,
     toggleRightSidebar: () => set((state) => ({ isRightSidebarOpen: !state.isRightSidebarOpen })),
+    setRightSidebarOpen: (open) => set({ isRightSidebarOpen: open }),
 
     isLeftSidebarOpen: false,
     toggleLeftSidebar: () => set((state) => ({ isLeftSidebarOpen: !state.isLeftSidebarOpen })),
@@ -29,6 +30,14 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) =>
     isAddTaskModalOpen: false,
     openAddTaskModal: () => set({ isAddTaskModalOpen: true }),
     closeAddTaskModal: () => set({ isAddTaskModalOpen: false }),
+
+    isSearchModalOpen: false,
+    openSearchModal: () => set({ isSearchModalOpen: true }),
+    closeSearchModal: () => set({ isSearchModalOpen: false }),
+
+    // 検索結果からジャンプしたタスクを一時ハイライトする（TaskList / RightSidebar が参照）
+    highlightedTaskId: null,
+    setHighlightedTaskId: (taskId) => set({ highlightedTaskId: taskId }),
 
     // トースト通知。alert() はレンダラをブロックしてタブごと固まらせるため、
     // 非ブロッキングな通知はすべてここへ集約する（表示は components/Toaster.tsx）。
@@ -45,6 +54,8 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) =>
         isLeftSidebarOpen: false,
         isDailyNoteModalOpen: false,
         isAddTaskModalOpen: false,
+        isSearchModalOpen: false,
+        highlightedTaskId: null,
         toasts: [],
     }),
 });

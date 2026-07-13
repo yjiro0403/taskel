@@ -56,6 +56,31 @@
         "toggle_unscheduled": "未スケジュールのタスクを表示/非表示",
         "add_task": "タスクを追加"
     },
+    "Search": {
+        "title": "タスク検索",
+        "open_button": "タスクを検索",
+        "placeholder": "タイトルやメモで検索…（スペース区切りで AND）",
+        "close": "閉じる",
+        "date_from": "開始",
+        "date_to": "終了",
+        "include_undated": "未スケジュールも含む",
+        "hint_title": "過去の作業を振り返る",
+        "hint_body": "キーワード（複合語可）や日付範囲で、タスクのタイトルとメモを横断検索できます。",
+        "hint_shortcut": "ショートカット: / または ⌘K / Ctrl+K",
+        "no_results": "一致するタスクが見つかりませんでした",
+        "undated": "未スケジュール",
+        "match_title": "タイトル",
+        "match_memo": "メモ",
+        "result_count": "{count} 件",
+        "footer_idle": "入力すると検索が始まります",
+        "footer_keys": "↑↓ 移動 · Enter 開く · Esc 閉じる",
+        "status": {
+            "open": "未着手",
+            "in_progress": "進行中",
+            "done": "完了",
+            "skipped": "スキップ"
+        }
+    },
     "AIChatPanel": {
         "inputPlaceholder": "AIにタスク作成や提案を依頼..."
     }

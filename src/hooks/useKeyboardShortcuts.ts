@@ -10,10 +10,24 @@ export function useKeyboardShortcuts() {
   const openAddTaskModal = useStore((s) => s.openAddTaskModal);
   const closeAddTaskModal = useStore((s) => s.closeAddTaskModal);
   const isAddTaskModalOpen = useStore((s) => s.isAddTaskModalOpen);
+  const openSearchModal = useStore((s) => s.openSearchModal);
+  const closeSearchModal = useStore((s) => s.closeSearchModal);
+  const isSearchModalOpen = useStore((s) => s.isSearchModalOpen);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Skip when modifier keys are held (don't interfere with browser shortcuts)
+      // Cmd/Ctrl+K opens global task search (allowed even when focused in inputs)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (isSearchModalOpen) {
+          closeSearchModal();
+        } else {
+          openSearchModal();
+        }
+        return;
+      }
+
+      // Skip when other modifier keys are held (don't interfere with browser shortcuts)
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       // Skip when focus is on an input element
@@ -49,8 +63,14 @@ export function useKeyboardShortcuts() {
           e.preventDefault();
           openAddTaskModal();
           break;
+        case '/':
+          e.preventDefault();
+          openSearchModal();
+          break;
         case 'escape':
-          if (isAddTaskModalOpen) {
+          if (isSearchModalOpen) {
+            closeSearchModal();
+          } else if (isAddTaskModalOpen) {
             closeAddTaskModal();
           }
           break;
@@ -61,5 +81,14 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [router, pathname, openAddTaskModal, closeAddTaskModal, isAddTaskModalOpen]);
+  }, [
+    router,
+    pathname,
+    openAddTaskModal,
+    closeAddTaskModal,
+    isAddTaskModalOpen,
+    openSearchModal,
+    closeSearchModal,
+    isSearchModalOpen,
+  ]);
 }

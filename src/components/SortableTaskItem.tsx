@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Task } from '@/types';
 import { TaskItem } from './TaskItem';
 import { useTaskContext } from '@/contexts/TaskContext';
+import { useStore } from '@/store/useStore';
 
 interface SortableTaskItemProps {
     task: Task;
@@ -16,6 +17,7 @@ interface SortableTaskItemProps {
 
 export function SortableTaskItem(props: SortableTaskItemProps) {
     const taskContext = useTaskContext();
+    const highlightedTaskId = useStore((s) => s.highlightedTaskId);
 
     const {
         attributes,
@@ -61,6 +63,7 @@ export function SortableTaskItem(props: SortableTaskItemProps) {
             onToggleStatus={taskContext.onToggleStatus}
             onTagClick={taskContext.onTagClick}
             onImageClick={taskContext.onImageClick}
+            isHighlighted={highlightedTaskId === props.task.id}
             // Add a visual indicator (top border) when an external item is dragged over this task
             // This indicates insertion BEFORE the current task
             className={isExternalDrag && isOver ? "border-t-4 border-blue-500 transition-all custom-drop-indicator" : ""}

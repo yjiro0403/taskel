@@ -30,7 +30,7 @@ import { AIChatPanel } from './AIChatPanel';
 import { createClient } from '@/lib/supabase/client';
 
 export default function TaskList() {
-    const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
+    const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -141,11 +141,31 @@ export default function TaskList() {
     }, [sections]);
 
     const filteredTasks = useMemo(() => {
-        return getMergedTasks(currentDate);
+        const merged = getMergedTasks(currentDate);
+        // 検索ジャンプ先が skipped など通常非表示の場合でも、ハイライト中は当日リストに差し込む
+        if (!highlightedTaskId) return merged;
+        if (merged.some((task) => task.id === highlightedTaskId)) return merged;
+        const highlighted = tasks.find(
+            (task) => task.id === highlightedTaskId && task.date === currentDate
+        );
+        if (!highlighted) return merged;
+        return [...merged, highlighted];
         // routines を依存に含める。含めないと、起動時に tasks が routines より先に
         // 反映された場合などにルーチン仮想タスクが再計算されず「今日のルーチンが出ない」
         // 間欠不具合になる。
-    }, [getMergedTasks, currentDate, tasks, routines]);
+    }, [getMergedTasks, currentDate, tasks, routines, highlightedTaskId]);
+
+    // 検索結果からのジャンプ: 対象タスクが描画されたらスクロールして目立たせる
+    useEffect(() => {
+        if (!highlightedTaskId) return;
+        const timer = window.setTimeout(() => {
+            const el = document.querySelector<HTMLElement>(
+                `[data-task-id="${highlightedTaskId}"]`
+            );
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 80);
+        return () => window.clearTimeout(timer);
+    }, [highlightedTaskId, currentDate, filteredTasks]);
 
     const dailyGoals = useMemo(() => {
         return tasks.filter(t => t.assignedDate === currentDate && !t.date).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
