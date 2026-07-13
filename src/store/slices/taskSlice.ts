@@ -138,9 +138,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                         id: crypto.randomUUID(),
                     })),
                 };
-                // 実行中(in_progress)のまま日付移動すると 005 の単一アクティブ部分ユニーク
-                // インデックスに違反して作成が失敗し得る。移動先は「別日に予定変更」の意味なので
-                // open に落とし startedAt をクリアする（実績時間 actualMinutes は維持）。
+                // 日付移動は「別日へ予定変更」なのでタイマーは止める。
+                // actualMinutes は維持し、status を open に戻して startedAt をクリアする。
                 if (detached.status === 'in_progress') {
                     detached.status = 'open';
                     detached.startedAt = undefined;

@@ -39,7 +39,7 @@
 - **Imports**: Use absolute imports (`@/components/...`, `@/lib/...`) as configured in `tsconfig.json`.
 
 ## Taskel Specifics
-- **Philosophy**: "Time Management OS" for Executors. Focus on flow, time calibration, and specific "Single Active Task" focus.
+- **Philosophy**: "Time Management OS" for Executors. Focus on flow, time calibration, and concurrent multi-task execution (multiple `in_progress` timers allowed).
 - **Core Value**: Acts as a "Smart Task Partner" to mitigate time blindness and implementation friction.
 - **AI Integration**:
   - Frontend: `src/components/AIChatPanel.tsx`

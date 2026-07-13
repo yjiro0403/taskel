@@ -220,22 +220,8 @@ export default function TaskList() {
     const handlePlay = async (task: Task) => {
         if (task.status === 'in_progress') return;
 
-        // 005 の単一アクティブ制約: 既に実行中のタスクがあると、新規開始の UPDATE が
-        // tasks_single_active_per_user_idx（status='in_progress' の部分ユニーク）に違反して
-        // 失敗し alert が出る。開始前に実行中タスクを停止する（status を open に戻し、経過時間を
-        // 実績へ加算）。停止の永続化が済むまでインデックスは解放されないため、必ず await してから
-        // 対象を開始する。
-        const runningTasks = tasks.filter((t) => t.status === 'in_progress' && t.id !== task.id);
-        for (const running of runningTasks) {
-            const elapsedMinutes = running.startedAt ? Math.round((Date.now() - running.startedAt) / 60000) : 0;
-            const stopped = await updateTask(running.id, {
-                status: 'open',
-                startedAt: undefined,
-                actualMinutes: (running.actualMinutes || 0) + elapsedMinutes,
-            });
-            if (!stopped) return;
-        }
-
+        // Multi-active: other in_progress tasks keep running. Each task owns its own
+        // startedAt / actualMinutes timer independently.
         const now = new Date();
         const currentSectionId = getSectionForTime(sections, now);
 
