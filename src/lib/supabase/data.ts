@@ -5,6 +5,7 @@ import type {
 
 import type { DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
 import type { Database } from '@/types/supabase';
+import { formatLocalDate } from '@/lib/calendarService';
 import {
     mapGoal,
     mapProject,
@@ -138,7 +139,7 @@ export async function createDefaultWorkspace(client: Client, userId: string) {
         return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatLocalDate();
 
     const { error: taskError } = await client.from('tasks').insert([
         {
@@ -262,14 +263,21 @@ function buildTaskTags(
     });
 }
 
-export async function fetchTasks(client: Client, tags: Tag[]) {
-    const { data: tasks, error: taskError } = await client
+export async function fetchTasks(client: Client, tags: Tag[] | Promise<Tag[]>) {
+    // Resolve tags in parallel with the tasks query when a promise is provided,
+    // so profile/bootstrap loading does not serialize tags → tasks.
+    const tasksQuery = client
         .from('tasks')
         .select('*')
         .order('date', { ascending: true })
         .order('order', { ascending: true });
 
-    const taskRows = requireData(tasks, taskError);
+    const [resolvedTags, taskResult] = await Promise.all([
+        Promise.resolve(tags),
+        tasksQuery,
+    ]);
+
+    const taskRows = requireData(taskResult.data, taskResult.error);
     const taskIds = taskRows.map((task) => task.id);
 
     let taskTagRows: Tables['task_tags']['Row'][] = [];
@@ -282,7 +290,7 @@ export async function fetchTasks(client: Client, tags: Tag[]) {
         taskTagRows = requireData(data, error);
     }
 
-    return buildTaskTags(taskRows, taskTagRows, tags);
+    return buildTaskTags(taskRows, taskTagRows, resolvedTags);
 }
 
 export async function fetchTaskById(client: Client, taskId: string) {

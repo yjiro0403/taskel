@@ -7,21 +7,26 @@ import { format } from 'date-fns';
 // Google Calendar同期スライス
 export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice> = (set, get) => ({
     syncGoogleCalendar: async (accessToken: string, targetDateStr?: string) => {
-        const { user, tasks, bulkAddTasks, updateTask, currentDate, sections } = get();
+        const { user, tasks, bulkAddTasks, updateTask, currentDate, sections, setCurrentDate } = get();
         if (!user) return;
 
-        // 対象日の決定
-        const dateStr = targetDateStr || currentDate;
-        const targetDate = new Date(dateStr);
-
-        const startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
-        const endOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59);
-
         // 循環依存回避のためdynamic import
-        const { fetchCalendarEvents } = await import('@/lib/calendarService');
+        const { fetchCalendarEventsForDate } = await import('@/lib/calendarService');
 
         try {
-            const events = await fetchCalendarEvents(accessToken, startOfDay, endOfDay);
+            // Explicit arg (TaskList / OAuth pending) wins; else UI store currentDate.
+            // Never falls back to system "today" — empty/invalid throws.
+            const { dateStr, events } = await fetchCalendarEventsForDate(
+                accessToken,
+                targetDateStr,
+                currentDate
+            );
+
+            // Keep UI + sessionStorage aligned with the date actually synced (OAuth reload safety).
+            if (dateStr !== currentDate) {
+                setCurrentDate(dateStr);
+            }
+
             const tasksToAdd: Task[] = [];
             let updatedCount = 0;
 

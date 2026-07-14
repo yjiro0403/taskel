@@ -19,8 +19,11 @@ import type { DailyNote, Goal, MonthlyNote, Routine, Section, Tag, WeeklyNote, Y
 import type { Database } from '@/types/supabase';
 import { StoreState, AuthSlice } from '../types';
 import { isPendingTask } from '../helpers/pendingTasks';
+import { shouldReloadUserData } from '../helpers/shouldReloadUserData';
 
 type Tables = Database['public']['Tables'];
+// re-export status type consumers may need
+export type { InitialDataStatus } from '../helpers/shouldReloadUserData';
 
 function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
     const nextItems = items.filter((item) => item.id !== nextItem.id);
@@ -49,6 +52,7 @@ function buildInFilter(column: string, ids: string[]) {
 export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set, get) => ({
     user: null,
     unsubscribe: null,
+    initialDataStatus: 'idle',
 
     resetStore: () => {
         get().resetTaskSlice();
@@ -71,22 +75,34 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         }
 
         await createClient().auth.signOut();
-        set({ user: null, unsubscribe: null });
+        set({ user: null, unsubscribe: null, initialDataStatus: 'idle' });
         get().resetStore();
     },
 
     setUser: (user) => {
+        const existingUser = get().user;
+        const initialDataStatus = get().initialDataStatus;
+
+        // Same uid + ready/loading: profile edits / token refresh / duplicate AuthProvider
+        // events update user fields only. Same uid + error: fall through and retry bootstrap.
+        if (user && !shouldReloadUserData(existingUser?.uid, user.uid, initialDataStatus)) {
+            set({ user });
+            return;
+        }
+
         const existingUnsubscribe = get().unsubscribe;
         if (existingUnsubscribe) {
             existingUnsubscribe();
         }
 
-        set({ user, unsubscribe: null });
-
         if (!user) {
+            set({ user: null, unsubscribe: null, initialDataStatus: 'idle' });
             get().resetStore();
             return;
         }
+
+        // Mark loading before any await so a concurrent same-uid setUser will not race a second fetch.
+        set({ user, unsubscribe: null, initialDataStatus: 'loading' });
 
         const supabase = createClient();
         let disposed = false;
@@ -95,9 +111,12 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
 
         const refreshInitialState = async () => {
             try {
-                const tags = await fetchTags(supabase);
-                const [tasks, routines, sections, projects, goals, notes] = await Promise.all([
-                    fetchTasks(supabase, tags),
+                // Start tags and the rest together; fetchTasks accepts the tags promise
+                // so the tasks query is not blocked behind a serial tags round-trip.
+                const tagsPromise = fetchTags(supabase);
+                const [tags, tasks, routines, sections, projects, goals, notes] = await Promise.all([
+                    tagsPromise,
+                    fetchTasks(supabase, tagsPromise),
                     fetchRoutines(supabase),
                     fetchSections(supabase),
                     fetchProjects(supabase),
@@ -130,6 +149,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                         weeklyNotes: notes.weeklyNotes,
                         monthlyNotes: notes.monthlyNotes,
                         yearlyNotes: notes.yearlyNotes,
+                        initialDataStatus: 'ready',
                     };
                 });
 
@@ -147,6 +167,9 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 }
             } catch (error) {
                 console.error('Failed to refresh Supabase state:', error);
+                if (!disposed) {
+                    set({ initialDataStatus: 'error' });
+                }
             }
         };
 

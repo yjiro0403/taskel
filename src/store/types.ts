@@ -15,6 +15,7 @@ export interface TaskSlice {
     selectedTaskIds: string[];
     currentDate: string;
     setCurrentDate: (date: string) => void;
+    hydrateCurrentDateFromStorage: () => void;
     addTask: (task: Task) => void;
     updateTask: (taskId: string, updates: Partial<Task>) => void;
     duplicateTask: (taskId: string) => Promise<void>;
@@ -78,9 +79,13 @@ export interface NoteSlice {
     resetNoteSlice: () => void;
 }
 
+export type InitialDataStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 export interface AuthSlice {
     user: AppUser | null;
     unsubscribe: (() => void) | null;
+    /** Bootstrap lifecycle for task/profile data load — enables failed-fetch retry. */
+    initialDataStatus: InitialDataStatus;
     setUser: (user: AppUser | null) => void;
     signOut: () => Promise<void>;
     resetStore: () => void;

@@ -1,6 +1,12 @@
 import { parseISO, isBefore, isSameDay } from 'date-fns';
 import { StateCreator } from 'zustand';
 
+import {
+    formatLocalDate,
+    peekStoredCurrentDate,
+    readStoredCurrentDate,
+    writeStoredCurrentDate,
+} from '@/lib/calendarService';
 import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
 import {
     bulkCreateTaskRecords,
@@ -18,9 +24,22 @@ import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
 export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set, get) => ({
     tasks: [],
     selectedTaskIds: [],
-    currentDate: new Date().toISOString().split('T')[0],
+    // SSR-safe default (local today). Client hydrates from sessionStorage via hydrateCurrentDateFromStorage.
+    currentDate: formatLocalDate(),
 
-    setCurrentDate: (date) => set({ currentDate: date }),
+    setCurrentDate: (date) => {
+        writeStoredCurrentDate(date);
+        set({ currentDate: date });
+    },
+
+    /** Restore UI date from sessionStorage after mount / OAuth-style full reload.
+     * Only applies an explicitly stored value — never invents system today (avoids racing user navigation). */
+    hydrateCurrentDateFromStorage: () => {
+        const stored = peekStoredCurrentDate();
+        if (stored && stored !== get().currentDate) {
+            set({ currentDate: stored });
+        }
+    },
 
     addTask: async (task) => {
         const { user } = get();
@@ -366,6 +385,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     resetTaskSlice: () => set({
         tasks: [],
         selectedTaskIds: [],
-        currentDate: new Date().toISOString().split('T')[0],
+        // Preserve UI-selected date across auth reset — do not force system today
+        // (OAuth / setUser(null) flash was wiping the date users intended to sync).
+        currentDate: readStoredCurrentDate(),
     }),
 });

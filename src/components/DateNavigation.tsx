@@ -1,11 +1,17 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, FileText } from 'lucide-react';
 import { addDays, format, parseISO, isSameDay } from 'date-fns';
 
 export default function DateNavigation() {
-    const { currentDate, setCurrentDate, toggleDailyNoteModal } = useStore();
+    const { currentDate, setCurrentDate, hydrateCurrentDateFromStorage, toggleDailyNoteModal } = useStore();
+
+    // After mount (and full reload), restore selected date from sessionStorage without SSR mismatch.
+    useEffect(() => {
+        hydrateCurrentDateFromStorage();
+    }, [hydrateCurrentDateFromStorage]);
 
     const handlePrevDay = () => {
         const date = parseISO(currentDate);
@@ -30,6 +36,8 @@ export default function DateNavigation() {
         <div className="flex items-center justify-between bg-white p-4 mb-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center gap-4">
                 <button
+                    type="button"
+                    aria-label="Previous day"
                     onClick={handlePrevDay}
                     className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
                 >
@@ -38,13 +46,17 @@ export default function DateNavigation() {
 
                 <div className="flex items-center gap-2">
                     <CalendarIcon size={20} className="text-blue-600" />
-                    <span className="text-lg font-bold text-gray-800">
+                    <span
+                        data-testid="current-date-display"
+                        className="text-lg font-bold text-gray-800"
+                    >
                         {format(displayDate, 'yyyy-MM-dd')}
                     </span>
                     <span className="text-sm text-gray-500 font-medium">
                         ({format(displayDate, 'EEE')})
                     </span>
                     <button
+                        type="button"
                         onClick={toggleDailyNoteModal}
                         className="ml-2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
                         title="Daily Note"
@@ -54,6 +66,8 @@ export default function DateNavigation() {
                 </div>
 
                 <button
+                    type="button"
+                    aria-label="Next day"
                     onClick={handleNextDay}
                     className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
                 >
@@ -63,6 +77,7 @@ export default function DateNavigation() {
 
             {!isToday && (
                 <button
+                    type="button"
                     onClick={handleToday}
                     className="px-3 py-1 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
                 >

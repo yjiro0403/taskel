@@ -28,9 +28,13 @@ import {
 } from '@dnd-kit/sortable';
 import { AIChatPanel } from './AIChatPanel';
 import { createClient } from '@/lib/supabase/client';
+import {
+    PENDING_GOOGLE_CALENDAR_SYNC_KEY,
+    writeStoredCurrentDate,
+} from '@/lib/calendarService';
 
 export default function TaskList() {
-    const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
+    const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -69,11 +73,15 @@ export default function TaskList() {
             const supabase = createClient();
             const { data } = await supabase.auth.getSession();
             const accessToken = data.session?.provider_token;
+            // Capture UI date at click time — do not re-read store after OAuth redirects.
+            const selectedDate = currentDate;
 
             if (accessToken) {
-                await syncGoogleCalendar(accessToken, currentDate);
+                await syncGoogleCalendar(accessToken, selectedDate);
             } else {
-                localStorage.setItem('pending_google_calendar_sync', currentDate);
+                // Survive full page reload after /auth/callback (Zustand re-inits).
+                localStorage.setItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY, selectedDate);
+                writeStoredCurrentDate(selectedDate);
                 const redirectTo = `${window.location.origin}/auth/callback?next=/tasks`;
                 const { error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
@@ -99,20 +107,37 @@ export default function TaskList() {
     };
 
     useEffect(() => {
-        const pendingDate = localStorage.getItem('pending_google_calendar_sync');
+        const pendingDate = localStorage.getItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
         if (!pendingDate || !user) return;
 
-        const syncPending = async () => {
-            const { data } = await createClient().auth.getSession();
-            const accessToken = data.session?.provider_token;
-            if (!accessToken) return;
+        // Restore UI-selected date after OAuth full reload (store may have re-inited).
+        // Do not depend on currentDate here — setCurrentDate would re-trigger an infinite loop.
+        if (pendingDate !== useStore.getState().currentDate) {
+            setCurrentDate(pendingDate);
+        }
 
-            localStorage.removeItem('pending_google_calendar_sync');
+        let cancelled = false;
+        const syncPending = async () => {
+            const supabase = createClient();
+            let accessToken = (await supabase.auth.getSession()).data.session?.provider_token;
+
+            // OAuth callback may set user slightly before provider_token is readable.
+            if (!accessToken) {
+                await new Promise((resolve) => setTimeout(resolve, 400));
+                if (cancelled) return;
+                accessToken = (await supabase.auth.getSession()).data.session?.provider_token;
+            }
+            if (!accessToken || cancelled) return;
+
+            localStorage.removeItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
             await syncGoogleCalendar(accessToken, pendingDate);
         };
 
         void syncPending();
-    }, [syncGoogleCalendar, user]);
+        return () => {
+            cancelled = true;
+        };
+    }, [syncGoogleCalendar, user, setCurrentDate]);
 
     const handleEditTask = (task: Task) => {
         setEditingTask(task);

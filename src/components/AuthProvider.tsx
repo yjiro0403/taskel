@@ -9,6 +9,11 @@ import { mapSupabaseUser } from '@/lib/supabase/auth';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useStore } from '@/store/useStore';
 
+function isPublicPath(normalizedPath: string) {
+    const publicRoutes = ['/', '/login', '/signup', '/join'];
+    return publicRoutes.includes(normalizedPath) || normalizedPath.startsWith('/join');
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const setUser = useStore((state) => state.setUser);
     const router = useRouter();
@@ -17,43 +22,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useKeyboardShortcuts();
 
     useEffect(() => {
-        const supabase = createClient();
+        let subscription: { unsubscribe: () => void } | null = null;
+        const normalizedPath = pathname.replace(/^\/(en|ja)/, '') || '/';
 
-        const syncAuthState = async () => {
-            const { data, error } = await supabase.auth.getUser();
-            if (error || !data.user) {
-                setUser(null);
-                return;
-            }
+        try {
+            const supabase = createClient();
 
-            await ensureProfile(supabase, data.user);
-            await createDefaultWorkspace(supabase, data.user.id);
-            setUser(mapSupabaseUser(data.user));
-        };
+            const syncAuthState = async () => {
+                try {
+                    const { data, error } = await supabase.auth.getUser();
+                    if (error || !data.user) {
+                        setUser(null);
+                        return;
+                    }
 
-        void syncAuthState();
+                    await ensureProfile(supabase, data.user);
+                    await createDefaultWorkspace(supabase, data.user.id);
+                    setUser(mapSupabaseUser(data.user));
+                } catch (error) {
+                    console.error('Auth sync failed:', error);
+                    setUser(null);
+                }
+            };
 
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange(async (_event, session) => {
-            if (!session?.user) {
-                setUser(null);
-            } else {
-                await ensureProfile(supabase, session.user);
-                await createDefaultWorkspace(supabase, session.user.id);
-                setUser(mapSupabaseUser(session.user));
-            }
+            void syncAuthState();
 
-            const publicRoutes = ['/', '/login', '/signup', '/join'];
-            const normalizedPath = pathname.replace(/^\/(en|ja)/, '') || '/';
+            const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+                try {
+                    if (!session?.user) {
+                        setUser(null);
+                    } else {
+                        await ensureProfile(supabase, session.user);
+                        await createDefaultWorkspace(supabase, session.user.id);
+                        setUser(mapSupabaseUser(session.user));
+                    }
+                } catch (error) {
+                    console.error('Auth state change failed:', error);
+                    setUser(null);
+                }
 
-            if (!session?.user && !publicRoutes.includes(normalizedPath) && !normalizedPath.startsWith('/join')) {
+                if (!session?.user && !isPublicPath(normalizedPath)) {
+                    router.push('/login');
+                }
+            });
+            subscription = data.subscription;
+        } catch (error) {
+            // Misconfigured client must not white-screen the app, but must not leave
+            // protected routes accessible without auth either.
+            console.error('Failed to initialize auth client:', error);
+            setUser(null);
+            if (!isPublicPath(normalizedPath)) {
                 router.push('/login');
             }
-        });
+        }
 
         return () => {
-            subscription.unsubscribe();
+            subscription?.unsubscribe();
         };
     }, [pathname, router, setUser]);
 
