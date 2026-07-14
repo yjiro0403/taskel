@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { buildTaskInsertPayload, buildTaskUpdatePayload } from './data';
+import {
+    buildTaskInsertPayload,
+    buildTaskPageRanges,
+    buildTaskUpdatePayload,
+    fetchTasks,
+    TASK_FETCH_PAGE_SIZE,
+} from './data';
 import type { Task } from '../../types';
+import type { Database } from '../../types/supabase';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -58,5 +66,95 @@ describe('buildTaskUpdatePayload: scheduled_start (time 列)', () => {
     it('null（withClearedNullables 経由のクリア）は null のまま渡す', () => {
         const payload = buildTaskUpdatePayload({ scheduledStart: null } as unknown as Partial<Task>);
         expect(payload.scheduled_start).toBeNull();
+    });
+});
+
+describe('buildTaskPageRanges', () => {
+    it('4,508件を1,000件単位の5ページに分割する', () => {
+        expect(buildTaskPageRanges(4_508)).toEqual([
+            { from: 0, to: 999 },
+            { from: 1_000, to: 1_999 },
+            { from: 2_000, to: 2_999 },
+            { from: 3_000, to: 3_999 },
+            { from: 4_000, to: 4_999 },
+        ]);
+        expect(TASK_FETCH_PAGE_SIZE).toBe(1_000);
+    });
+
+    it('0件ではリクエスト範囲を作らない', () => {
+        expect(buildTaskPageRanges(0)).toEqual([]);
+    });
+});
+
+describe('fetchTasks pagination', () => {
+    it('先頭ページのcountから残りのrangeを重複なく取得する', async () => {
+        const requestedRanges: Array<{ from: number; to: number }> = [];
+        const taskRow: Database['public']['Tables']['tasks']['Row'] = {
+            id: '22222222-2222-4222-8222-222222222222',
+            user_id: USER_ID,
+            title: 'Loaded task',
+            assignee_id: null,
+            reporter_id: null,
+            section_id: null,
+            date: '2026-07-14',
+            status: 'open',
+            estimated_minutes: 30,
+            actual_minutes: 0,
+            started_at: null,
+            completed_at: null,
+            scheduled_start: null,
+            external_link: null,
+            parent_goal_id: null,
+            project_id: null,
+            milestone_id: null,
+            routine_id: null,
+            assigned_week: null,
+            assigned_month: null,
+            assigned_year: null,
+            assigned_date: null,
+            score: null,
+            order: 0,
+            memo: null,
+            checklist: [],
+            ai_tags: [],
+            ai_status: null,
+            ai_error: null,
+            ai_completed_at: null,
+            comment_count: 0,
+            created_at: '2026-07-14T00:00:00.000Z',
+            updated_at: '2026-07-14T00:00:00.000Z',
+        };
+        const firstPage = Array.from({ length: TASK_FETCH_PAGE_SIZE }, () => ({
+            ...taskRow,
+            task_tags: [],
+            attachments: [],
+        }));
+
+        const fakeClient = {
+            from: () => ({
+                select: (_columns: string, options?: { count?: string }) => {
+                    const query = {
+                        order: () => query,
+                        range: async (from: number, to: number) => {
+                            requestedRanges.push({ from, to });
+                            return {
+                                data: from === 0 ? firstPage : [],
+                                error: null,
+                                count: options?.count === 'exact' ? 2_500 : null,
+                            };
+                        },
+                    };
+                    return query;
+                },
+            }),
+        } as unknown as SupabaseClient<Database>;
+
+        await fetchTasks(fakeClient, []);
+
+        expect(requestedRanges).toEqual([
+            { from: 0, to: 999 },
+            { from: 1_000, to: 1_999 },
+            { from: 2_000, to: 2_999 },
+        ]);
     });
 });
