@@ -73,6 +73,7 @@ export function generateDisplaySections(sections: Section[]): Section[] {
 
 export function getSectionForTime(sections: Section[], time: Date | string): string {
     const timeStr = typeof time === 'string' ? time : format(time, 'HH:mm');
+    const targetMinutes = toMinutes(timeStr);
     const displaySections = generateDisplaySections(sections);
 
     // Find section that covers this time
@@ -80,11 +81,26 @@ export function getSectionForTime(sections: Section[], time: Date | string): str
         const section = displaySections[i];
         const start = section.startTime || '00:00';
         const end = section.endTime || (i < displaySections.length - 1 ? displaySections[i + 1].startTime : '24:00');
+        const startMinutes = toMinutes(start);
+        const endMinutes = end === '24:00' ? 24 * 60 : toMinutes(end);
 
-        if (timeStr >= start && timeStr < (end === '24:00' ? '24:01' : end!)) {
+        // Supabase の time は HH:mm:ss、input[type=time] は HH:mm を返す。
+        // 文字列比較だと 09:00 < 09:00:00 になり境界が前セクションへ寄るため、分で比較する。
+        if (targetMinutes >= startMinutes && targetMinutes < endMinutes) {
             return section.id;
         }
     }
 
     return displaySections[displaySections.length - 1]?.id || '';
+}
+
+/**
+ * 時刻に対応する、DBへ保存可能な実セクションIDを返す。
+ *
+ * generateDisplaySections() が作る interval-* は画面専用で、sections(id) の
+ * 外部キーとして保存できないため undefined にする。
+ */
+export function getPersistedSectionForTime(sections: Section[], time: Date | string): string | undefined {
+    const sectionId = getSectionForTime(sections, time);
+    return sections.some((section) => section.id === sectionId) ? sectionId : undefined;
 }

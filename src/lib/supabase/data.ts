@@ -30,6 +30,22 @@ import {
 type Client = SupabaseClient<Database>;
 type Tables = Database['public']['Tables'];
 
+export const TASK_FETCH_PAGE_SIZE = 1_000;
+const TASK_FETCH_MAX_CONCURRENCY = 4;
+
+export function buildTaskPageRanges(
+    totalRows: number,
+    pageSize = TASK_FETCH_PAGE_SIZE
+): Array<{ from: number; to: number }> {
+    if (totalRows <= 0 || pageSize <= 0) return [];
+
+    const ranges: Array<{ from: number; to: number }> = [];
+    for (let from = 0; from < totalRows; from += pageSize) {
+        ranges.push({ from, to: from + pageSize - 1 });
+    }
+    return ranges;
+}
+
 // text 列など「空文字が正当な値」の列専用。uuid/date/time 列には使わないこと
 // （'' がそのまま渡り、`invalid input syntax for type ...` で書き込み全体が落ちる）。
 // それらの列には ./normalize の型別ヘルパーを使う。
@@ -349,19 +365,56 @@ function buildTaskTags(
     attachmentRows: Tables['attachments']['Row'][] = []
 ) {
     const tagById = new Map(allTags.map((tag) => [tag.id, tag]));
+    const tagIdsByTask = new Map<string, string[]>();
+    const attachmentsByTask = new Map<string, Attachment[]>();
+
+    taskTagRows.forEach((taskTag) => {
+        const tagIds = tagIdsByTask.get(taskTag.task_id) ?? [];
+        tagIds.push(taskTag.tag_id);
+        tagIdsByTask.set(taskTag.task_id, tagIds);
+    });
+
+    attachmentRows.forEach((row) => {
+        const attachments = attachmentsByTask.get(row.task_id) ?? [];
+        attachments.push(mapAttachment(row));
+        attachmentsByTask.set(row.task_id, attachments);
+    });
 
     return tasks.map((task) => {
-        const tags = taskTagRows
-            .filter((taskTag) => taskTag.task_id === task.id)
-            .map((taskTag) => tagById.get(taskTag.tag_id))
+        const tags = (tagIdsByTask.get(task.id) ?? [])
+            .map((tagId) => tagById.get(tagId))
             .filter((tag): tag is Tag => Boolean(tag));
 
-        const attachments = attachmentRows
-            .filter((row) => row.task_id === task.id)
-            .map(mapAttachment);
+        const attachments = attachmentsByTask.get(task.id) ?? [];
 
         return mapTask(task, tags, attachments);
     });
+}
+
+type TaskWithRelations = Tables['tasks']['Row'] & {
+    task_tags: Tables['task_tags']['Row'][] | null;
+    attachments: Tables['attachments']['Row'][] | null;
+};
+
+async function fetchTaskPage(
+    client: Client,
+    from: number,
+    to: number,
+    includeCount = false
+): Promise<{ page: TaskWithRelations[]; count: number | null }> {
+    const query = includeCount
+        ? client.from('tasks').select('*, task_tags(*), attachments(*)', { count: 'exact' })
+        : client.from('tasks').select('*, task_tags(*), attachments(*)');
+    const { data, error, count } = await query
+        .order('date', { ascending: true })
+        .order('order', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to);
+
+    return {
+        page: requireData(data, error) as unknown as TaskWithRelations[],
+        count,
+    };
 }
 
 export async function fetchTasks(client: Client, tags: Tag[]) {
@@ -370,36 +423,42 @@ export async function fetchTasks(client: Client, tags: Tag[]) {
     // passing 1,000 UUIDs to subsequent `.in(...)` requests exceeded the URL
     // limit and made the entire initial store refresh fail. Page the parent
     // rows and embed the small related collections in the same request.
-    const pageSize = 500;
-    type TaskWithRelations = Tables['tasks']['Row'] & {
-        task_tags: Tables['task_tags']['Row'][] | null;
-        attachments: Tables['attachments']['Row'][] | null;
-    };
+    const pageSize = TASK_FETCH_PAGE_SIZE;
     const taskRows: Tables['tasks']['Row'][] = [];
     const taskTagRows: Tables['task_tags']['Row'][] = [];
     const attachmentRows: Tables['attachments']['Row'][] = [];
 
-    for (let from = 0; ; from += pageSize) {
-        const { data, error } = await client
-            .from('tasks')
-            .select('*, task_tags(*), attachments(*)')
-            .order('date', { ascending: true })
-            .order('order', { ascending: true })
-            .order('id', { ascending: true })
-            .range(from, from + pageSize - 1);
-
-        // The generated Database type does not currently include relationship
-        // metadata, although PostgREST exposes both foreign-key embeds.
-        const page = requireData(data, error) as unknown as TaskWithRelations[];
+    const appendPage = (page: TaskWithRelations[]) => {
         for (const task of page) {
             const { task_tags: relatedTags, attachments: relatedAttachments, ...taskRow } = task;
             taskRows.push(taskRow as Tables['tasks']['Row']);
             taskTagRows.push(...(relatedTags ?? []));
             attachmentRows.push(...(relatedAttachments ?? []));
         }
+    };
 
-        if (page.length < pageSize) {
-            break;
+    // 1ページ目でRLS適用後の正確な件数も受け取り、残りのrangeを安全に並列化する。
+    // 4,508件なら従来の500件×約10直列から、1,000件の先頭1回＋残り4並列になる。
+    const firstResult = await fetchTaskPage(client, 0, pageSize - 1, true);
+    appendPage(firstResult.page);
+
+    if (firstResult.page.length === pageSize) {
+        if (firstResult.count !== null) {
+            const remainingRanges = buildTaskPageRanges(firstResult.count, pageSize).slice(1);
+            for (let index = 0; index < remainingRanges.length; index += TASK_FETCH_MAX_CONCURRENCY) {
+                const batch = remainingRanges.slice(index, index + TASK_FETCH_MAX_CONCURRENCY);
+                const results = await Promise.all(
+                    batch.map(({ from, to }) => fetchTaskPage(client, from, to))
+                );
+                results.forEach(({ page }) => appendPage(page));
+            }
+        } else {
+            // countヘッダーが利用できない環境でも、従来どおり欠落なく最後まで取得する。
+            for (let from = pageSize; ; from += pageSize) {
+                const { page } = await fetchTaskPage(client, from, from + pageSize - 1);
+                appendPage(page);
+                if (page.length < pageSize) break;
+            }
         }
     }
 

@@ -142,7 +142,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 const tags = await fetchTags(supabase);
 
                 // 初期ロードの体感速度対策（2フェーズ化）。
-                // fetchTasks はユーザーの全タスク履歴を 500 件/ページでページングするため
+                // fetchTasks はユーザーの全タスク履歴をページング取得するため
                 // 数秒かかることがある一方、sections / routines / projects / itemTemplates 等は軽い。
                 // 以前は Promise.all + 末尾の単一 set() だったので、軽いデータまで
                 // fetchTasks の完了を待たされ、画面が数秒間空のままになっていた。
