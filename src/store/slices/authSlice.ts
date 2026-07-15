@@ -20,8 +20,11 @@ import type { DailyNote, Goal, ItemTemplate, MonthlyNote, Routine, Section, Tag,
 import type { Database } from '@/types/supabase';
 import { StoreState, AuthSlice } from '../types';
 import { isPendingTask } from '../helpers/pendingTasks';
+import { shouldReloadUserData } from '../helpers/shouldReloadUserData';
 
 type Tables = Database['public']['Tables'];
+// re-export status type consumers may need
+export type { InitialDataStatus } from '../helpers/shouldReloadUserData';
 type RealtimePayload<Row extends Record<string, unknown> = Record<string, unknown>> = {
     eventType: 'INSERT' | 'UPDATE' | 'DELETE';
     new: Row;
@@ -67,6 +70,7 @@ let channelTopicGeneration = 0;
 export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set, get) => ({
     user: null,
     unsubscribe: null,
+    initialDataStatus: 'idle',
 
     resetStore: () => {
         get().resetTaskSlice();
@@ -90,21 +94,20 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         }
 
         await createClient().auth.signOut();
-        set({ user: null, unsubscribe: null });
+        set({ user: null, unsubscribe: null, initialDataStatus: 'idle' });
         get().resetStore();
     },
 
     setUser: (user) => {
-        const currentUser = get().user;
+        const existingUser = get().user;
+        const initialDataStatus = get().initialDataStatus;
         const existingUnsubscribe = get().unsubscribe;
 
-        // 同一ユーザーで既に購読済みなら、購読を張り直さず user 情報のみ更新して return する。
-        // AuthProvider の useEffect は pathname を依存に持つため画面遷移のたびに
-        // syncAuthState → setUser が再実行され、onAuthStateChange（TOKEN_REFRESHED 等）でも
-        // 再実行される。毎回全チャンネルを破棄→再構築するとその隙間で realtime イベントを
-        // 取りこぼす。購読フィルタは全て user.uid 基準なので、uid が同じなら購読内容は不変。
-        // （displayName/photoURL のみ変更する setUser も、購読を保ったまま user 情報を反映できる）
-        if (user && currentUser && existingUnsubscribe && currentUser.uid === user.uid) {
+        // Same uid + ready/loading: profile edits / token refresh / duplicate AuthProvider
+        // events update user fields only — do not tear down realtime channels.
+        // Same uid + error|idle: fall through and retry bootstrap (failed fetch retry).
+        // AuthProvider pathname re-entry and TOKEN_REFRESHED would otherwise churn subscriptions.
+        if (user && !shouldReloadUserData(existingUser?.uid, user.uid, initialDataStatus)) {
             set({ user });
             return;
         }
@@ -113,12 +116,14 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             existingUnsubscribe();
         }
 
-        set({ user, unsubscribe: null });
-
         if (!user) {
+            set({ user: null, unsubscribe: null, initialDataStatus: 'idle' });
             get().resetStore();
             return;
         }
+
+        // Mark loading before any await so a concurrent same-uid setUser will not race a second fetch.
+        set({ user, unsubscribe: null, initialDataStatus: 'loading' });
 
         const supabase = createClient();
         let disposed = false;
@@ -139,23 +144,18 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             set({ tasksLoaded: false });
 
             try {
-                const tags = await fetchTags(supabase);
-
-                // 初期ロードの体感速度対策（2フェーズ化）。
-                // fetchTasks はユーザーの全タスク履歴をページング取得するため
-                // 数秒かかることがある一方、sections / routines / projects / itemTemplates 等は軽い。
-                // 以前は Promise.all + 末尾の単一 set() だったので、軽いデータまで
-                // fetchTasks の完了を待たされ、画面が数秒間空のままになっていた。
-                //
-                // そこで tasks の取得は「先に走らせるが await しない」ことで並列性は維持しつつ、
-                // 軽いデータが揃った時点で先に set() して描画させ、tasks は後追いで流し込む。
-                const tasksPromise = fetchTasks(supabase, tags);
+                // Start tags + tasks together (fetchTasks accepts a tags promise so the
+                // paged tasks query is not blocked behind a serial tags round-trip).
+                // Keep main's 2-phase UX: light data paints first; tasks stream in later.
+                const tagsPromise = fetchTags(supabase);
+                const tasksPromise = fetchTasks(supabase, tagsPromise);
                 // 軽量フェーズが先に throw / return した場合に unhandled rejection にならないよう、
                 // ハンドラだけ先に張っておく（実際の await は後段で行い、そこで catch される）。
                 tasksPromise.catch(() => {});
 
                 // --- Fast phase: 軽いデータを取得して即描画 ---
-                const [routines, sections, projects, goals, notes, itemTemplates] = await Promise.all([
+                const [tags, routines, sections, projects, goals, notes, itemTemplates] = await Promise.all([
+                    tagsPromise,
                     fetchRoutines(supabase),
                     fetchSections(supabase),
                     fetchProjects(supabase),
@@ -213,6 +213,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     // 最も危険な状態になるため、必ず false のままにしてユーザーに通知する。
                     console.error('Failed to fetch tasks:', error);
                     if (!disposed) {
+                        set({ initialDataStatus: 'error' });
                         get().showToast(
                             'タスクの読み込みに失敗しました。通信環境を確認して、ページを再読み込みしてください。',
                             'error'
@@ -235,11 +236,13 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                         // tasks が実際に着弾したこの set() でのみ true にする。
                         // 以降 getMergedTasks は仮想ルーチンタスクの合成を再開する。
                         tasksLoaded: true,
+                        initialDataStatus: 'ready',
                     };
                 });
             } catch (error) {
                 console.error('Failed to refresh Supabase state:', error);
                 if (!disposed) {
+                    set({ initialDataStatus: 'error' });
                     get().showToast(
                         'データの読み込みに失敗しました。通信環境を確認して、ページを再読み込みしてください。',
                         'error'

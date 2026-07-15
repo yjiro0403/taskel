@@ -5,6 +5,9 @@ import type {
 
 import type { Attachment, ChecklistItem, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task } from '@/types';
 import type { Database, Json } from '@/types/supabase';
+// 相対 import 必須。vitest の unit プロジェクトは '@' エイリアスを継承しないため、
+// 値 import をエイリアス経由にすると data.ts を単体テストできない。
+import { formatLocalDate } from '../calendarService';
 import {
     mapAttachment,
     mapGoal,
@@ -15,8 +18,6 @@ import {
     mapTag,
     mapTask,
     millisToIso,
-    // 同一ディレクトリのため相対 import。vitest の unit プロジェクトは '@' エイリアスを
-    // 継承しないため、値 import をエイリアス経由にすると data.ts を単体テストできない。
 } from './mappers';
 import {
     dateUpdate,
@@ -243,7 +244,7 @@ export async function createDefaultWorkspace(client: Client, userId: string) {
         return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatLocalDate();
 
     const { error: taskError } = await client.from('tasks').insert([
         {
@@ -417,12 +418,16 @@ async function fetchTaskPage(
     };
 }
 
-export async function fetchTasks(client: Client, tags: Tag[]) {
+export async function fetchTasks(client: Client, tags: Tag[] | Promise<Tag[]>) {
     // PostgREST limits a response to api.max_rows (1,000 in this project).
     // Fetching without ranges silently truncated migrated accounts, while
     // passing 1,000 UUIDs to subsequent `.in(...)` requests exceeded the URL
     // limit and made the entire initial store refresh fail. Page the parent
     // rows and embed the small related collections in the same request.
+    //
+    // tags may be a Promise so callers can start the tags query and the paged
+    // tasks query together (bootstrap does not serialize tags → tasks).
+    const tagsPromise = Promise.resolve(tags);
     const pageSize = TASK_FETCH_PAGE_SIZE;
     const taskRows: Tables['tasks']['Row'][] = [];
     const taskTagRows: Tables['task_tags']['Row'][] = [];
@@ -462,7 +467,8 @@ export async function fetchTasks(client: Client, tags: Tag[]) {
         }
     }
 
-    return buildTaskTags(taskRows, taskTagRows, tags, attachmentRows);
+    const resolvedTags = await tagsPromise;
+    return buildTaskTags(taskRows, taskTagRows, resolvedTags, attachmentRows);
 }
 
 export async function fetchTaskById(client: Client, taskId: string) {

@@ -1,6 +1,11 @@
-import { format } from 'date-fns';
 import { StateCreator } from 'zustand';
 
+import {
+    formatLocalDate,
+    peekStoredCurrentDate,
+    readStoredCurrentDate,
+    writeStoredCurrentDate,
+} from '@/lib/calendarService';
 import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
 import { withClearedNullables } from '@/lib/tasks/clearedUpdates';
 import { routineOccursOn } from '@/lib/routineUtils';
@@ -40,11 +45,23 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
     // 取得失敗時は false のままとし、「0件で読み込み完了」という危険な状態を作らない。
     tasksLoaded: false,
     selectedTaskIds: [],
-    // ローカルタイムゾーン基準の当日。toISOString() は UTC 基準のため、JST では
-    // 深夜0〜9時に「前日」を指してしまいルーチン表示とズレる。
-    currentDate: format(new Date(), 'yyyy-MM-dd'),
+    // SSR-safe local-today default (not toISOString/UTC — JST 0–9am would show "yesterday").
+    // Client hydrates an explicit sessionStorage value via hydrateCurrentDateFromStorage after OAuth.
+    currentDate: formatLocalDate(),
 
-    setCurrentDate: (date) => set({ currentDate: date }),
+    setCurrentDate: (date) => {
+        writeStoredCurrentDate(date);
+        set({ currentDate: date });
+    },
+
+    /** Restore UI date from sessionStorage after mount / OAuth-style full reload.
+     * Only applies an explicitly stored value — never invents system today (avoids racing user navigation). */
+    hydrateCurrentDateFromStorage: () => {
+        const stored = peekStoredCurrentDate();
+        if (stored && stored !== get().currentDate) {
+            set({ currentDate: stored });
+        }
+    },
 
     addTask: async (task) => {
         const { user } = get();
@@ -496,6 +513,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         // 「0件で読み込み完了」と誤認され、次ユーザーの初期ロード窓で仮想タスクが復活する。
         tasksLoaded: false,
         selectedTaskIds: [],
-        currentDate: format(new Date(), 'yyyy-MM-dd'),
+        // Preserve UI-selected date across auth reset — do not force system today
+        // (OAuth / setUser(null) flash was wiping the date users intended to sync).
+        currentDate: readStoredCurrentDate(),
     }),
 });

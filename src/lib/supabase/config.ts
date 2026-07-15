@@ -1,7 +1,10 @@
+/**
+ * Read NEXT_PUBLIC_* via static property access only.
+ * Next.js only inlines NEXT_PUBLIC_* values into browser bundles when each
+ * property is referenced statically. Dynamic access such as
+ * process.env[name] remains undefined in production clients.
+ */
 export function getSupabaseConfig() {
-    // Next.js only inlines NEXT_PUBLIC_* values into browser bundles when each
-    // property is referenced statically. Dynamic access such as
-    // process.env[name] remains undefined in production clients.
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
