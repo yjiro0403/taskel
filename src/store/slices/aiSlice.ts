@@ -42,7 +42,7 @@ export interface AISlice {
   dismissMultipleCandidates: (tempIds: string[]) => void;
 
   // --- A1: Timer Integration ---
-  /** 候補を確定して即座にタイマー開始（実行中タスクがあれば自動停止） */
+  /** 候補を確定して即座にタイマー開始（他の実行中タスクは止めない） */
   confirmAndStartTask: (tempId: string) => Promise<void>;
   resetAISlice: () => void;
 }
@@ -169,27 +169,12 @@ export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, ge
 
   // --- A1: Timer Integration ---
   confirmAndStartTask: async (tempId) => {
-    const { taskCandidates, tasks, addTask, updateTask, user, sections, currentDate } = get();
+    const { taskCandidates, addTask, user, sections } = get();
     const candidate = taskCandidates.find((c) => c.tempId === tempId);
     if (!candidate || !user) return;
 
-    // 1. 実行中タスクを検出して停止
-    const inProgressTasks = tasks.filter(
-      (t) => t.status === 'in_progress' && t.date === currentDate
-    );
-    for (const task of inProgressTasks) {
-      const elapsed = task.startedAt
-        ? Math.round((Date.now() - task.startedAt) / 60000)
-        : 0;
-      updateTask(task.id, {
-        status: 'done',
-        actualMinutes: task.actualMinutes + elapsed,
-        startedAt: undefined,
-        completedAt: Date.now(),
-      });
-    }
-
-    // 2. 現在時刻に基づくセクション自動割り当て
+    // Multi-active: do not stop other in_progress tasks. Multiple timers may run together.
+    // 現在時刻に基づくセクション自動割り当て
     const now = new Date();
     const currentTimeStr = format(now, 'HH:mm');
     let sectionId = candidate.sectionId;
@@ -198,7 +183,7 @@ export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, ge
       if (matched) sectionId = matched;
     }
 
-    // 3. 新タスクを in_progress + startedAt で作成
+    // 新タスクを in_progress + startedAt で作成
     const newTask: Task = {
       id: crypto.randomUUID(),
       userId: user.uid,
@@ -219,14 +204,13 @@ export const createAISlice: StateCreator<StoreState, [], [], AISlice> = (set, ge
       updatedAt: Date.now(),
     };
 
-    // 4. 候補のステータスを更新
+    // 候補のステータスを更新
     set((state) => ({
       taskCandidates: state.taskCandidates.map((c) =>
         c.tempId === tempId ? { ...c, status: 'confirmed' as const } : c
       ),
     }));
 
-    // 5. Firestoreに保存
     await addTask(newTask);
   },
 

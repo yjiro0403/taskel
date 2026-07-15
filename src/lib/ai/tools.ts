@@ -407,7 +407,7 @@ export function createAITools(context: ToolContext) {
                 title: row.title,
                 estimated: row.estimated_minutes || 0,
                 actual: row.actual_minutes || 0,
-                date: row.date,
+                date: row.date ?? '',
                 tags: row.ai_tags || [],
               };
             })

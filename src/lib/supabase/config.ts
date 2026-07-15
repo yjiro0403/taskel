@@ -1,7 +1,8 @@
 /**
  * Read NEXT_PUBLIC_* via static property access only.
- * Next.js inlines these for the client bundle; dynamic process.env[name]
- * is NOT replaced and always looks undefined in the browser.
+ * Next.js only inlines NEXT_PUBLIC_* values into browser bundles when each
+ * property is referenced statically. Dynamic access such as
+ * process.env[name] remains undefined in production clients.
  */
 export function getSupabaseConfig() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,5 +16,8 @@ export function getSupabaseConfig() {
         throw new Error('Missing required Supabase environment variable: NEXT_PUBLIC_SUPABASE_ANON_KEY');
     }
 
-    return { url, anonKey };
+    return {
+        url,
+        anonKey,
+    };
 }

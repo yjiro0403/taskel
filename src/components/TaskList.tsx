@@ -4,7 +4,7 @@ import { useStore } from '@/store/useStore';
 import { Task, Section } from '@/types';
 import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar } from 'lucide-react';
 import clsx from 'clsx';
-import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
+import { calculateTaskSchedule, formatTime, type TimeSlot } from '@/lib/timeUtils';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { addMinutes } from 'date-fns';
 import { INTERVAL_SECTION_PREFIX, isIntervalSection, generateDisplaySections, getSectionForTime } from '@/lib/sectionUtils';
@@ -34,7 +34,7 @@ import {
 } from '@/lib/calendarService';
 
 export default function TaskList() {
-    const { tasks, sections, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess } = useStore();
+    const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -166,8 +166,31 @@ export default function TaskList() {
     }, [sections]);
 
     const filteredTasks = useMemo(() => {
-        return getMergedTasks(currentDate);
-    }, [getMergedTasks, currentDate, tasks]);
+        const merged = getMergedTasks(currentDate);
+        // 検索ジャンプ先が skipped など通常非表示の場合でも、ハイライト中は当日リストに差し込む
+        if (!highlightedTaskId) return merged;
+        if (merged.some((task) => task.id === highlightedTaskId)) return merged;
+        const highlighted = tasks.find(
+            (task) => task.id === highlightedTaskId && task.date === currentDate
+        );
+        if (!highlighted) return merged;
+        return [...merged, highlighted];
+        // routines を依存に含める。含めないと、起動時に tasks が routines より先に
+        // 反映された場合などにルーチン仮想タスクが再計算されず「今日のルーチンが出ない」
+        // 間欠不具合になる。
+    }, [getMergedTasks, currentDate, tasks, routines, highlightedTaskId]);
+
+    // 検索結果からのジャンプ: 対象タスクが描画されたらスクロールして目立たせる
+    useEffect(() => {
+        if (!highlightedTaskId) return;
+        const timer = window.setTimeout(() => {
+            const el = document.querySelector<HTMLElement>(
+                `[data-task-id="${highlightedTaskId}"]`
+            );
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 80);
+        return () => window.clearTimeout(timer);
+    }, [highlightedTaskId, currentDate, filteredTasks]);
 
     const dailyGoals = useMemo(() => {
         return tasks.filter(t => t.assignedDate === currentDate && !t.date).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -239,13 +262,15 @@ export default function TaskList() {
         return role !== 'viewer';
     };
 
-    const handlePlay = (task: Task) => {
+    const handlePlay = async (task: Task) => {
         if (task.status === 'in_progress') return;
 
+        // Multi-active: other in_progress tasks keep running. Each task owns its own
+        // startedAt / actualMinutes timer independently.
         const now = new Date();
         const currentSectionId = getSectionForTime(sections, now);
 
-        updateTask(task.id, {
+        await updateTask(task.id, {
             status: 'in_progress',
             startedAt: now.getTime(),
             sectionId: currentSectionId
@@ -256,7 +281,7 @@ export default function TaskList() {
         if (task.status !== 'in_progress' || !task.startedAt) return;
 
         const now = Date.now();
-        const elapsedMinutes = (now - task.startedAt) / 60000;
+        const elapsedMinutes = Math.round((now - task.startedAt) / 60000);
 
         updateTask(task.id, {
             status: 'done',
@@ -269,7 +294,7 @@ export default function TaskList() {
     const handleStatusToggle = (task: Task) => {
         if (task.status === 'in_progress' && task.startedAt) {
             const now = Date.now();
-            const elapsedMinutes = (now - task.startedAt) / 60000;
+            const elapsedMinutes = Math.round((now - task.startedAt) / 60000);
 
             updateTask(task.id, {
                 status: 'done',
@@ -414,13 +439,27 @@ export default function TaskList() {
     );
 }
 
+interface SectionContainerProps {
+    section: Section;
+    isInterval: boolean;
+    sectionEndTime?: string;
+    taskSectionEndTime: Date | null;
+    tasks: Task[];
+    canEditTask: (task: Task) => boolean;
+    globalSchedule: Map<string, TimeSlot>;
+}
+
 function SectionContainer({
     section, isInterval, sectionEndTime, taskSectionEndTime, tasks,
     canEditTask, globalSchedule
-}: any) {
+}: SectionContainerProps) {
     const { setNodeRef } = useDroppable({
         id: section.id,
     });
+    // 初期ロードは2段階（セクション等が先に描画され、タスクは後から届く）。
+    // その間 getMergedTasks はルーチンの仮想タスクを生成しないため、ここで
+    // 「タスクなし」と断定するとデータが消えたように見える。読み込み中を明示する。
+    const tasksLoaded = useStore((state) => state.tasksLoaded);
 
     return (
         <div
@@ -445,12 +484,12 @@ function SectionContainer({
                     )}
                 </div>
                 <span className="text-xs text-gray-400">
-                    {tasks.length} tasks
+                    {tasksLoaded ? `${tasks.length} tasks` : '読み込み中…'}
                 </span>
             </div>
 
             <div className="divide-y divide-gray-100 min-h-[50px]">
-                {tasks.map((task: any) => {
+                {tasks.map((task) => {
                     const schedule = globalSchedule.get(task.id);
                     // 全タスクをドラッグ可能にする（タスクシュートの思想）
                     const isSortable = true;
@@ -467,9 +506,17 @@ function SectionContainer({
                 })}
 
                 {tasks.length === 0 && (
-                    <div className="p-8 text-center text-gray-400 text-sm italic">
-                        No tasks in this section
-                    </div>
+                    tasksLoaded ? (
+                        <div className="p-8 text-center text-gray-400 text-sm italic">
+                            No tasks in this section
+                        </div>
+                    ) : (
+                        <div className="p-4 space-y-2" aria-busy="true" aria-label="タスクを読み込み中">
+                            {[0, 1].map((i) => (
+                                <div key={i} className="h-10 rounded bg-gray-100 animate-pulse" />
+                            ))}
+                        </div>
+                    )
                 )}
             </div>
             <BottomDropZone sectionId={section.id} />

@@ -3,6 +3,7 @@ import { StateCreator } from 'zustand';
 import { createClient } from '@/lib/supabase/client';
 import {
     fetchGoals,
+    fetchItemTemplates,
     fetchNotes,
     fetchProjectById,
     fetchProjects,
@@ -14,8 +15,8 @@ import {
     subscribeTable,
     unsubscribeChannels,
 } from '@/lib/supabase/data';
-import { mapGoal, mapRoutine, mapSection, mapTag } from '@/lib/supabase/mappers';
-import type { DailyNote, Goal, MonthlyNote, Routine, Section, Tag, WeeklyNote, YearlyNote } from '@/types';
+import { mapGoal, mapItemTemplate, mapRoutine, mapSection, mapTag } from '@/lib/supabase/mappers';
+import type { DailyNote, Goal, ItemTemplate, MonthlyNote, Routine, Section, Tag, WeeklyNote, YearlyNote } from '@/types';
 import type { Database } from '@/types/supabase';
 import { StoreState, AuthSlice } from '../types';
 import { isPendingTask } from '../helpers/pendingTasks';
@@ -24,6 +25,11 @@ import { shouldReloadUserData } from '../helpers/shouldReloadUserData';
 type Tables = Database['public']['Tables'];
 // re-export status type consumers may need
 export type { InitialDataStatus } from '../helpers/shouldReloadUserData';
+type RealtimePayload<Row extends Record<string, unknown> = Record<string, unknown>> = {
+    eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+    new: Row;
+    old: Row;
+};
 
 function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
     const nextItems = items.filter((item) => item.id !== nextItem.id);
@@ -49,6 +55,18 @@ function buildInFilter(column: string, ids: string[]) {
     return `${column}=in.(${ids.join(',')})`;
 }
 
+// Realtime チャンネルのトピック名は必ず一意にする必要がある。
+// @supabase/realtime-js の `client.channel(topic)` は「同一トピック名の既存チャンネルが
+// あればそれを返す（新規作成しない）」ため、rebuild で同名トピックを再利用すると
+//   1. open 済みチャンネルへの subscribe() が no-op になりフィルタ変更がサーバへ反映されない
+//   2. 直後の旧チャンネル破棄で「継続すべき現行チャンネル」を巻き添えに teardown してしまう
+// という破綻を招く（初期ロード後に realtime 反映が止まる）。
+// そこでチャンネル生成のたびに単調増加するグローバル世代番号をトピックへ付与し、
+// 常に新規チャンネルオブジェクトが生成されることを保証する。
+// モジュールスコープにするのは、ユーザー切替でクロージャが作り直されても、
+// 前クロージャの teardown 待ちチャンネルとトピックが衝突しないようにするため。
+let channelTopicGeneration = 0;
+
 export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set, get) => ({
     user: null,
     unsubscribe: null,
@@ -60,6 +78,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         get().resetProjectSlice();
         get().resetRoutineSlice();
         get().resetTagSlice();
+        get().resetItemTemplateSlice();
         get().resetNoteSlice();
         get().resetGoalSlice();
         get().resetAISlice();
@@ -82,15 +101,17 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
     setUser: (user) => {
         const existingUser = get().user;
         const initialDataStatus = get().initialDataStatus;
+        const existingUnsubscribe = get().unsubscribe;
 
         // Same uid + ready/loading: profile edits / token refresh / duplicate AuthProvider
-        // events update user fields only. Same uid + error: fall through and retry bootstrap.
+        // events update user fields only — do not tear down realtime channels.
+        // Same uid + error|idle: fall through and retry bootstrap (failed fetch retry).
+        // AuthProvider pathname re-entry and TOKEN_REFRESHED would otherwise churn subscriptions.
         if (user && !shouldReloadUserData(existingUser?.uid, user.uid, initialDataStatus)) {
             set({ user });
             return;
         }
 
-        const existingUnsubscribe = get().unsubscribe;
         if (existingUnsubscribe) {
             existingUnsubscribe();
         }
@@ -106,22 +127,41 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
 
         const supabase = createClient();
         let disposed = false;
-        let dataChannels = [] as ReturnType<typeof subscribeTable>[];
+        // 論理キー（例: `tags:${uid}`）→ { channel, filter } のマップ。
+        // 差分方式で「フィルタが変わったチャンネルだけ」差し替えるため、生成時の
+        // トピック名（世代付き・毎回変わる）ではなくフィルタ非依存の論理キーで引けるようにする。
+        type DataChannel = { channel: ReturnType<typeof subscribeTable>; filter: string | undefined };
+        let dataChannels = new Map<string, DataChannel>();
+        // 直近の購読対象IDシグネチャ。集合が同一なら rebuild を丸ごとスキップする（チャーン抑制）。
+        let lastSubscriptionSignature: string | null = null;
         let membershipChannel: ReturnType<typeof subscribeTable> | null = null;
 
         const refreshInitialState = async () => {
+            // ロード開始時点で必ず未ロード状態にする。ユーザー切替時は resetStore を経由しない
+            // 経路があるため（setUser で user だけ差し替わる）、ここでも明示的に落とす。
+            // これが false の間は getMergedTasks が仮想ルーチンタスクを合成しないため、
+            // 「routines だけ載って tasks が空」の窓での実体行上書き（データ破壊）が起きない。
+            set({ tasksLoaded: false });
+
             try {
-                // Start tags and the rest together; fetchTasks accepts the tags promise
-                // so the tasks query is not blocked behind a serial tags round-trip.
+                // Start tags + tasks together (fetchTasks accepts a tags promise so the
+                // paged tasks query is not blocked behind a serial tags round-trip).
+                // Keep main's 2-phase UX: light data paints first; tasks stream in later.
                 const tagsPromise = fetchTags(supabase);
-                const [tags, tasks, routines, sections, projects, goals, notes] = await Promise.all([
+                const tasksPromise = fetchTasks(supabase, tagsPromise);
+                // 軽量フェーズが先に throw / return した場合に unhandled rejection にならないよう、
+                // ハンドラだけ先に張っておく（実際の await は後段で行い、そこで catch される）。
+                tasksPromise.catch(() => {});
+
+                // --- Fast phase: 軽いデータを取得して即描画 ---
+                const [tags, routines, sections, projects, goals, notes, itemTemplates] = await Promise.all([
                     tagsPromise,
-                    fetchTasks(supabase, tagsPromise),
                     fetchRoutines(supabase),
                     fetchSections(supabase),
                     fetchProjects(supabase),
                     fetchGoals(supabase),
                     fetchNotes(supabase),
+                    fetchItemTemplates(supabase),
                 ]);
 
                 if (disposed) {
@@ -129,28 +169,21 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 }
 
                 rebuildDataSubscriptions(
-                    projects.map((project) => project.id),
-                    tasks.map((task) => task.id)
+                    projects.map((project) => project.id)
                 );
 
-                set((state) => {
-                    const localPendingTasks = state.tasks.filter((task) => isPendingTask(task.id));
-                    const taskMap = new Map(tasks.map((task) => [task.id, task]));
-                    localPendingTasks.forEach((task) => taskMap.set(task.id, task));
-
-                    return {
-                        tasks: Array.from(taskMap.values()),
-                        tags,
-                        routines,
-                        sections: sortSections(sections),
-                        projects,
-                        goals,
-                        dailyNotes: notes.dailyNotes,
-                        weeklyNotes: notes.weeklyNotes,
-                        monthlyNotes: notes.monthlyNotes,
-                        yearlyNotes: notes.yearlyNotes,
-                        initialDataStatus: 'ready',
-                    };
+                // tasks キーを含めないことで、ローカルの楽観的（pending）タスクを潰さない。
+                set({
+                    tags,
+                    routines,
+                    sections: sortSections(sections),
+                    projects,
+                    goals,
+                    itemTemplates,
+                    dailyNotes: notes.dailyNotes,
+                    weeklyNotes: notes.weeklyNotes,
+                    monthlyNotes: notes.monthlyNotes,
+                    yearlyNotes: notes.yearlyNotes,
                 });
 
                 if (sections.length === 0) {
@@ -162,22 +195,60 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({}),
                         });
+                        // オンボーディング後は再帰呼び出しが最新の tasks まで set() する。
+                        // ここで return しないと、オンボーディング前に投げた（古い）tasksPromise が
+                        // 後から解決して新しいタスクを上書きしてしまう。
                         await refreshInitialState();
+                        return;
                     }
                 }
+
+                // --- Slow phase: tasks が揃い次第あとから流し込む ---
+                let tasks;
+                try {
+                    tasks = await tasksPromise;
+                } catch (error) {
+                    // タスク取得の失敗を握り潰さない。ここで tasksLoaded を true にすると
+                    // 「タスク0件で読み込み完了」＝仮想ルーチンタスクが実体行を上書きし得る
+                    // 最も危険な状態になるため、必ず false のままにしてユーザーに通知する。
+                    console.error('Failed to fetch tasks:', error);
+                    if (!disposed) {
+                        set({ initialDataStatus: 'error' });
+                        get().showToast(
+                            'タスクの読み込みに失敗しました。通信環境を確認して、ページを再読み込みしてください。',
+                            'error'
+                        );
+                    }
+                    return;
+                }
+
+                if (disposed) {
+                    return;
+                }
+
+                set((state) => {
+                    const localPendingTasks = state.tasks.filter((task) => isPendingTask(task.id));
+                    const taskMap = new Map(tasks.map((task) => [task.id, task]));
+                    localPendingTasks.forEach((task) => taskMap.set(task.id, task));
+
+                    return {
+                        tasks: Array.from(taskMap.values()),
+                        // tasks が実際に着弾したこの set() でのみ true にする。
+                        // 以降 getMergedTasks は仮想ルーチンタスクの合成を再開する。
+                        tasksLoaded: true,
+                        initialDataStatus: 'ready',
+                    };
+                });
             } catch (error) {
                 console.error('Failed to refresh Supabase state:', error);
                 if (!disposed) {
                     set({ initialDataStatus: 'error' });
+                    get().showToast(
+                        'データの読み込みに失敗しました。通信環境を確認して、ページを再読み込みしてください。',
+                        'error'
+                    );
                 }
             }
-        };
-
-        const replaceDataChannels = (nextChannels: ReturnType<typeof subscribeTable>[]) => {
-            if (dataChannels.length > 0) {
-                unsubscribeChannels(supabase, dataChannels);
-            }
-            dataChannels = nextChannels;
         };
 
         const syncTask = async (taskId: string, eventType: 'INSERT' | 'UPDATE' | 'DELETE') => {
@@ -190,8 +261,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     tasks: state.tasks.filter((task) => task.id !== taskId),
                 }));
                 rebuildDataSubscriptions(
-                    get().projects.map((project) => project.id),
-                    get().tasks.filter((task) => task.id !== taskId).map((task) => task.id)
+                    get().projects.map((project) => project.id)
                 );
                 return;
             }
@@ -203,17 +273,14 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 }
 
                 set((state) => ({
-                    tasks: upsertById(
-                        state.tasks.filter((entry) => !isPendingTask(entry.id) || entry.id === task.id),
-                        task
-                    ),
+                    // pending中（書き込み飛行中）のタスクはローカルの楽観的状態を優先し、
+                    // realtime版で上書きしない。他の pending タスクも配列から除去せず保持する
+                    // （従来は filter で無関係な pending タスクごと消し、ドラッグ/編集中の
+                    // タスクが realtime イベント到来時に一瞬消える不具合があった）。
+                    tasks: isPendingTask(task.id) ? state.tasks : upsertById(state.tasks, task),
                 }));
                 rebuildDataSubscriptions(
-                    get().projects.map((project) => project.id),
-                    upsertById(
-                        get().tasks.filter((entry) => !isPendingTask(entry.id) || entry.id === task.id),
-                        task
-                    ).map((entry) => entry.id)
+                    get().projects.map((project) => project.id)
                 );
             } catch (error) {
                 console.error('Failed to sync task:', error);
@@ -247,9 +314,9 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         };
 
         const syncCollectionItem = <T extends { id: string }>(
-            key: 'tags' | 'sections' | 'routines' | 'goals',
-            mapper: (row: any) => T,
-            payload: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; new: any; old: any }
+            key: 'tags' | 'sections' | 'routines' | 'goals' | 'itemTemplates',
+            mapper: (row: never) => T,
+            payload: RealtimePayload
         ) => {
             const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
             if (!row?.id) {
@@ -257,7 +324,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'tags') {
-                const mapped = mapper(row) as unknown as Tag;
+                const mapped = mapper(row as never) as unknown as Tag;
                 set((state) => ({
                     tags:
                         payload.eventType === 'DELETE'
@@ -268,7 +335,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'sections') {
-                const mapped = mapper(row) as unknown as Section;
+                const mapped = mapper(row as never) as unknown as Section;
                 set((state) => ({
                     sections:
                         payload.eventType === 'DELETE'
@@ -279,7 +346,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
 
             if (key === 'routines') {
-                const mapped = mapper(row) as unknown as Routine;
+                const mapped = mapper(row as never) as unknown as Routine;
                 set((state) => ({
                     routines:
                         payload.eventType === 'DELETE'
@@ -289,7 +356,18 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 return;
             }
 
-            const mapped = mapper(row) as unknown as Goal;
+            if (key === 'itemTemplates') {
+                const mapped = mapper(row as never) as unknown as ItemTemplate;
+                set((state) => ({
+                    itemTemplates:
+                        payload.eventType === 'DELETE'
+                            ? state.itemTemplates.filter((template) => template.id !== row.id)
+                            : upsertById(state.itemTemplates, mapped),
+                }));
+                return;
+            }
+
+            const mapped = mapper(row as never) as unknown as Goal;
             set((state) => ({
                 goals:
                     payload.eventType === 'DELETE'
@@ -298,13 +376,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }));
         };
 
-        const syncNote = (
-            payload: {
-                eventType: 'INSERT' | 'UPDATE' | 'DELETE';
-                new: Tables['notes']['Row'];
-                old: Tables['notes']['Row'];
-            }
-        ) => {
+        const syncNote = (payload: RealtimePayload<Tables['notes']['Row']>) => {
             const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
             if (!row?.period_key) {
                 return;
@@ -352,118 +424,181 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             });
         };
 
-        const rebuildDataSubscriptions = (projectIds: string[], taskIds: string[]) => {
-            const projectFilter = buildInFilter('id', projectIds);
-            const projectScopedFilter = buildInFilter('project_id', projectIds);
-            const taskTagFilter = buildInFilter('task_id', taskIds);
+        const rebuildDataSubscriptions = (projectIds: string[]) => {
+            if (disposed) {
+                return;
+            }
 
-            const nextChannels = [
-                subscribeTable(
+            // IDの集合を正規化（重複排除＋ソート）し、フィルタ文字列を安定化させる。
+            // 並び順の違いだけで無駄な差し替えが起きないようにするため。
+            const sortedProjectIds = Array.from(new Set(projectIds)).sort();
+
+            // 購読対象IDの集合が前回と同一なら、全フィルタが不変なので張り直し不要。
+            // syncTask が INSERT/UPDATE/DELETE のたびに rebuild を呼んでも、
+            // 実際にIDの集合が変化した時だけ以降の差分処理が走る（チャーン抑制）。
+            const subscriptionSignature = sortedProjectIds.join(',');
+            if (subscriptionSignature === lastSubscriptionSignature && dataChannels.size > 0) {
+                return;
+            }
+            lastSubscriptionSignature = subscriptionSignature;
+
+            const projectFilter = buildInFilter('id', sortedProjectIds);
+            const projectScopedFilter = buildInFilter('project_id', sortedProjectIds);
+
+            const previousChannels = dataChannels;
+            const nextChannels = new Map<string, DataChannel>();
+            const staleChannels: ReturnType<typeof subscribeTable>[] = [];
+
+            // 論理キー単位の差分適用。フィルタが不変なら既存チャンネルをそのまま次世代へ移し
+            // （破棄も再作成もしない＝no-op subscribe も誤破棄も構造的に起こらない）、
+            // フィルタが変わった／新規のキーだけ一意トピックで新規生成し、旧チャンネルを stale に回す。
+            const ensureChannel = (
+                key: string,
+                table: keyof Tables,
+                onChange: Parameters<typeof subscribeTable>[3],
+                filter: string | undefined
+            ) => {
+                const existing = previousChannels.get(key);
+                if (existing && existing.filter === filter) {
+                    nextChannels.set(key, existing);
+                    return;
+                }
+                if (existing) {
+                    staleChannels.push(existing.channel);
+                }
+                channelTopicGeneration += 1;
+                const channel = subscribeTable(
                     supabase,
-                    `tags:${user.uid}`,
-                    'tags',
-                    (payload) => syncCollectionItem('tags', mapTag, payload as any),
-                    `user_id=eq.${user.uid}`
-                ),
-                subscribeTable(
-                    supabase,
-                    `tasks:personal:${user.uid}`,
+                    `${key}:g${channelTopicGeneration}`,
+                    table,
+                    onChange,
+                    filter
+                );
+                nextChannels.set(key, { channel, filter });
+            };
+
+            ensureChannel(
+                `tags:${user.uid}`,
+                'tags',
+                (payload) => syncCollectionItem('tags', mapTag, payload),
+                `user_id=eq.${user.uid}`
+            );
+            ensureChannel(
+                `item-templates:${user.uid}`,
+                'item_templates',
+                (payload) => syncCollectionItem('itemTemplates', mapItemTemplate, payload),
+                `user_id=eq.${user.uid}`
+            );
+            ensureChannel(
+                `tasks:personal:${user.uid}`,
+                'tasks',
+                (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                `user_id=eq.${user.uid}`
+            );
+            if (projectScopedFilter) {
+                ensureChannel(
+                    `tasks:projects:${user.uid}`,
                     'tasks',
                     (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
-                    `user_id=eq.${user.uid}`
-                ),
-                ...(projectScopedFilter ? [
-                    subscribeTable(
-                        supabase,
-                        `tasks:projects:${user.uid}`,
-                        'tasks',
-                        (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
-                        projectScopedFilter
-                    ),
-                ] : []),
-                ...(projectFilter ? [
-                    subscribeTable(
-                        supabase,
-                        `projects:${user.uid}`,
-                        'projects',
-                        (payload) => void syncProject((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
-                        projectFilter
-                    ),
-                ] : []),
-                subscribeTable(
-                    supabase,
-                    `routines:personal:${user.uid}`,
+                    projectScopedFilter
+                );
+            }
+            if (projectFilter) {
+                ensureChannel(
+                    `projects:${user.uid}`,
+                    'projects',
+                    (payload) => void syncProject((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                    projectFilter
+                );
+            }
+            ensureChannel(
+                `routines:personal:${user.uid}`,
+                'routines',
+                (payload) => syncCollectionItem('routines', mapRoutine, payload),
+                `user_id=eq.${user.uid}`
+            );
+            if (projectScopedFilter) {
+                ensureChannel(
+                    `routines:projects:${user.uid}`,
                     'routines',
-                    (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
-                    `user_id=eq.${user.uid}`
-                ),
-                ...(projectScopedFilter ? [
-                    subscribeTable(
-                        supabase,
-                        `routines:projects:${user.uid}`,
-                        'routines',
-                        (payload) => syncCollectionItem('routines', mapRoutine, payload as any),
-                        projectScopedFilter
-                    ),
-                ] : []),
-                subscribeTable(
-                    supabase,
-                    `sections:${user.uid}`,
-                    'sections',
-                    (payload) => syncCollectionItem('sections', mapSection, payload as any),
-                    `user_id=eq.${user.uid}`
-                ),
-                subscribeTable(
-                    supabase,
-                    `goals:personal:${user.uid}`,
+                    (payload) => syncCollectionItem('routines', mapRoutine, payload),
+                    projectScopedFilter
+                );
+            }
+            ensureChannel(
+                `sections:${user.uid}`,
+                'sections',
+                (payload) => syncCollectionItem('sections', mapSection, payload),
+                `user_id=eq.${user.uid}`
+            );
+            ensureChannel(
+                `goals:personal:${user.uid}`,
+                'goals',
+                (payload) => syncCollectionItem('goals', mapGoal, payload),
+                `user_id=eq.${user.uid}`
+            );
+            if (projectScopedFilter) {
+                ensureChannel(
+                    `goals:projects:${user.uid}`,
                     'goals',
-                    (payload) => syncCollectionItem('goals', mapGoal, payload as any),
-                    `user_id=eq.${user.uid}`
-                ),
-                ...(projectScopedFilter ? [
-                    subscribeTable(
-                        supabase,
-                        `goals:projects:${user.uid}`,
-                        'goals',
-                        (payload) => syncCollectionItem('goals', mapGoal, payload as any),
-                        projectScopedFilter
-                    ),
-                ] : []),
-                subscribeTable(
-                    supabase,
-                    `notes:${user.uid}`,
-                    'notes',
-                    (payload) => syncNote(payload as any),
-                    `user_id=eq.${user.uid}`
-                ),
-                subscribeTable(
-                    supabase,
-                    `task-tags:${user.uid}`,
-                    'task_tags',
-                    (payload) => {
-                        const taskId = (payload.new?.task_id ?? payload.old?.task_id) as string | undefined;
-                        if (!taskId) {
-                            return;
-                        }
-                        void syncTask(taskId, payload.eventType === 'DELETE' ? 'UPDATE' : payload.eventType);
-                    },
-                    taskTagFilter ?? undefined
-                ),
-            ];
+                    (payload) => syncCollectionItem('goals', mapGoal, payload),
+                    projectScopedFilter
+                );
+            }
+            ensureChannel(
+                `notes:${user.uid}`,
+                'notes',
+                (payload) => syncNote(payload as RealtimePayload<Tables['notes']['Row']>),
+                `user_id=eq.${user.uid}`
+            );
+            ensureChannel(
+                `task-tags:${user.uid}`,
+                'task_tags',
+                (payload) => {
+                    const taskId = (payload.new?.task_id ?? payload.old?.task_id) as string | undefined;
+                    if (!taskId) {
+                        return;
+                    }
+                    void syncTask(taskId, payload.eventType === 'DELETE' ? 'UPDATE' : payload.eventType);
+                },
+                // RLS on task_tags already limits events to accessible tasks.
+                // Avoid a multi-thousand-UUID Realtime filter, which exceeds
+                // protocol limits on migrated accounts.
+                undefined
+            );
 
-            replaceDataChannels(nextChannels);
+            // 今回の購読対象から外れた論理キー（例: 全プロジェクト離脱で projectScoped 系が消えた）を破棄する。
+            for (const [key, entry] of previousChannels) {
+                if (!nextChannels.has(key)) {
+                    staleChannels.push(entry.channel);
+                }
+            }
+
+            dataChannels = nextChannels;
+
+            // staleChannels には nextChannels に残るチャンネルは構造的に含まれない：
+            //   - フィルタ不変のキーは existing を next へ移すだけで stale には積まない
+            //   - フィルタ変更／新規のキーは別オブジェクトを新規生成する
+            //   - 1論理キー = 高々1チャンネルでオブジェクト共有は無い
+            // よって「継続すべき現行チャンネル」を巻き添えに破棄することはない。
+            if (staleChannels.length > 0) {
+                void unsubscribeChannels(supabase, staleChannels);
+            }
         };
 
         void refreshInitialState();
         void get().fetchBillingInfo();
         rebuildDataSubscriptions(
-            get().projects.map((project) => project.id),
-            get().tasks.map((task) => task.id)
+            get().projects.map((project) => project.id)
         );
 
+        channelTopicGeneration += 1;
         membershipChannel = subscribeTable(
             supabase,
-            `project-members:${user.uid}`,
+            // データチャンネルと同様、世代番号でトピックを一意化する。
+            // サインアウト→同一ユーザーで再サインイン時に、前回チャンネルの teardown 待ちと
+            // 同名トピックが衝突して subscribe() が no-op になるのを防ぐ。
+            `project-members:${user.uid}:g${channelTopicGeneration}`,
             'project_members',
             async (payload) => {
                 const projectId = (payload.new?.project_id ?? payload.old?.project_id) as string | undefined;
@@ -483,8 +618,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 }
 
                 rebuildDataSubscriptions(
-                    get().projects.map((project) => project.id),
-                    get().tasks.map((task) => task.id)
+                    get().projects.map((project) => project.id)
                 );
             },
             `user_id=eq.${user.uid}`
@@ -493,10 +627,19 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         set({
             unsubscribe: () => {
                 disposed = true;
+                // サインアウト／ユーザー切替時は全チャンネル（データ＋メンバーシップ）を確実に破棄する。
+                // 参照を先に切り離してから破棄することで、破棄途中に再度 rebuild が走っても
+                // 既に手放したチャンネルへ触れないようにする（購読解除漏れ＝リーク防止）。
+                const channelsToRemove = Array.from(dataChannels.values()).map((entry) => entry.channel);
                 if (membershipChannel) {
-                    unsubscribeChannels(supabase, [membershipChannel]);
+                    channelsToRemove.push(membershipChannel);
                 }
-                replaceDataChannels([]);
+                dataChannels = new Map();
+                lastSubscriptionSignature = null;
+                membershipChannel = null;
+                if (channelsToRemove.length > 0) {
+                    void unsubscribeChannels(supabase, channelsToRemove);
+                }
             },
         });
     },

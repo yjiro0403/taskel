@@ -1,50 +1,70 @@
 # 管理スクリプト
 
-Taskel (T-Chute) の開発・デモ用データ管理スクリプトです。
+## Firestore から Supabase への移行
 
-## セットアップ
+移行元 Firebase の Service Account JSON は Firebase Console の
+**プロジェクトの設定 > サービス アカウント** から発行します。秘密鍵は Git にコミットせず、
+次のいずれかで `.env.local` に設定します。
 
-### 1. サービスアカウントキーの取得
-1. Supabase プロジェクトダッシュボードにアクセス
-2. プロジェクトを選択（開発用プロジェクト推奨）
-3. **プロジェクトの設定** > **サービスアカウント** タブを開く
-4. **新しい秘密鍵の生成** をクリックして JSON ファイルをダウンロード
-5. プロジェクトのルートディレクトリに `SERVICE_ACCOUNT_KEY.json` という名前で保存
+```dotenv
+# JSON 全体を1行で設定
+FIREBASE_SERVICE_ACCOUNT_KEY=
 
-> [!WARNING]
-> `SERVICE_ACCOUNT_KEY.json` は **絶対に Git にコミットしないでください**（`.gitignore` に設定済み）。
+# または JSON ファイルの絶対パス
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
 
-## コマンド一覧
+# JSON利用時も移行元を明示（dev/prod取り違え防止）
+FIREBASE_PROJECT_ID=your-source-firebase-project-id
+FIREBASE_STORAGE_BUCKET=your-source-firebase-storage-bucket
 
-### デモデータの投入 (基本)
-指定したユーザーIDのデータを全て削除し、新しいダミーデータを投入します。
-
-```bash
-npm run seed:demo -- --userId=<ユーザーUID>
+# または既存の分割形式（3項目すべて必須）
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
 ```
 
-実行例:
-```bash
-npm run seed:demo -- --userId=abc123xyz
-```
+移行先には `NEXT_PUBLIC_SUPABASE_URL` と `SUPABASE_SERVICE_ROLE_KEY`、
+添付コピーには `FIREBASE_STORAGE_BUCKET` も必要です。
+`FIREBASE_PROJECT_ID` と Service Account JSON 内の `project_id` が、移行したい環境を
+指していることを dry-run の前に必ず確認してください。
 
-### ビデオ撮影用リッチデータの投入
-動画などで見栄えがするように、大量のデータ（過去・未来のタスクを含む）を生成します。
-
-```bash
-npm run seed:demo -- --userId=<ユーザーUID> --scale=large
-```
-
-### Dry Run (実行シミュレーション)
-実際の削除・書き込みは行わず、何が起こるかを確認します。
+最初に必ず dry-run を実行します。
 
 ```bash
-npm run seed:demo -- --userId=<ユーザーUID> --dry-run
+npm run migrate:supabase -- --dry-run
 ```
 
-### データ削除のみ
-ダミーデータを生成せず、既存データをクリーンアップします。
+特定のアカウントだけを移行する場合は、全工程で同じ `--email` を指定します。
+このモードでは対象メールに紐づくユーザーデータと、そのユーザーが所有するプロジェクトだけを扱い、
+他ユーザーや旧招待は移行しません。
 
 ```bash
-npm run seed:demo -- --userId=<ユーザーUID> --clear-only
+npm run migrate:supabase -- --dry-run --email user@example.com
 ```
+
+件数、警告、失敗行を確認してから本移行を実行します。
+
+```bash
+npm run migrate:supabase
+```
+
+単一アカウント移行:
+
+```bash
+npm run migrate:supabase -- --email user@example.com
+```
+
+初回パスワード設定メールも送る場合は SMTP 設定後に実行します。
+
+```bash
+npm run migrate:supabase -- --send-reset-emails
+```
+
+`--send-reset-emails` を付けたwrite実行では、新規・既存どちらの移行対象にも
+再設定メールを送ります。重複送信を避けるため、通常は最初の本実行で1回だけ指定します。
+
+```bash
+npm run migrate:supabase -- --email user@example.com --send-reset-emails
+```
+
+詳細は [Supabase 移行 Runbook](../docs/supabase-migration-runbook.md) を参照してください。

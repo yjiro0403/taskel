@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
+import Toaster from "@/components/Toaster";
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -49,6 +50,8 @@ export default async function RootLayout({
         <NextIntlClientProvider messages={messages}>
           <AuthProvider>
             {children}
+            {/* トースト通知はアプリ全体で1度だけマウントする */}
+            <Toaster />
           </AuthProvider>
         </NextIntlClientProvider>
       </body>

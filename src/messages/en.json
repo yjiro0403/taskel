@@ -56,6 +56,31 @@
         "toggle_unscheduled": "Toggle Unscheduled Tasks",
         "add_task": "Add Task"
     },
+    "Search": {
+        "title": "Search tasks",
+        "open_button": "Search tasks",
+        "placeholder": "Search titles and memos… (space-separated AND)",
+        "close": "Close",
+        "date_from": "From",
+        "date_to": "To",
+        "include_undated": "Include unscheduled",
+        "hint_title": "Look back at past work",
+        "hint_body": "Search task titles and memos with keywords (multi-word AND) and optional date ranges.",
+        "hint_shortcut": "Shortcuts: / or ⌘K / Ctrl+K",
+        "no_results": "No matching tasks",
+        "undated": "Unscheduled",
+        "match_title": "Title",
+        "match_memo": "Memo",
+        "result_count": "{count} results",
+        "footer_idle": "Start typing to search",
+        "footer_keys": "↑↓ navigate · Enter open · Esc close",
+        "status": {
+            "open": "Open",
+            "in_progress": "In progress",
+            "done": "Done",
+            "skipped": "Skipped"
+        }
+    },
     "AIChatPanel": {
         "inputPlaceholder": "Ask AI to create tasks or suggest plans..."
     }

@@ -7,7 +7,9 @@ import clsx from 'clsx';
 import { Task } from '@/types';
 import { useStore } from '@/store/useStore';
 import { AIStatusBadge } from '@/components/ai/AIStatusBadge';
+import { AttachmentImage } from '@/components/AttachmentImage';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
+import { getAttachmentSignedUrl } from '@/lib/storage';
 
 interface TaskDetailModalProps {
   isOpen: boolean;
@@ -191,15 +193,21 @@ export default function TaskDetailModal({
               <Paperclip size={14} className="text-gray-400 mt-0.5 flex-shrink-0" />
               <div className="flex flex-wrap gap-2">
                 {task.attachments.map(att => (
-                  <a
+                  <button
                     key={att.id}
-                    href={att.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    type="button"
+                    title={att.name}
+                    onClick={async () => {
+                      // attachments バケットは private のため、公開URLでは開けない。
+                      // クリック時に storage_path から署名付きURLを生成して新規タブで開く。
+                      if (!att.path) return;
+                      const signed = await getAttachmentSignedUrl(att.path);
+                      if (signed) window.open(signed, '_blank', 'noopener,noreferrer');
+                    }}
                     className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 hover:border-blue-300 transition-colors"
                   >
-                    <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
-                  </a>
+                    <AttachmentImage attachment={att} className="w-full h-full object-cover" />
+                  </button>
                 ))}
               </div>
             </div>

@@ -18,6 +18,7 @@ export type Database = {
                     size: number | null;
                     storage_path: string;
                     task_id: string;
+                    uploader_id: string;
                     url: string;
                 };
                 Insert: {
@@ -28,6 +29,7 @@ export type Database = {
                     size?: number | null;
                     storage_path: string;
                     task_id: string;
+                    uploader_id?: string;
                     url: string;
                 };
                 Update: {
@@ -38,6 +40,7 @@ export type Database = {
                     size?: number | null;
                     storage_path?: string;
                     task_id?: string;
+                    uploader_id?: string;
                     url?: string;
                 };
                 Relationships: [];
@@ -214,7 +217,15 @@ export type Database = {
                     role?: Database['public']['Enums']['hub_role'];
                     user_id?: string;
                 };
-                Relationships: [];
+                Relationships: [
+                    {
+                        foreignKeyName: 'project_members_project_id_fkey';
+                        columns: ['project_id'];
+                        isOneToOne: false;
+                        referencedRelation: 'projects';
+                        referencedColumns: ['id'];
+                    },
+                ];
             };
             projects: {
                 Row: {
@@ -258,7 +269,7 @@ export type Database = {
                     memo: string | null;
                     next_run: string;
                     project_id: string | null;
-                    section_id: string;
+                    section_id: string | null;
                     start_date: string;
                     start_time: string | null;
                     tags: string[];
@@ -277,7 +288,7 @@ export type Database = {
                     memo?: string | null;
                     next_run: string;
                     project_id?: string | null;
-                    section_id: string;
+                    section_id?: string | null;
                     start_date: string;
                     start_time?: string | null;
                     tags?: string[];
@@ -296,7 +307,7 @@ export type Database = {
                     memo?: string | null;
                     next_run?: string;
                     project_id?: string | null;
-                    section_id?: string;
+                    section_id?: string | null;
                     start_date?: string;
                     start_time?: string | null;
                     tags?: string[];
@@ -402,6 +413,33 @@ export type Database = {
                 };
                 Relationships: [];
             };
+            item_templates: {
+                Row: {
+                    created_at: string;
+                    id: string;
+                    items: Json;
+                    name: string;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    id?: string;
+                    items?: Json;
+                    name: string;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    id?: string;
+                    items?: Json;
+                    name?: string;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
             task_tags: {
                 Row: {
                     tag_id: string;
@@ -429,10 +467,11 @@ export type Database = {
                     assigned_week: string | null;
                     assigned_year: string | null;
                     assignee_id: string | null;
+                    checklist: Json;
                     comment_count: number;
                     completed_at: string | null;
                     created_at: string;
-                    date: string;
+                    date: string | null;
                     estimated_minutes: number;
                     external_link: string | null;
                     id: string;
@@ -445,7 +484,7 @@ export type Database = {
                     routine_id: string | null;
                     scheduled_start: string | null;
                     score: number | null;
-                    section_id: string;
+                    section_id: string | null;
                     started_at: string | null;
                     status: Database['public']['Enums']['task_status'];
                     title: string;
@@ -463,10 +502,11 @@ export type Database = {
                     assigned_week?: string | null;
                     assigned_year?: string | null;
                     assignee_id?: string | null;
+                    checklist?: Json;
                     comment_count?: number;
                     completed_at?: string | null;
                     created_at?: string;
-                    date: string;
+                    date?: string | null;
                     estimated_minutes?: number;
                     external_link?: string | null;
                     id?: string;
@@ -479,7 +519,7 @@ export type Database = {
                     routine_id?: string | null;
                     scheduled_start?: string | null;
                     score?: number | null;
-                    section_id: string;
+                    section_id?: string | null;
                     started_at?: string | null;
                     status?: Database['public']['Enums']['task_status'];
                     title: string;
@@ -497,10 +537,11 @@ export type Database = {
                     assigned_week?: string | null;
                     assigned_year?: string | null;
                     assignee_id?: string | null;
+                    checklist?: Json;
                     comment_count?: number;
                     completed_at?: string | null;
                     created_at?: string;
-                    date?: string;
+                    date?: string | null;
                     estimated_minutes?: number;
                     external_link?: string | null;
                     id?: string;
@@ -513,7 +554,7 @@ export type Database = {
                     routine_id?: string | null;
                     scheduled_start?: string | null;
                     score?: number | null;
-                    section_id?: string;
+                    section_id?: string | null;
                     started_at?: string | null;
                     status?: Database['public']['Enums']['task_status'];
                     title?: string;
@@ -602,6 +643,17 @@ export type Database = {
                     project_uuid: string;
                 };
                 Returns: boolean;
+            };
+            consume_invitation_send_attempt: {
+                Args: Record<PropertyKey, never>;
+                Returns: boolean;
+            };
+            delete_task_attachments: {
+                Args: {
+                    attachment_ids: string[];
+                    task_uuid: string;
+                };
+                Returns: number;
             };
             set_updated_at: {
                 Args: Record<PropertyKey, never>;

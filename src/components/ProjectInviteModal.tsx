@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { Users, Link as LinkIcon, Copy, Loader2, Trash2, Mail, Check, AlertTriangle, User, Send } from 'lucide-react';
+import { Users, Link as LinkIcon, Copy, Loader2, Mail, Check, AlertTriangle, User } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useStore } from '@/store/useStore';
-import { HubRole } from '@/types';
+import type { HubRole } from '@/types';
+
+type InviteRole = Exclude<HubRole, 'owner'>;
+
 interface ProjectInviteModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -18,12 +21,12 @@ interface FoundUser {
 }
 
 export default function ProjectInviteModal({ isOpen, onClose, projectId, existingMemberIds }: ProjectInviteModalProps) {
-    const { generateInviteLink, inviteMember, projects, user } = useStore();
+    const { generateInviteLink, inviteMember, projects } = useStore();
 
     // Determine current project to robustly handle updates if needed, though projectId is passed
     const project = projects.find(p => p.id === projectId);
 
-    const [inviteRole, setInviteRole] = useState<HubRole>('member');
+    const [inviteRole, setInviteRole] = useState<InviteRole>('member');
     const [inviteMode, setInviteMode] = useState<'link' | 'email'>('email');
 
     // Link State
@@ -122,7 +125,7 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
                 setStatus({ loading: false, message: `Added ${foundUser.displayName || foundUser.email}!`, type: 'success' });
             } else {
                 // Pending Invite via API (avoids client-side permission issues)
-                const result = await inviteMember(projectId, email.trim());
+                const result = await inviteMember(projectId, email.trim(), inviteRole);
 
                 if (result.success) {
                     setStatus({ loading: false, message: `Invitation sent to ${email}`, type: 'success' });
@@ -182,7 +185,7 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Role</label>
                     <select
                         value={inviteRole}
-                        onChange={(e) => setInviteRole(e.target.value as HubRole)}
+                        onChange={(e) => setInviteRole(e.target.value as InviteRole)}
                         className="w-full border border-gray-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-purple-500 outline-none text-sm"
                     >
                         <option value="member">Member (Can edit tasks)</option>
@@ -220,7 +223,7 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
                                     <div className="text-center mb-4">
                                         <div className="w-12 h-12 rounded-full bg-gray-200 mx-auto mb-2 overflow-hidden flex items-center justify-center">
                                             {foundUser.photoURL ? (
-                                                <img src={foundUser.photoURL} className="w-full h-full object-cover" />
+                                                <img src={foundUser.photoURL} alt="" className="w-full h-full object-cover" />
                                             ) : (
                                                 <User className="text-gray-400" />
                                             )}
@@ -272,7 +275,7 @@ export default function ProjectInviteModal({ isOpen, onClose, projectId, existin
                         <div className="bg-orange-50 border border-orange-100 rounded-lg p-3 flex gap-2">
                             <AlertTriangle size={32} className="text-orange-500 shrink-0" />
                             <p className="text-xs text-orange-800">
-                                <strong>Warning:</strong> Anyone with this link can join this project. Use "Email Invite" for better security.
+                                <strong>Warning:</strong> Anyone with this link can join this project. Use &quot;Email Invite&quot; for better security.
                             </p>
                         </div>
 

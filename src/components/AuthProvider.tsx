@@ -8,9 +8,12 @@ import { ensureProfile, createDefaultWorkspace } from '@/lib/supabase/data';
 import { mapSupabaseUser } from '@/lib/supabase/auth';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useStore } from '@/store/useStore';
+import TaskSearchModal from '@/components/TaskSearchModal';
 
 function isPublicPath(normalizedPath: string) {
-    const publicRoutes = ['/', '/login', '/signup', '/join'];
+    // /reset-password must stay public so invalid-link messaging can render
+    // before a session is established (otherwise AuthProvider bounces to /login).
+    const publicRoutes = ['/', '/login', '/signup', '/join', '/reset-password'];
     return publicRoutes.includes(normalizedPath) || normalizedPath.startsWith('/join');
 }
 
@@ -29,43 +32,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const supabase = createClient();
 
             const syncAuthState = async () => {
-                try {
-                    const { data, error } = await supabase.auth.getUser();
-                    if (error || !data.user) {
-                        setUser(null);
-                        return;
-                    }
+                const { data, error } = await supabase.auth.getUser();
+                if (error || !data.user) {
+                    setUser(null);
+                    return;
+                }
 
+                // Profile/workspace init failures (transient network, RLS, UNIQUE races)
+                // must not clear the session — that causes login ↔ app redirect loops.
+                try {
                     await ensureProfile(supabase, data.user);
                     await createDefaultWorkspace(supabase, data.user.id);
-                    setUser(mapSupabaseUser(data.user));
-                } catch (error) {
-                    console.error('Auth sync failed:', error);
-                    setUser(null);
+                } catch (initError) {
+                    console.error('Profile/workspace init failed (session preserved):', initError);
                 }
+                setUser(mapSupabaseUser(data.user));
             };
 
             void syncAuthState();
 
-            const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
-                try {
-                    if (!session?.user) {
-                        setUser(null);
-                    } else {
+            const {
+                data: { subscription: authSubscription },
+            } = supabase.auth.onAuthStateChange(async (_event, session) => {
+                if (!session?.user) {
+                    setUser(null);
+                } else {
+                    try {
                         await ensureProfile(supabase, session.user);
                         await createDefaultWorkspace(supabase, session.user.id);
-                        setUser(mapSupabaseUser(session.user));
+                    } catch (initError) {
+                        console.error('Profile/workspace init failed (session preserved):', initError);
                     }
-                } catch (error) {
-                    console.error('Auth state change failed:', error);
-                    setUser(null);
+                    setUser(mapSupabaseUser(session.user));
                 }
 
                 if (!session?.user && !isPublicPath(normalizedPath)) {
                     router.push('/login');
                 }
             });
-            subscription = data.subscription;
+            subscription = authSubscription;
         } catch (error) {
             // Misconfigured client must not white-screen the app, but must not leave
             // protected routes accessible without auth either.
@@ -81,5 +86,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
     }, [pathname, router, setUser]);
 
-    return <>{children}</>;
+    return (
+        <>
+            {children}
+            <TaskSearchModal />
+        </>
+    );
 }

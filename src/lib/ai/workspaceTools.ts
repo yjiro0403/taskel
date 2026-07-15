@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { tool } from 'ai';
 import { createClient } from '@/lib/supabase/server';
+import { safeFetch } from '@/lib/safeFetch';
 
 interface WorkspaceToolContext {
   userId: string;
@@ -44,7 +45,10 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
           .order('order', { ascending: true })
           .limit(1);
 
-        const defaultSectionId = sections?.[0]?.id || 'section-1';
+        // tasks.section_id は uuid 列（006 で nullable 化済み）。セクションが1つも無いユーザーでは
+        // 'section-1' のようなセンチネルを入れると `invalid input syntax for type uuid` で INSERT が
+        // 落ちるため、null（＝バックログ扱い）にする。
+        const defaultSectionId = sections?.[0]?.id ?? null;
 
         const newTask = {
           id: taskId,
@@ -62,7 +66,8 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
           updatedAt: now,
         };
 
-        await supabase.from('tasks').insert({
+        // INSERT の失敗を握り潰すと、AI が「作成しました」と嘘の報告をしてしまう。必ず検査する。
+        const { error } = await supabase.from('tasks').insert({
           id: taskId,
           user_id: ctx.userId,
           title,
@@ -74,6 +79,16 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
           order: 999,
           memo: memo || '',
         });
+
+        if (error) {
+          console.error('Error creating task from workspace tool:', error);
+          return {
+            type: 'task_create_failed',
+            title,
+            error: error.message,
+            message: `タスク「${title}」の作成に失敗しました: ${error.message}`,
+          };
+        }
 
         return {
           type: 'task_created',
@@ -132,7 +147,9 @@ export function createWorkspaceTools(ctx: WorkspaceToolContext) {
       execute: async (args: any) => {
         const { url, instruction } = args;
         try {
-          const response = await fetch(url, {
+          // SSRF 対策: プライベート/ループバック/メタデータ IP・非 http(s)・
+          // リダイレクトを拒否する safeFetch を使用
+          const response = await safeFetch(url, {
             headers: {
               'User-Agent': 'Taskel-AI/1.0',
               'Accept': 'text/html,application/json,text/plain',

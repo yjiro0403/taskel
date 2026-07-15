@@ -69,3 +69,7 @@ storybook-static
 
 # Claude Code
 .claude/
+
+# Supabase CLI local state
+/supabase/.branches/
+/supabase/.temp/

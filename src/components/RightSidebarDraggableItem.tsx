@@ -13,6 +13,7 @@ interface DraggableUnscheduledTaskProps {
     handleStop?: (task: Task) => void;
     projects?: Array<{ id: string; title: string }>;
     isOverlay?: boolean;
+    isHighlighted?: boolean;
 }
 
 interface TaskCardContentProps {
@@ -27,7 +28,7 @@ interface TaskCardContentProps {
 }
 
 export default function DraggableUnscheduledTask({
-    task, onClick, selectedTaskIds, toggleTaskSelection, handlePlay, handleStop, projects, isOverlay
+    task, onClick, selectedTaskIds, toggleTaskSelection, handlePlay, handleStop, projects, isOverlay, isHighlighted
 }: DraggableUnscheduledTaskProps) {
     const { attributes, listeners, setNodeRef, transform } = !isOverlay ? useDraggable({
         id: task.id,
@@ -68,10 +69,11 @@ export default function DraggableUnscheduledTask({
     return (
         <div
             ref={setNodeRef}
+            data-task-id={task.id}
             style={style}
             className={clsx(
                 "bg-white border border-gray-100 rounded-lg p-2 shadow-sm hover:shadow-md transition-shadow group mb-2 flex items-start gap-2 relative pr-8",
-
+                isHighlighted && "ring-2 ring-amber-400 bg-amber-50 shadow-md border-amber-200",
             )}
         >
             {/* Drag Handle */}

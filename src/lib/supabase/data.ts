@@ -3,58 +3,163 @@ import type {
     SupabaseClient,
 } from '@supabase/supabase-js';
 
-import type { DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task, Project } from '@/types';
-import type { Database } from '@/types/supabase';
-import { formatLocalDate } from '@/lib/calendarService';
+import type { Attachment, ChecklistItem, DailyNote, MonthlyNote, WeeklyNote, YearlyNote, Tag, Task } from '@/types';
+import type { Database, Json } from '@/types/supabase';
+// 相対 import 必須。vitest の unit プロジェクトは '@' エイリアスを継承しないため、
+// 値 import をエイリアス経由にすると data.ts を単体テストできない。
+import { formatLocalDate } from '../calendarService';
 import {
+    mapAttachment,
     mapGoal,
+    mapItemTemplate,
     mapProject,
     mapRoutine,
     mapSection,
     mapTag,
     mapTask,
     millisToIso,
-} from '@/lib/supabase/mappers';
+} from './mappers';
+import {
+    dateUpdate,
+    timeUpdate,
+    toDateOrNull,
+    toTimeOrNull,
+    toUuidOrNull,
+    uuidUpdate,
+} from './normalize';
 
 type Client = SupabaseClient<Database>;
 type Tables = Database['public']['Tables'];
 
+export const TASK_FETCH_PAGE_SIZE = 1_000;
+const TASK_FETCH_MAX_CONCURRENCY = 4;
+
+export function buildTaskPageRanges(
+    totalRows: number,
+    pageSize = TASK_FETCH_PAGE_SIZE
+): Array<{ from: number; to: number }> {
+    if (totalRows <= 0 || pageSize <= 0) return [];
+
+    const ranges: Array<{ from: number; to: number }> = [];
+    for (let from = 0; from < totalRows; from += pageSize) {
+        ranges.push({ from, to: from + pageSize - 1 });
+    }
+    return ranges;
+}
+
+// text 列など「空文字が正当な値」の列専用。uuid/date/time 列には使わないこと
+// （'' がそのまま渡り、`invalid input syntax for type ...` で書き込み全体が落ちる）。
+// それらの列には ./normalize の型別ヘルパーを使う。
 function toNullable<T>(value: T | undefined) {
     return value === undefined ? undefined : value ?? null;
 }
 
-function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
+// PostgreSQL integer columns reject fractional JSON numbers (for example,
+// elapsed minutes calculated from milliseconds). Normalize at the persistence
+// boundary so every caller, including play/stop and drag ordering, is safe.
+function integerUpdate(value: number | undefined): number | undefined {
+    if (value === undefined) return undefined;
+    return Math.round(value);
+}
+
+function nullableIntegerUpdate(value: number | undefined | null): number | null | undefined {
+    if (value === undefined || value === null) return value;
+    return Math.round(value);
+}
+
+function timestampUpdate(
+    updates: Partial<Task>,
+    key: 'startedAt' | 'completedAt' | 'aiCompletedAt'
+): string | null | undefined {
+    if (!Object.prototype.hasOwnProperty.call(updates, key)) {
+        return undefined;
+    }
+    return millisToIso(updates[key]);
+}
+
+// checklist (ChecklistItem[]) を jsonb 保存用のプレーンな配列へ変換する。
+// 余計なプロパティを持ち込まないよう、既知の3フィールドだけを写す。
+export function checklistToJson(items: ChecklistItem[] | undefined): Json {
+    return (items ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        checked: item.checked,
+    }));
+}
+
+export function buildTaskInsertPayload(task: Task, userId: string): Tables['tasks']['Insert'] {
     return {
         id: task.id,
         user_id: userId,
         title: task.title,
-        assignee_id: task.assigneeId ?? null,
-        reporter_id: task.reporterId ?? null,
-        section_id: task.sectionId,
-        date: task.date,
+        assignee_id: toUuidOrNull(task.assigneeId),
+        reporter_id: toUuidOrNull(task.reporterId),
+        section_id: toUuidOrNull(task.sectionId),
+        date: toDateOrNull(task.date),
         status: task.status,
-        estimated_minutes: task.estimatedMinutes,
-        actual_minutes: task.actualMinutes,
+        estimated_minutes: Math.round(task.estimatedMinutes ?? 0),
+        actual_minutes: Math.round(task.actualMinutes ?? 0),
         started_at: millisToIso(task.startedAt),
         completed_at: millisToIso(task.completedAt),
-        scheduled_start: task.scheduledStart ?? null,
+        scheduled_start: toTimeOrNull(task.scheduledStart),
         external_link: task.externalLink ?? null,
-        parent_goal_id: task.parentGoalId ?? null,
-        project_id: task.projectId ?? null,
+        parent_goal_id: toUuidOrNull(task.parentGoalId),
+        project_id: toUuidOrNull(task.projectId),
         milestone_id: task.milestoneId ?? null,
-        routine_id: task.routineId ?? null,
+        routine_id: toUuidOrNull(task.routineId),
         assigned_week: task.assignedWeek ?? null,
         assigned_month: task.assignedMonth ?? null,
         assigned_year: task.assignedYear ?? null,
-        assigned_date: task.assignedDate ?? null,
-        score: task.score ?? null,
-        order: task.order,
+        assigned_date: toDateOrNull(task.assignedDate),
+        score: task.score === undefined ? null : Math.round(task.score),
+        order: Math.round(task.order ?? 0),
         memo: task.memo ?? null,
+        checklist: checklistToJson(task.checklist),
         ai_tags: task.aiTags ?? [],
         ai_status: task.aiStatus ?? null,
         ai_error: task.aiError ?? null,
         ai_completed_at: millisToIso(task.aiCompletedAt),
         created_at: millisToIso(task.createdAt) ?? undefined,
+    };
+}
+
+// UPDATE 用ペイロード。単体更新(updateTaskRow)と一括更新(bulkUpdateTaskRows)で共通。
+// undefined は「更新しない（省略）」、null は「クリア」を意味する。
+export function buildTaskUpdatePayload(updates: Partial<Task>): Tables['tasks']['Update'] {
+    return {
+        title: updates.title,
+        // assignee_id/reporter_id は uuid 列。insert 経路(toUuidOrNull)と対称に、空文字・
+        // 非UUIDは null へ正規化する。素通し(toNullable)だと空文字が uuid 列に渡り
+        // UPDATE 全体が失敗し、無関係な項目の更新まで巻き添えで落ちるため。
+        assignee_id: uuidUpdate(updates.assigneeId),
+        reporter_id: uuidUpdate(updates.reporterId),
+        section_id: uuidUpdate(updates.sectionId),
+        date: dateUpdate(updates.date),
+        status: updates.status,
+        estimated_minutes: integerUpdate(updates.estimatedMinutes),
+        actual_minutes: integerUpdate(updates.actualMinutes),
+        started_at: timestampUpdate(updates, 'startedAt'),
+        completed_at: timestampUpdate(updates, 'completedAt'),
+        // scheduled_start は time 列。空文字は null へ正規化する（insert 経路と対称）。
+        scheduled_start: timeUpdate(updates.scheduledStart),
+        external_link: toNullable(updates.externalLink),
+        parent_goal_id: uuidUpdate(updates.parentGoalId),
+        project_id: uuidUpdate(updates.projectId),
+        milestone_id: toNullable(updates.milestoneId),
+        routine_id: uuidUpdate(updates.routineId),
+        assigned_week: toNullable(updates.assignedWeek),
+        assigned_month: toNullable(updates.assignedMonth),
+        assigned_year: toNullable(updates.assignedYear),
+        assigned_date: dateUpdate(updates.assignedDate),
+        score: nullableIntegerUpdate(updates.score),
+        order: integerUpdate(updates.order),
+        memo: toNullable(updates.memo),
+        // undefined は「更新しない」。列は NOT NULL default '[]' のため null は渡さない。
+        checklist: updates.checklist === undefined ? undefined : checklistToJson(updates.checklist),
+        ai_tags: updates.aiTags,
+        ai_status: toNullable(updates.aiStatus),
+        ai_error: toNullable(updates.aiError),
+        ai_completed_at: timestampUpdate(updates, 'aiCompletedAt'),
     };
 }
 
@@ -171,6 +276,14 @@ export async function createDefaultWorkspace(client: Client, userId: string) {
     }
 }
 
+export async function fetchItemTemplates(client: Client) {
+    const { data, error } = await client
+        .from('item_templates')
+        .select('*')
+        .order('created_at', { ascending: true });
+    return requireData(data, error).map(mapItemTemplate);
+}
+
 export async function fetchTags(client: Client) {
     const { data, error } = await client.from('tags').select('*').order('created_at', { ascending: true });
     return requireData(data, error).map(mapTag);
@@ -192,8 +305,8 @@ export async function fetchGoals(client: Client) {
 }
 
 export async function fetchProjects(client: Client) {
-    const { data: projects, error: projectError } = await (client
-        .from('projects') as any)
+    const { data: projects, error: projectError } = await client
+        .from('projects')
         .select('*, project_members(user_id, role)')
         .order('created_at', { ascending: true });
 
@@ -217,8 +330,8 @@ export async function fetchProjects(client: Client) {
 }
 
 export async function fetchProjectById(client: Client, projectId: string) {
-    const { data: project, error: projectError } = await (client
-        .from('projects') as any)
+    const { data: project, error: projectError } = await client
+        .from('projects')
         .select('*, project_members(user_id, role)')
         .eq('id', projectId)
         .maybeSingle();
@@ -249,48 +362,113 @@ export async function fetchProjectById(client: Client, projectId: string) {
 function buildTaskTags(
     tasks: Tables['tasks']['Row'][],
     taskTagRows: Tables['task_tags']['Row'][],
-    allTags: Tag[]
+    allTags: Tag[],
+    attachmentRows: Tables['attachments']['Row'][] = []
 ) {
     const tagById = new Map(allTags.map((tag) => [tag.id, tag]));
+    const tagIdsByTask = new Map<string, string[]>();
+    const attachmentsByTask = new Map<string, Attachment[]>();
+
+    taskTagRows.forEach((taskTag) => {
+        const tagIds = tagIdsByTask.get(taskTag.task_id) ?? [];
+        tagIds.push(taskTag.tag_id);
+        tagIdsByTask.set(taskTag.task_id, tagIds);
+    });
+
+    attachmentRows.forEach((row) => {
+        const attachments = attachmentsByTask.get(row.task_id) ?? [];
+        attachments.push(mapAttachment(row));
+        attachmentsByTask.set(row.task_id, attachments);
+    });
 
     return tasks.map((task) => {
-        const tags = taskTagRows
-            .filter((taskTag) => taskTag.task_id === task.id)
-            .map((taskTag) => tagById.get(taskTag.tag_id))
+        const tags = (tagIdsByTask.get(task.id) ?? [])
+            .map((tagId) => tagById.get(tagId))
             .filter((tag): tag is Tag => Boolean(tag));
 
-        return mapTask(task, tags);
+        const attachments = attachmentsByTask.get(task.id) ?? [];
+
+        return mapTask(task, tags, attachments);
     });
 }
 
-export async function fetchTasks(client: Client, tags: Tag[] | Promise<Tag[]>) {
-    // Resolve tags in parallel with the tasks query when a promise is provided,
-    // so profile/bootstrap loading does not serialize tags → tasks.
-    const tasksQuery = client
-        .from('tasks')
-        .select('*')
+type TaskWithRelations = Tables['tasks']['Row'] & {
+    task_tags: Tables['task_tags']['Row'][] | null;
+    attachments: Tables['attachments']['Row'][] | null;
+};
+
+async function fetchTaskPage(
+    client: Client,
+    from: number,
+    to: number,
+    includeCount = false
+): Promise<{ page: TaskWithRelations[]; count: number | null }> {
+    const query = includeCount
+        ? client.from('tasks').select('*, task_tags(*), attachments(*)', { count: 'exact' })
+        : client.from('tasks').select('*, task_tags(*), attachments(*)');
+    const { data, error, count } = await query
         .order('date', { ascending: true })
-        .order('order', { ascending: true });
+        .order('order', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to);
 
-    const [resolvedTags, taskResult] = await Promise.all([
-        Promise.resolve(tags),
-        tasksQuery,
-    ]);
+    return {
+        page: requireData(data, error) as unknown as TaskWithRelations[],
+        count,
+    };
+}
 
-    const taskRows = requireData(taskResult.data, taskResult.error);
-    const taskIds = taskRows.map((task) => task.id);
+export async function fetchTasks(client: Client, tags: Tag[] | Promise<Tag[]>) {
+    // PostgREST limits a response to api.max_rows (1,000 in this project).
+    // Fetching without ranges silently truncated migrated accounts, while
+    // passing 1,000 UUIDs to subsequent `.in(...)` requests exceeded the URL
+    // limit and made the entire initial store refresh fail. Page the parent
+    // rows and embed the small related collections in the same request.
+    //
+    // tags may be a Promise so callers can start the tags query and the paged
+    // tasks query together (bootstrap does not serialize tags → tasks).
+    const tagsPromise = Promise.resolve(tags);
+    const pageSize = TASK_FETCH_PAGE_SIZE;
+    const taskRows: Tables['tasks']['Row'][] = [];
+    const taskTagRows: Tables['task_tags']['Row'][] = [];
+    const attachmentRows: Tables['attachments']['Row'][] = [];
 
-    let taskTagRows: Tables['task_tags']['Row'][] = [];
-    if (taskIds.length > 0) {
-        const { data, error } = await client
-            .from('task_tags')
-            .select('*')
-            .in('task_id', taskIds);
+    const appendPage = (page: TaskWithRelations[]) => {
+        for (const task of page) {
+            const { task_tags: relatedTags, attachments: relatedAttachments, ...taskRow } = task;
+            taskRows.push(taskRow as Tables['tasks']['Row']);
+            taskTagRows.push(...(relatedTags ?? []));
+            attachmentRows.push(...(relatedAttachments ?? []));
+        }
+    };
 
-        taskTagRows = requireData(data, error);
+    // 1ページ目でRLS適用後の正確な件数も受け取り、残りのrangeを安全に並列化する。
+    // 4,508件なら従来の500件×約10直列から、1,000件の先頭1回＋残り4並列になる。
+    const firstResult = await fetchTaskPage(client, 0, pageSize - 1, true);
+    appendPage(firstResult.page);
+
+    if (firstResult.page.length === pageSize) {
+        if (firstResult.count !== null) {
+            const remainingRanges = buildTaskPageRanges(firstResult.count, pageSize).slice(1);
+            for (let index = 0; index < remainingRanges.length; index += TASK_FETCH_MAX_CONCURRENCY) {
+                const batch = remainingRanges.slice(index, index + TASK_FETCH_MAX_CONCURRENCY);
+                const results = await Promise.all(
+                    batch.map(({ from, to }) => fetchTaskPage(client, from, to))
+                );
+                results.forEach(({ page }) => appendPage(page));
+            }
+        } else {
+            // countヘッダーが利用できない環境でも、従来どおり欠落なく最後まで取得する。
+            for (let from = pageSize; ; from += pageSize) {
+                const { page } = await fetchTaskPage(client, from, from + pageSize - 1);
+                appendPage(page);
+                if (page.length < pageSize) break;
+            }
+        }
     }
 
-    return buildTaskTags(taskRows, taskTagRows, resolvedTags);
+    const resolvedTags = await tagsPromise;
+    return buildTaskTags(taskRows, taskTagRows, resolvedTags, attachmentRows);
 }
 
 export async function fetchTaskById(client: Client, taskId: string) {
@@ -326,7 +504,14 @@ export async function fetchTaskById(client: Client, taskId: string) {
         tags = requireData(selectedTags, tagsError);
     }
 
-    return mapTask(task, tags.map(mapTag));
+    const { data: attachments, error: attachmentsError } = await client
+        .from('attachments')
+        .select('*')
+        .eq('task_id', taskId);
+
+    const attachmentRows = requireData(attachments, attachmentsError);
+
+    return mapTask(task, tags.map(mapTag), attachmentRows.map(mapAttachment));
 }
 
 export async function fetchNotes(client: Client) {
@@ -362,6 +547,11 @@ export async function upsertTask(client: Client, task: Task, userId: string) {
     }
 
     await syncTaskTags(client, task.id, userId, task.tags ?? []);
+
+    // attachments が渡された場合のみ同期（undefined=未指定は既存を温存）
+    if (task.attachments !== undefined) {
+        await syncTaskAttachments(client, task.id, task.attachments);
+    }
 }
 
 export async function bulkUpsertTasks(client: Client, tasks: Task[], userId: string, syncTags = false) {
@@ -384,44 +574,55 @@ export async function bulkUpsertTasks(client: Client, tasks: Task[], userId: str
     await Promise.all(tasks.map((task) => syncTaskTags(client, task.id, userId, task.tags ?? [])));
 }
 
-export async function updateTaskRow(client: Client, taskId: string, updates: Partial<Task>, userId: string) {
-    const payload: Tables['tasks']['Update'] = {
-        title: updates.title,
-        assignee_id: toNullable(updates.assigneeId),
-        reporter_id: toNullable(updates.reporterId),
-        section_id: updates.sectionId,
-        date: updates.date,
-        status: updates.status,
-        estimated_minutes: updates.estimatedMinutes,
-        actual_minutes: updates.actualMinutes,
-        started_at: updates.startedAt === undefined ? undefined : millisToIso(updates.startedAt),
-        completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
-        scheduled_start: toNullable(updates.scheduledStart),
-        external_link: toNullable(updates.externalLink),
-        parent_goal_id: toNullable(updates.parentGoalId),
-        project_id: toNullable(updates.projectId),
-        milestone_id: toNullable(updates.milestoneId),
-        routine_id: toNullable(updates.routineId),
-        assigned_week: toNullable(updates.assignedWeek),
-        assigned_month: toNullable(updates.assignedMonth),
-        assigned_year: toNullable(updates.assignedYear),
-        assigned_date: toNullable(updates.assignedDate),
-        score: toNullable(updates.score),
-        order: updates.order,
-        memo: toNullable(updates.memo),
-        ai_tags: updates.aiTags,
-        ai_status: toNullable(updates.aiStatus),
-        ai_error: toNullable(updates.aiError),
-        ai_completed_at: updates.aiCompletedAt === undefined ? undefined : millisToIso(updates.aiCompletedAt),
-    };
+// 並べ替え専用: 各行の "order" 列だけを更新する。
+// 従来は reorder でフルupsert(buildTaskInsertPayload)していたため user_id を常に現在ユーザーで
+// 上書きし、日次ビュー等に混在した他ユーザー所有のプロジェクトタスクを並べ替えると所有権を
+// 奪って RLS 前提を破壊していた。ここでは "order" のみを SET し user_id 等の他列には一切
+// 触れないため、所有権・他デバイスの並行編集内容を保存する。認可は tasks の update RLS に委ねる。
+export async function bulkUpdateTaskOrders(
+    client: Client,
+    orders: { id: string; order: number }[]
+) {
+    if (orders.length === 0) {
+        return;
+    }
 
-    const { error } = await client.from('tasks').update(payload).eq('id', taskId);
+    const results = await Promise.all(
+        orders.map(({ id, order }) => client.from('tasks').update({ order: Math.round(order) }).eq('id', id))
+    );
+
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+        throw new Error(failed.error.message);
+    }
+}
+
+export async function updateTaskRow(client: Client, taskId: string, updates: Partial<Task>, userId: string) {
+    const payload = buildTaskUpdatePayload(updates);
+
+    // PostgREST の UPDATE は、RLS や削除済み ID により対象が0件でも error=null を
+    // 返し得る。更新行を明示的に返させ、停止失敗を「成功」と誤認して次のタイマーを
+    // 開始しないようにする。
+    const { data: updated, error } = await client
+        .from('tasks')
+        .update(payload)
+        .eq('id', taskId)
+        .select('id')
+        .maybeSingle();
     if (error) {
         throw new Error(error.message);
+    }
+    if (!updated) {
+        throw new Error('Task update did not match an editable task.');
     }
 
     if (updates.tags) {
         await syncTaskTags(client, taskId, userId, updates.tags);
+    }
+
+    // attachments が更新に含まれる場合のみ同期（編集で添付を追加/削除したケース）
+    if (updates.attachments !== undefined) {
+        await syncTaskAttachments(client, taskId, updates.attachments);
     }
 }
 
@@ -430,35 +631,8 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
         return;
     }
 
-    const payload: Tables['tasks']['Update'] = {
-        title: updates.title,
-        assignee_id: toNullable(updates.assigneeId),
-        reporter_id: toNullable(updates.reporterId),
-        section_id: updates.sectionId,
-        date: updates.date,
-        status: updates.status,
-        estimated_minutes: updates.estimatedMinutes,
-        actual_minutes: updates.actualMinutes,
-        started_at: updates.startedAt === undefined ? undefined : millisToIso(updates.startedAt),
-        completed_at: updates.completedAt === undefined ? undefined : millisToIso(updates.completedAt),
-        scheduled_start: toNullable(updates.scheduledStart),
-        external_link: toNullable(updates.externalLink),
-        parent_goal_id: toNullable(updates.parentGoalId),
-        project_id: toNullable(updates.projectId),
-        milestone_id: toNullable(updates.milestoneId),
-        routine_id: toNullable(updates.routineId),
-        assigned_week: toNullable(updates.assignedWeek),
-        assigned_month: toNullable(updates.assignedMonth),
-        assigned_year: toNullable(updates.assignedYear),
-        assigned_date: toNullable(updates.assignedDate),
-        score: toNullable(updates.score),
-        order: updates.order,
-        memo: toNullable(updates.memo),
-        ai_tags: updates.aiTags,
-        ai_status: toNullable(updates.aiStatus),
-        ai_error: toNullable(updates.aiError),
-        ai_completed_at: updates.aiCompletedAt === undefined ? undefined : millisToIso(updates.aiCompletedAt),
-    };
+    // uuid/date/time 列の正規化は単体更新と共通（updateTaskRow と対称）。
+    const payload = buildTaskUpdatePayload(updates);
 
     const { error } = await client
         .from('tasks')
@@ -475,6 +649,57 @@ export async function bulkUpdateTaskRows(client: Client, taskIds: string[], upda
     }
 
     await Promise.all(taskIds.map((taskId) => syncTaskTags(client, taskId, userId, updates.tags ?? [])));
+}
+
+// タスクの添付メタを attachments テーブルへ同期する。
+// 既存行は uploader/storage_path の所有関係を保持するため不変とし、削除と新規追加だけを行う。
+export async function syncTaskAttachments(client: Client, taskId: string, attachments: Attachment[]) {
+    const { data: existingRows, error: selectError } = await client
+        .from('attachments')
+        .select('id')
+        .eq('task_id', taskId);
+
+    if (selectError) {
+        throw new Error(selectError.message);
+    }
+
+    const requestedIds = new Set(attachments.map((attachment) => attachment.id));
+    const existingIds = new Set((existingRows ?? []).map((attachment) => attachment.id));
+    const removedIds = (existingRows ?? [])
+        .map((attachment) => attachment.id)
+        .filter((id) => !requestedIds.has(id));
+
+    if (removedIds.length > 0) {
+        const { error: deleteError } = await client.rpc('delete_task_attachments', {
+            task_uuid: taskId,
+            attachment_ids: removedIds,
+        });
+
+        if (deleteError) {
+            throw new Error(deleteError.message);
+        }
+    }
+
+    const rows = attachments
+        .filter((attachment) => !existingIds.has(attachment.id))
+        .map((attachment) => ({
+        id: attachment.id,
+        task_id: taskId,
+        url: attachment.url,
+        storage_path: attachment.path,
+        name: attachment.name,
+        file_type: attachment.type,
+        size: attachment.size ?? null,
+        }));
+
+    if (rows.length === 0) {
+        return;
+    }
+
+    const { error: insertError } = await client.from('attachments').insert(rows);
+    if (insertError) {
+        throw new Error(insertError.message);
+    }
 }
 
 export async function syncTaskTags(client: Client, taskId: string, userId: string, tagNames: string[]) {
@@ -555,8 +780,11 @@ export function subscribeTable(
     return channel;
 }
 
-export function unsubscribeChannels(client: Client, channels: RealtimeChannel[]) {
-    channels.forEach((channel) => {
-        client.removeChannel(channel);
-    });
+export async function unsubscribeChannels(client: Client, channels: RealtimeChannel[]) {
+    // client.removeChannel は内部で `await channel.unsubscribe()` → teardown を行う非同期処理。
+    // fire-and-forget にすると teardown 完了前に呼び出し側が次の購読を張ってしまい、
+    // 「同名トピックの解放待ちと再取得が競合する」「購読解除漏れ（リーク）」の温床になる。
+    // そのため各チャンネルの破棄完了を必ず待つ。呼び出し側が待たない場合も、
+    // 破棄処理自体は Promise として確実に開始・完走する。
+    await Promise.all(channels.map((channel) => client.removeChannel(channel)));
 }

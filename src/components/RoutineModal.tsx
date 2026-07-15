@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { Routine, Frequency } from '@/types';
 import { format } from 'date-fns';
+import { getPersistedSectionForTime } from '@/lib/sectionUtils';
 
 interface RoutineModalProps {
     isOpen: boolean;
@@ -68,10 +69,14 @@ export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineMo
             finalTags.push(currentTag.trim());
         }
 
+        const sectionForScheduledTime = startTime
+            ? getPersistedSectionForTime(sections, startTime)
+            : undefined;
+
         const routineData: any = {
             title,
             frequency,
-            sectionId: sectionId || sections[0]?.id,
+            sectionId: sectionForScheduledTime || sectionId || sections[0]?.id,
             projectId: projectId || undefined, // NEW
             estimatedMinutes: Number(estimatedMinutes),
             startDate,
@@ -226,7 +231,19 @@ export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineMo
                         <input
                             type="time"
                             value={startTime}
-                            onChange={(e) => setStartTime(e.target.value)}
+                            onChange={(e) => {
+                                const nextStartTime = e.target.value;
+                                setStartTime(nextStartTime);
+
+                                // Scheduled Time と保存先セクションを同じ規則で同期する。
+                                // interval-* はDBに存在しないため、その場合は選択を維持する。
+                                const matchedSectionId = nextStartTime
+                                    ? getPersistedSectionForTime(sections, nextStartTime)
+                                    : undefined;
+                                if (matchedSectionId) {
+                                    setSectionId(matchedSectionId);
+                                }
+                            }}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                         />
                     </div>

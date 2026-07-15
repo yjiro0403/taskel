@@ -1,0 +1,55 @@
+# Local Supabase configuration. Hosted credentials stay in .env.local and are never committed.
+project_id = "taskel"
+
+[api]
+enabled = true
+port = 54371
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54372
+shadow_port = 54370
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = false
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54373
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = 54374
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[analytics]
+enabled = true
+port = 54377
+backend = "postgres"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000/auth/callback", "http://localhost:3000/auth/callback"]
+jwt_expiry = 3600
+enable_signup = true
+minimum_password_length = 8
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false

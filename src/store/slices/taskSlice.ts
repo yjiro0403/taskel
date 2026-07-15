@@ -1,4 +1,3 @@
-import { parseISO, isBefore, isSameDay } from 'date-fns';
 import { StateCreator } from 'zustand';
 
 import {
@@ -8,10 +7,11 @@ import {
     writeStoredCurrentDate,
 } from '@/lib/calendarService';
 import { createVirtualRoutineTaskId } from '@/lib/tasks/virtualTask';
+import { withClearedNullables } from '@/lib/tasks/clearedUpdates';
+import { routineOccursOn } from '@/lib/routineUtils';
 import {
     bulkCreateTaskRecords,
-    bulkReplaceTaskRecords,
-    bulkUpdateTaskRecords,
+    bulkUpdateTaskOrderRecords,
     createTaskRecord,
     deleteTaskRecord,
     replaceTaskRecord,
@@ -21,10 +21,32 @@ import { Task } from '@/types';
 import { StoreState, TaskSlice } from '../types';
 import { addPendingTask, removePendingTask } from '../helpers/pendingTasks';
 
+// 楽観的更新の失敗ロールバックを「影響を受けたタスクのみ」に限定するヘルパ。
+// 従来は失敗時に tasks 配列全体を古いスナップショット(oldTasks)で上書きしていたため、
+// 書き込み処理中に別デバイス/タブの realtime で届いた無関係タスクの更新まで巻き戻して
+// ローカルから消してしまっていた。ここでは snapshot に載せた id だけを操作前の値へ戻し、
+// それ以外の現在値（=最新の realtime 反映済み）はそのまま保持する。
+//   snapshot: id -> 操作前の Task（null = 操作前は存在しなかった → ロールバックで除去する）
+// 配列の並び順は変わり得るが、表示は order 列でソートされるため影響しない。
+function rollbackTasks(current: Task[], snapshot: Map<string, Task | null>): Task[] {
+    const kept = current.filter((task) => !snapshot.has(task.id));
+    const restored: Task[] = [];
+    snapshot.forEach((prev) => {
+        if (prev) {
+            restored.push(prev);
+        }
+    });
+    return [...kept, ...restored];
+}
+
 export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set, get) => ({
     tasks: [],
+    // 初期ロード完了フラグ。authSlice.refreshInitialState の slow phase（tasks 着弾）で true になる。
+    // 取得失敗時は false のままとし、「0件で読み込み完了」という危険な状態を作らない。
+    tasksLoaded: false,
     selectedTaskIds: [],
-    // SSR-safe default (local today). Client hydrates from sessionStorage via hydrateCurrentDateFromStorage.
+    // SSR-safe local-today default (not toISOString/UTC — JST 0–9am would show "yesterday").
+    // Client hydrates an explicit sessionStorage value via hydrateCurrentDateFromStorage after OAuth.
     currentDate: formatLocalDate(),
 
     setCurrentDate: (date) => {
@@ -48,15 +70,18 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = get().tasks;
+        // 失敗時に巻き戻すのは追加した task.id のみ（操作前は非存在 → null）。
+        const snapshot = new Map<string, Task | null>([[task.id, null]]);
         set((state) => ({ tasks: [...state.tasks, task] }));
 
         try {
             await createTaskRecord({ ...task, userId: user.uid }, user.uid);
         } catch (error) {
             console.error('Error adding task:', error);
-            set({ tasks: oldTasks });
-            alert('Failed to add task. Please check your connection.');
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
+            // alert() はレンダラをブロックしてタブごと固まらせるため、非ブロッキングな
+            // トースト通知に置き換える（同一ストアなので get() で ui スライスへ委譲）。
+            get().showToast('タスクの追加に失敗しました。通信環境を確認してください。', 'error');
         }
     },
 
@@ -66,10 +91,14 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             set((state) => ({
                 tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
             }));
-            return;
+            return true;
         }
 
-        const oldTasks = tasks;
+        // 失敗時の巻き戻しは「この操作で触れた id のみ」に限定する（無関係タスクの
+        // realtime 更新を巻き込まないため）。まず対象 id の操作前状態を記録する。
+        const snapshot = new Map<string, Task | null>([[taskId, tasks.find((task) => task.id === taskId) ?? null]]);
+        // realtime による巻き戻し防止のため pending 登録した id を追跡し、finally で確実に解除する。
+        const pendingIds = new Set<string>([taskId]);
         addPendingTask(taskId);
         set((state) => ({
             tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
@@ -77,31 +106,116 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
         try {
             const currentTask = tasks.find((task) => task.id === taskId);
-            let isVirtual = false;
-            let fullTaskForCreation: Task | null = null;
+            const virtualTask = currentTask
+                ? undefined
+                : getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
+            const occurrence = currentTask ?? virtualTask;
 
+            // ルーチンタスクの「日付移動」検知（データ破壊防止）。
+            // ルーチン由来タスクは日付をエンコードした決定的UUIDを doc ID に持つため、
+            // 日付だけ変更すると元日付に同一 ID の仮想タスクが再生成されて衝突し、その
+            // 削除で移動先タスクを上書き破壊していた。対策: 日付移動時は元スロットを
+            // スキップ化＋新規 UUID の独立タスクへデタッチ（routineId を外す）して衝突を根絶。
+            const isRoutineOccurrence = !!occurrence && !!occurrence.routineId;
+            const dateKeyPresent = Object.prototype.hasOwnProperty.call(updates, 'date');
+            const dateChanging = dateKeyPresent && updates.date !== occurrence?.date;
+            if (occurrence && isRoutineOccurrence && dateChanging && occurrence.routineId && occurrence.date) {
+                const rid = occurrence.routineId;
+                const origDate = occurrence.date;
+                const slotId = createVirtualRoutineTaskId(rid, origDate);
+
+                const skipMarker: Task = {
+                    ...occurrence,
+                    id: slotId,
+                    routineId: rid,
+                    date: origDate,
+                    status: 'skipped',
+                    userId: user.uid,
+                    updatedAt: Date.now(),
+                    isVirtual: undefined,
+                    // 元スロットの添付は削除する（[]）。移動先(detached)へは別IDで複製済みのため、
+                    // ここで消えても添付は失われない。undefined だと元 attachments が残る。
+                    attachments: [],
+                };
+                const detached: Task = {
+                    ...occurrence,
+                    ...updates,
+                    id: crypto.randomUUID(),
+                    routineId: undefined,
+                    isVirtual: undefined,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    userId: user.uid,
+                    // 添付は移動先へ「新しい attachment.id」で複製する。元行の添付(同一ID)が
+                    // 残ったまま detached を先に作成しても、attachments.id は全体でユニークな
+                    // PK のため衝突しない（作成優先の原子性を安全に成立させる要）。
+                    // storage_path/url 等は据え置きで実体ファイルはそのまま共有する。
+                    attachments: (occurrence.attachments ?? []).map((attachment) => ({
+                        ...attachment,
+                        id: crypto.randomUUID(),
+                    })),
+                };
+                // 日付移動は「別日へ予定変更」なのでタイマーは止める。
+                // actualMinutes は維持し、status を open に戻して startedAt をクリアする。
+                if (detached.status === 'in_progress') {
+                    detached.status = 'open';
+                    detached.startedAt = undefined;
+                }
+
+                // 触れる id を巻き戻し対象＆pending に登録する。
+                snapshot.set(slotId, tasks.find((task) => task.id === slotId) ?? null);
+                snapshot.set(detached.id, null);
+                for (const id of [slotId, detached.id]) {
+                    if (!pendingIds.has(id)) {
+                        pendingIds.add(id);
+                        addPendingTask(id);
+                    }
+                }
+
+                set((state) => ({
+                    tasks: [...state.tasks.filter((task) => task.id !== taskId), skipMarker, detached],
+                }));
+
+                // 【原子性の要】必ず「先に移動先(detached)を作成」→ 成功後に破壊的操作を行う。
+                // これにより途中失敗でもタスクが DB から消える経路を無くす:
+                //  1) createTaskRecord が失敗 → 元は一切変更されず無傷（ローカルは巻き戻し）。
+                //  2) replaceTaskRecord(skip) が失敗 → detached は既に永続化済み。元も残るため
+                //     最悪でも新旧日付への「重複表示」に留まる（可視・復旧可能。消失しない）。
+                //  3) deleteTaskRecord が失敗 → 旧行が残るだけ（同上の重複）。detached は無事。
+                await createTaskRecord(detached, user.uid);
+                await replaceTaskRecord(skipMarker, user.uid);
+                if (currentTask && taskId !== slotId) {
+                    // materialized で slot と異なる実体行がある場合のみ、最後に旧行を削除する。
+                    await deleteTaskRecord(taskId);
+                }
+                return true;
+            }
+
+            // 仮想タスクの実体化（日付移動でない通常の編集・完了操作）
             if (!currentTask) {
-                const virtualTask = getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
-
+                // 【データ破壊防止・多重防御】tasks 未ロード中は仮想タスクの実体化を行わない。
+                // 実体化は決定的ID(createVirtualRoutineTaskId)での upsert なので、
+                // DB上の完了済み実体行を「ルーチンの初期値」で上書きしてしまう。
+                // 通常この経路は getMergedTasks 側のガードで到達不能だが、破壊的な書き込みの
+                // 直前でも再確認する。
+                if (!get().tasksLoaded) {
+                    console.warn('Skipped materializing a routine task before tasks finished loading:', taskId);
+                    return false;
+                }
                 if (virtualTask) {
-                    isVirtual = true;
-                    fullTaskForCreation = {
+                    const fullTaskForCreation: Task = {
                         ...virtualTask,
                         ...updates,
                         userId: user.uid,
                     };
-                    set((state) => ({ tasks: [...state.tasks, fullTaskForCreation as Task] }));
+                    // 実体化で新規に作る id は失敗時に除去する（操作前は非存在）。
+                    snapshot.set(fullTaskForCreation.id, tasks.find((task) => task.id === fullTaskForCreation.id) ?? null);
+                    set((state) => ({ tasks: [...state.tasks, fullTaskForCreation] }));
+                    await replaceTaskRecord(fullTaskForCreation, user.uid);
+                    return true;
                 }
-            }
-
-            if (isVirtual && fullTaskForCreation) {
-                await replaceTaskRecord(fullTaskForCreation, user.uid);
-                return;
-            }
-
-            if (!currentTask) {
                 console.error('Task not found for update:', taskId);
-                return;
+                return false;
             }
 
             const isProjectChange = updates.projectId !== undefined && updates.projectId !== currentTask.projectId;
@@ -109,14 +223,26 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             if (isProjectChange) {
                 await replaceTaskRecord({ ...currentTask, ...updates, userId: user.uid }, user.uid);
             } else {
-                await updateTaskRecord(taskId, updates, user.uid);
+                // クリア意図（明示的な undefined）を、DB上 nullable なフィールドに限り null へ
+                // 変換して永続化する。updateTaskRow は undefined を省略・null をクリアとして
+                // 扱うため、月ビューの「週↔月ゴール移動」等の assignedWeek/assignedMonth
+                // クリアが巻き戻らなくなる。NOT NULL 列（date 等）は変換しない（制約違反防止）。
+                // ※ date クリアによる「日次→バックログ移動」は tasks.date が NOT NULL の
+                //   ままでは永続化できず、スキーマの nullable 化が必要（Phase 2 の課題）。
+                const normalized = withClearedNullables(updates);
+                await updateTaskRecord(taskId, normalized as Partial<Task>, user.uid);
             }
+            return true;
         } catch (error) {
             console.error('Error updating task:', error);
-            set({ tasks: oldTasks });
-            alert('Failed to update task. Please check your connection.');
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
+            // alert() はレンダラをブロックしてタブごと固まらせる。updateTask は完了チェック・
+            // タイマー開始/停止・ドラッグのたびに走る最ホットパスなので、非ブロッキングな
+            // トースト通知に置き換える（addTask と同じパターン）。
+            get().showToast('タスクの更新に失敗しました。通信環境を確認してください。', 'error');
+            return false;
         } finally {
-            removePendingTask(taskId);
+            pendingIds.forEach(removePendingTask);
         }
     },
 
@@ -164,7 +290,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = tasks;
+        // 失敗時は削除対象 id のみを元に戻す（無関係タスクの realtime 更新を巻き込まない）。
+        const snapshot = new Map<string, Task | null>([[taskId, tasks.find((task) => task.id === taskId) ?? null]]);
         set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
 
         try {
@@ -184,12 +311,12 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             await deleteTaskRecord(taskId);
         } catch (error) {
             console.error('Error deleting task:', error);
-            set({ tasks: oldTasks });
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
         }
     },
 
     bulkUpdateTasks: async (taskIds, updates) => {
-        const { user, tasks } = get();
+        const { user, updateTask } = get();
         if (!user) {
             set((state) => ({
                 tasks: state.tasks.map((task) => (taskIds.includes(task.id) ? { ...task, ...updates } : task)),
@@ -198,25 +325,14 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = tasks;
-        const updatedTasks = tasks
-            .filter((task) => taskIds.includes(task.id))
-            .map((task) => ({ ...task, ...updates }));
-        set((state) => ({
-            tasks: state.tasks.map((task) => (taskIds.includes(task.id) ? { ...task, ...updates } : task)),
-            selectedTaskIds: [],
-        }));
-
-        try {
-            if (updates.tags !== undefined) {
-                await bulkReplaceTaskRecords(updatedTasks, user.uid);
-            } else {
-                await bulkUpdateTaskRecords(taskIds, updates, user.uid);
-            }
-        } catch (error) {
-            console.error('Error bulk updating tasks:', error);
-            set({ tasks: oldTasks });
+        // 従来は bulkUpdateTaskRows(SQL UPDATE .in()) を使っていたため、未実体化の
+        // 仮想ルーチンタスクや未存在 doc は黙って無視され「一部が移動されない」不具合が
+        // あった。仮想タスクの実体化・ルーチンのデタッチ・クリア処理を安全に扱うため、
+        // 1件ずつ updateTask に委譲する（各件が独立して成否判定される）。
+        for (const id of taskIds) {
+            await updateTask(id, updates);
         }
+        set({ selectedTaskIds: [] });
     },
 
     bulkDeleteTasks: async (taskIds: string[]) => {
@@ -229,7 +345,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
-        const oldTasks = tasks;
+        // 失敗時は削除対象 id のみを元に戻す（無関係タスクの realtime 更新を巻き込まない）。
+        const snapshot = new Map<string, Task | null>(
+            taskIds.map((id) => [id, tasks.find((task) => task.id === id) ?? null])
+        );
         set((state) => ({
             tasks: state.tasks.filter((task) => !taskIds.includes(task.id)),
             selectedTaskIds: [],
@@ -254,7 +373,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             }
         } catch (error) {
             console.error('Error bulk deleting tasks:', error);
-            set({ tasks: oldTasks });
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
         }
     },
 
@@ -293,6 +412,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     reorderTasks: async (taskIds: string[]) => {
         const { user, tasks } = get();
+        // 失敗時は並べ替えた id のみ order を元に戻す（無関係タスクの realtime 更新は保持）。
+        const snapshot = new Map<string, Task | null>(
+            taskIds.map((id) => [id, tasks.find((task) => task.id === id) ?? null])
+        );
         const newTasks = tasks.map((task) => {
             const newIndex = taskIds.indexOf(task.id);
             return newIndex >= 0 ? { ...task, order: newIndex } : task;
@@ -303,46 +426,48 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             return;
         }
 
+        // 書き込み中は realtime による巻き戻しを防止
+        taskIds.forEach(addPendingTask);
         try {
-            const reorderedTasks = newTasks
+            // order 列だけを更新する。フルupsert(bulkReplaceTaskRecords)は buildTaskInsertPayload が
+            // user_id を常に現在ユーザーで書くため、混在ビュー内の他ユーザー所有タスクを並べ替えると
+            // 所有権を奪って RLS 前提を破壊する。order のみの部分更新でその破壊を根絶する。
+            const orders = newTasks
                 .filter((task) => taskIds.includes(task.id))
-                .map((task) => ({ ...task }));
+                .map((task) => ({ id: task.id, order: task.order ?? 0 }));
 
-            await bulkReplaceTaskRecords(reorderedTasks, user.uid);
+            await bulkUpdateTaskOrderRecords(orders);
         } catch (error) {
             console.error('Error reordering tasks:', error);
+            // 失敗時は並べ替えた分の order だけ巻き戻す（DBと画面の乖離を防ぐ）。
+            set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
+        } finally {
+            taskIds.forEach(removePendingTask);
         }
     },
 
     getMergedTasks: (dateStr: string) => {
-        const { tasks, routines } = get();
+        const { tasks, routines, tasksLoaded } = get();
         const dbTasks = tasks.filter((task) => task.date === dateStr);
-        const targetDate = parseISO(dateStr);
         const virtualTasks: Task[] = [];
+
+        // 【データ破壊防止】tasks のロードが完了するまでは仮想ルーチンタスクを合成しない。
+        // 初期ロードは2フェーズ（routines 等が先着 → tasks が後着）のため、その窓では
+        // dbTasks が空になり得る。空の dbTasks に対して重複判定を行うと、DB上は既に実体化・
+        // 完了済みのルーチン実績が「未着手の仮想タスク」として復活してしまう。この状態で
+        // ユーザーが完了チェック/タイマー開始/編集を行うと、決定的ID(createVirtualRoutineTaskId)
+        // による upsert が実体行を初期値で上書きし、status/actualMinutes/memo 等が失われる。
+        // 未ロード中は実タスク（= []）のみを返し、この経路を到達不能にする。
+        // ※ ルーチン以外の挙動（実タスクの日付フィルタ・skipped 除外）は従来どおり。
+        if (!tasksLoaded) {
+            return dbTasks.filter((task) => task.status !== 'skipped');
+        }
 
         routines.forEach((routine) => {
             if (!routine.active) return;
 
-            const startDate = parseISO(routine.startDate || routine.nextRun);
-            if (isBefore(targetDate, startDate) && !isSameDay(targetDate, startDate)) return;
-
-            let matches = false;
-            if (routine.frequency === 'daily') {
-                matches = true;
-            } else if (routine.frequency === 'weekly') {
-                if (routine.daysOfWeek && routine.daysOfWeek.length > 0) {
-                    matches = routine.daysOfWeek.includes(targetDate.getDay());
-                } else {
-                    matches = targetDate.getDay() === startDate.getDay();
-                }
-            } else if (routine.frequency === 'monthly') {
-                matches = targetDate.getDate() === startDate.getDate();
-            } else if (routine.frequency === 'custom' && routine.interval) {
-                const diffDays = Math.floor((targetDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-                matches = diffDays >= 0 && diffDays % routine.interval === 0;
-            }
-
-            if (!matches) {
+            // 頻度判定は純粋関数 routineOccursOn に集約（月末繰り上げ含む・単体テスト対象）
+            if (!routineOccursOn(routine, dateStr)) {
                 return;
             }
 
@@ -384,6 +509,9 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     resetTaskSlice: () => set({
         tasks: [],
+        // サインアウト／ユーザー切替時は必ず未ロード状態へ戻す。true のまま tasks が空だと
+        // 「0件で読み込み完了」と誤認され、次ユーザーの初期ロード窓で仮想タスクが復活する。
+        tasksLoaded: false,
         selectedTaskIds: [],
         // Preserve UI-selected date across auth reset — do not force system today
         // (OAuth / setUser(null) flash was wiping the date users intended to sync).

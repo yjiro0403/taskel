@@ -1,7 +1,19 @@
-import type { Goal, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
-import type { Database } from '@/types/supabase';
+import type { Attachment, ChecklistItem, Goal, ItemTemplate, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
+import type { Database, Json } from '@/types/supabase';
 
 type Tables = Database['public']['Tables'];
+
+export function mapAttachment(row: Tables['attachments']['Row']): Attachment {
+    return {
+        id: row.id,
+        url: row.url,
+        path: row.storage_path,
+        name: row.name,
+        type: row.file_type,
+        size: row.size ?? undefined,
+        createdAt: new Date(row.created_at).getTime(),
+    };
+}
 
 export function isoToMillis(value?: string | null) {
     return value ? new Date(value).getTime() : undefined;
@@ -33,12 +45,56 @@ export function mapRoutine(row: Tables['routines']['Row']): Routine {
         startDate: row.start_date,
         nextRun: row.next_run,
         startTime: row.start_time ?? undefined,
-        sectionId: row.section_id,
+        sectionId: row.section_id ?? '',
         estimatedMinutes: row.estimated_minutes,
         active: row.active,
         projectId: row.project_id ?? undefined,
         tags: row.tags,
         memo: row.memo ?? undefined,
+    };
+}
+
+// jsonb の checklist を防御的にパースする。手書き SQL やダッシュボード編集で
+// 型が崩れた行が混ざっても、正常な項目だけを残してクラッシュさせない。
+export function parseChecklist(value: Json | null | undefined): ChecklistItem[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    const items: ChecklistItem[] = [];
+    value.forEach((entry) => {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            return;
+        }
+        const name = entry.name;
+        if (typeof name !== 'string' || name.trim() === '') {
+            return;
+        }
+        items.push({
+            id: typeof entry.id === 'string' && entry.id !== '' ? entry.id : crypto.randomUUID(),
+            name,
+            checked: entry.checked === true,
+        });
+    });
+    return items;
+}
+
+// jsonb の items（持ち物名の配列）を防御的にパースする。
+export function parseTemplateItems(value: Json | null | undefined): string[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '');
+}
+
+export function mapItemTemplate(row: Tables['item_templates']['Row']): ItemTemplate {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        items: parseTemplateItems(row.items),
+        createdAt: new Date(row.created_at).getTime(),
+        updatedAt: new Date(row.updated_at).getTime(),
     };
 }
 
@@ -98,7 +154,8 @@ export function mapProject(
 
 export function mapTask(
     row: Tables['tasks']['Row'],
-    tags: Tag[] = []
+    tags: Tag[] = [],
+    attachments: Attachment[] = []
 ): Task {
     return {
         id: row.id,
@@ -106,8 +163,9 @@ export function mapTask(
         title: row.title,
         assigneeId: row.assignee_id ?? undefined,
         reporterId: row.reporter_id ?? undefined,
-        sectionId: row.section_id,
-        date: row.date,
+        // DB上 nullable（ゴール/バックログは NULL）→ アプリ規約の空文字へ戻す
+        sectionId: row.section_id ?? '',
+        date: row.date ?? '',
         status: row.status,
         estimatedMinutes: row.estimated_minutes,
         actualMinutes: row.actual_minutes,
@@ -128,12 +186,14 @@ export function mapTask(
         order: row.order,
         tags: tags.map((tag) => tag.name),
         memo: row.memo ?? undefined,
+        checklist: parseChecklist(row.checklist),
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
         aiStatus: row.ai_status ?? undefined,
         aiError: row.ai_error ?? undefined,
         aiCompletedAt: isoToMillis(row.ai_completed_at),
         commentCount: row.comment_count,
+        attachments: attachments.length > 0 ? attachments : undefined,
     };
 }
 

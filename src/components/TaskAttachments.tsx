@@ -4,6 +4,8 @@ import type { Attachment } from '@/types';
 
 import { X } from 'lucide-react';
 
+import { AttachmentImage } from '@/components/AttachmentImage';
+
 interface TaskAttachmentsProps {
     attachments: Attachment[];
     isUploading: boolean;
@@ -23,7 +25,8 @@ export function TaskAttachments({
             <div className="flex flex-wrap gap-2 mb-2">
                 {attachments.map((att) => (
                     <div key={att.id} className="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-200">
-                        <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
+                        {/* private バケット化に伴い、att.url（公開URL）ではなく att.path から署名付きURLを解決して描画する */}
+                        <AttachmentImage attachment={att} className="w-full h-full object-cover" />
                         <button
                             type="button"
                             onClick={() => void handleRemoveAttachment(att.id)}
