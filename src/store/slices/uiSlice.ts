@@ -1,5 +1,7 @@
 import { StateCreator } from 'zustand';
-import { StoreState, Toast, UISlice } from '../types';
+import { FocusTaskResult, StoreState, Toast, UISlice } from '../types';
+import { canEditTask } from '@/lib/tasks/canEditTask';
+import { resolveTaskFocusLocation, TASK_HIGHLIGHT_MS } from '@/lib/tasks/focusTask';
 
 // crypto.randomUUID が使えない実行環境（古いブラウザ / 一部テスト環境）でも
 // トーストの id が衝突しないようにフォールバックを用意する。
@@ -12,8 +14,21 @@ function createToastId() {
     return `toast-${Date.now()}-${toastCounter}`;
 }
 
+/** Clears the temporary search/deep-link highlight after TASK_HIGHLIGHT_MS. */
+let highlightClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleHighlightClear(set: (partial: Partial<StoreState>) => void) {
+    if (highlightClearTimer) {
+        clearTimeout(highlightClearTimer);
+    }
+    highlightClearTimer = setTimeout(() => {
+        set({ highlightedTaskId: null });
+        highlightClearTimer = null;
+    }, TASK_HIGHLIGHT_MS);
+}
+
 // UI状態管理スライス（サイドバー、モーダル、時刻、トースト通知）
-export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) => ({
+export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set, get) => ({
     currentTime: new Date(),
     setCurrentTime: (time) => set({ currentTime: time }),
 
@@ -35,9 +50,48 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) =>
     openSearchModal: () => set({ isSearchModalOpen: true }),
     closeSearchModal: () => set({ isSearchModalOpen: false }),
 
-    // 検索結果からジャンプしたタスクを一時ハイライトする（TaskList / RightSidebar が参照）
+    // 検索結果 / 恒久リンクからジャンプしたタスクを一時ハイライトする（TaskList / RightSidebar が参照）
     highlightedTaskId: null,
     setHighlightedTaskId: (taskId) => set({ highlightedTaskId: taskId }),
+
+    // 恒久リンク等から Edit Item モーダルを開くためのペンディング ID
+    pendingEditTaskId: null,
+    setPendingEditTaskId: (taskId) => set({ pendingEditTaskId: taskId }),
+
+    focusTask: (taskId, options = {}): FocusTaskResult => {
+        const state = get();
+        const task = state.tasks.find((entry) => entry.id === taskId);
+        if (!task) {
+            return { status: 'not_found' };
+        }
+
+        const location = resolveTaskFocusLocation(task);
+        const patch: Partial<StoreState> = {
+            highlightedTaskId: taskId,
+        };
+
+        if (location.date) {
+            patch.currentDate = location.date;
+            patch.isRightSidebarOpen = false;
+        } else {
+            patch.isRightSidebarOpen = true;
+        }
+
+        // Deep links request openEdit, but must honor the same UI gate as TaskItem clicks.
+        // Viewers can still land on / highlight the task; the Edit Item modal stays closed.
+        let openedEdit = false;
+        if (options.openEdit) {
+            const allowed = canEditTask(task, state.user?.uid, state.projects);
+            if (allowed) {
+                patch.pendingEditTaskId = taskId;
+                openedEdit = true;
+            }
+        }
+
+        set(patch);
+        scheduleHighlightClear(set);
+        return { status: 'focused', openedEdit };
+    },
 
     // トースト通知。alert() はレンダラをブロックしてタブごと固まらせるため、
     // 非ブロッキングな通知はすべてここへ集約する（表示は components/Toaster.tsx）。
@@ -48,14 +102,21 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set) =>
     },
     dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) })),
 
-    resetUISlice: () => set({
-        currentTime: new Date(),
-        isRightSidebarOpen: false,
-        isLeftSidebarOpen: false,
-        isDailyNoteModalOpen: false,
-        isAddTaskModalOpen: false,
-        isSearchModalOpen: false,
-        highlightedTaskId: null,
-        toasts: [],
-    }),
+    resetUISlice: () => {
+        if (highlightClearTimer) {
+            clearTimeout(highlightClearTimer);
+            highlightClearTimer = null;
+        }
+        set({
+            currentTime: new Date(),
+            isRightSidebarOpen: false,
+            isLeftSidebarOpen: false,
+            isDailyNoteModalOpen: false,
+            isAddTaskModalOpen: false,
+            isSearchModalOpen: false,
+            highlightedTaskId: null,
+            pendingEditTaskId: null,
+            toasts: [],
+        });
+    },
 });

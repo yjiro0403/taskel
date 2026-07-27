@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslations } from 'next-intl';
 import { useStore } from '@/store/useStore';
 import { Task, Attachment, ChecklistItem } from '@/types';
-import { X, Sparkles, MessageSquare } from 'lucide-react';
+import { X, Sparkles, MessageSquare, Link2, Check } from 'lucide-react';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
 import { TaskForm } from '@/components/TaskForm';
@@ -12,6 +13,7 @@ import { TaskAttachments } from '@/components/TaskAttachments';
 import { TaskChecklistEditor } from '@/components/TaskChecklistEditor';
 import { TaskTagSelector } from '@/components/TaskTagSelector';
 import { TaskDatePicker } from '@/components/TaskDatePicker';
+import { useCopyTaskLink } from '@/hooks/useCopyTaskLink';
 
 type TaskType = 'task' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -47,6 +49,9 @@ export default function AddTaskModal({
     onTaskCreatedWithAI,
 }: AddTaskModalProps) {
     const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, addTag, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply } = useStore();
+    const tLink = useTranslations('TaskLink');
+    const { copyTaskLink } = useCopyTaskLink();
+    const [linkCopied, setLinkCopied] = useState(false);
 
     // Normalize task to edit
     const targetTask = taskToEdit || existingTask;
@@ -430,9 +435,31 @@ export default function AddTaskModal({
                 <div className="flex flex-col border-b border-gray-100">
                     <div className="flex justify-between items-center p-4">
                         <h2 className="text-lg font-semibold text-gray-800">{targetTask ? 'Edit Item' : 'Add New Item'}</h2>
-                        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-                            <X size={20} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                            {targetTask && !targetTask.isVirtual && (
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const ok = await copyTaskLink(targetTask.id);
+                                        if (ok) {
+                                            setLinkCopied(true);
+                                            window.setTimeout(() => setLinkCopied(false), 2000);
+                                        }
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                    title={tLink('copy')}
+                                    aria-label={tLink('copy')}
+                                >
+                                    {linkCopied ? <Check size={14} className="text-green-600" /> : <Link2 size={14} />}
+                                    <span className="hidden sm:inline">
+                                        {linkCopied ? tLink('copied') : tLink('copy')}
+                                    </span>
+                                </button>
+                            )}
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+                                <X size={20} />
+                            </button>
+                        </div>
                     </div>
                     {/* Type Selector Dropdown */}
                     <div className="px-4 pb-4">

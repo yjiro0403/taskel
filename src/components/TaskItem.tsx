@@ -2,7 +2,7 @@
 
 import { Task } from '@/types';
 import clsx from 'clsx';
-import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical, ListChecks, MessageSquare, Sparkles } from 'lucide-react';
+import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical, ListChecks, MessageSquare, Sparkles, Link2 } from 'lucide-react';
 import { formatTime } from '@/lib/timeUtils';
 import { AIStatusBadge } from '@/components/ai/AIStatusBadge';
 import { AttachmentImage } from '@/components/AttachmentImage';
@@ -10,6 +10,8 @@ import { getAttachmentSignedUrl } from '@/lib/storage';
 import { addMinutes } from 'date-fns';
 import { useStore } from '@/store/useStore';
 import { CSSProperties } from 'react';
+import { useTranslations } from 'next-intl';
+import { useCopyTaskLink } from '@/hooks/useCopyTaskLink';
 
 export interface TaskItemProps {
     task: Task;
@@ -56,6 +58,8 @@ export function TaskItem({
     isHighlighted = false,
 }: TaskItemProps) {
     const { projects, tags } = useStore();
+    const tLink = useTranslations('TaskLink');
+    const { copyTaskLink } = useCopyTaskLink();
 
     return (
         <div
@@ -245,17 +249,33 @@ export function TaskItem({
             {/* Time Display */}
             <div className="ml-4 flex items-center gap-3 font-mono text-xs">
                 {canEdit && !isOverlay && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            useStore.getState().duplicateTask(task.id);
-                        }}
-                        className="text-gray-300 hover:text-blue-600 transition-colors"
-                        title="Duplicate Task"
-                        onPointerDown={(e) => e.stopPropagation()} // Prevent drag
-                    >
-                        <Copy size={16} />
-                    </button>
+                    <>
+                        {!task.isVirtual && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    void copyTaskLink(task.id);
+                                }}
+                                className="text-gray-300 hover:text-blue-600 transition-colors"
+                                title={tLink('copy')}
+                                aria-label={tLink('copy')}
+                                onPointerDown={(e) => e.stopPropagation()}
+                            >
+                                <Link2 size={16} />
+                            </button>
+                        )}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                useStore.getState().duplicateTask(task.id);
+                            }}
+                            className="text-gray-300 hover:text-blue-600 transition-colors"
+                            title="Duplicate Task"
+                            onPointerDown={(e) => e.stopPropagation()} // Prevent drag
+                        >
+                            <Copy size={16} />
+                        </button>
+                    </>
                 )}
                 <div className="flex flex-col items-end">
                     {task.status === 'done' && task.completedAt ? (

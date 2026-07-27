@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import TaskList from '@/components/TaskList';
 import AddTaskModal from '@/components/AddTaskModal';
 import RightSidebar from '@/components/RightSidebar';
@@ -8,6 +8,7 @@ import LeftSidebar from '@/components/LeftSidebar'; // NEW
 import DailyNoteModal from '@/components/DailyNoteModal'; // NEW
 import SelectionHeader from '@/components/SelectionHeader'; // NEW
 import TasksDnDWrapper from '@/components/TasksDnDWrapper'; // NEW
+import TaskDeepLinkHandler from '@/components/TaskDeepLinkHandler';
 import { Plus, Clock, PanelRight, Menu, Search } from 'lucide-react'; // Added Menu
 import { useStore } from '@/store/useStore';
 import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
@@ -135,6 +136,10 @@ export default function Home() {
 
       <LeftSidebar />
       <DailyNoteModal />
+      {/* useSearchParams requires a Suspense boundary in the App Router */}
+      <Suspense fallback={null}>
+        <TaskDeepLinkHandler />
+      </Suspense>
 
       <button
         id="tour-add-task-btn"

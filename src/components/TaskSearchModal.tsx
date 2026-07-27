@@ -9,9 +9,8 @@ import clsx from 'clsx';
 
 import { useStore } from '@/store/useStore';
 import { searchTasks, type TaskSearchResult } from '@/lib/tasks/searchTasks';
+import { buildTasksPath, getLocalePrefixFromPathname } from '@/lib/tasks/taskLinks';
 import type { TaskStatus } from '@/types';
-
-const HIGHLIGHT_MS = 3500;
 
 function statusBadgeClass(status: TaskStatus): string {
     switch (status) {
@@ -45,9 +44,7 @@ function TaskSearchModalContent() {
 
     const closeSearchModal = useStore((s) => s.closeSearchModal);
     const tasks = useStore((s) => s.tasks);
-    const setCurrentDate = useStore((s) => s.setCurrentDate);
-    const setRightSidebarOpen = useStore((s) => s.setRightSidebarOpen);
-    const setHighlightedTaskId = useStore((s) => s.setHighlightedTaskId);
+    const focusTask = useStore((s) => s.focusTask);
 
     const [query, setQuery] = useState('');
     const [dateFrom, setDateFrom] = useState('');
@@ -57,7 +54,6 @@ function TaskSearchModalContent() {
 
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
-    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Focus search field after mount (open)
     useEffect(() => {
@@ -112,41 +108,19 @@ function TaskSearchModalContent() {
             const { task } = result;
             closeSearchModal();
 
-            if (highlightTimerRef.current) {
-                clearTimeout(highlightTimerRef.current);
-            }
+            // Shared focus path with permanent task links (date / sidebar / highlight).
+            // Search keeps highlight-only; deep links additionally open Edit Item.
+            focusTask(task.id);
 
-            const localeMatch = pathname.match(/^\/(en|ja)/);
-            const localePrefix = localeMatch ? localeMatch[0] : '';
-            const tasksPath = `${localePrefix}/tasks`;
+            const localePrefix = getLocalePrefixFromPathname(pathname);
+            const tasksPath = buildTasksPath(localePrefix);
             const onTasksPage = pathname === tasksPath || pathname.endsWith('/tasks');
-
-            if (task.date && task.date.trim() !== '') {
-                setCurrentDate(task.date);
-                setRightSidebarOpen(false);
-            } else {
-                // Unscheduled: open backlog sidebar so the item is visible
-                setRightSidebarOpen(true);
-            }
-
-            setHighlightedTaskId(task.id);
-            highlightTimerRef.current = setTimeout(() => {
-                setHighlightedTaskId(null);
-                highlightTimerRef.current = null;
-            }, HIGHLIGHT_MS);
 
             if (!onTasksPage) {
                 router.push(tasksPath);
             }
         },
-        [
-            closeSearchModal,
-            pathname,
-            router,
-            setCurrentDate,
-            setHighlightedTaskId,
-            setRightSidebarOpen,
-        ]
+        [closeSearchModal, focusTask, pathname, router]
     );
 
     const onInputKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {

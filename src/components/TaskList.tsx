@@ -32,9 +32,10 @@ import {
     PENDING_GOOGLE_CALENDAR_SYNC_KEY,
     writeStoredCurrentDate,
 } from '@/lib/calendarService';
+import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 
 export default function TaskList() {
-    const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId } = useStore();
+    const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -149,6 +150,23 @@ export default function TaskList() {
         setEditingTask(null);
     };
 
+    // Permanent task links (`?task=`) and focusTask({ openEdit: true }) queue a pending id;
+    // open the same Edit Item modal used for in-list clicks, then consume the pending id.
+    useEffect(() => {
+        if (!pendingEditTaskId) return;
+
+        const task =
+            tasks.find((entry) => entry.id === pendingEditTaskId) ??
+            getMergedTasks(currentDate).find((entry) => entry.id === pendingEditTaskId);
+
+        if (!task) return;
+
+        setEditingTask(task);
+        setIsModalOpen(true);
+        // Consume immediately so later tasks[] updates do not re-trigger / reset the form
+        setPendingEditTaskId(null);
+    }, [pendingEditTaskId, tasks, currentDate, getMergedTasks, setPendingEditTaskId]);
+
     const handleTaskCreatedWithAI = async (taskId: string, initialPrompt: string) => {
         // 初期プロンプトをコメントとして投稿し、AI処理をトリガー
         await addUserComment(taskId, initialPrompt);
@@ -249,18 +267,9 @@ export default function TaskList() {
         return sectionTasks.sort(compareTasks);
     };
 
-    const canEditTask = (task: Task) => {
-        if (!user) return false;
-        if (!task.projectId) return true;
-
-        const project = projects.find(p => p.id === task.projectId);
-        if (!project) return false;
-
-        if (project.ownerId === user.uid) return true;
-
-        const role = project.roles?.[user.uid] || 'member';
-        return role !== 'viewer';
-    };
+    // Shared with deep-link focusTask so Edit Item cannot open for viewers.
+    const canEditTask = (task: Task) =>
+        canEditTaskPermission(task, user?.uid, projects);
 
     const handlePlay = async (task: Task) => {
         if (task.status === 'in_progress') return;
