@@ -17,11 +17,16 @@ export function useCopyTaskLink() {
     const showToast = useStore((s) => s.showToast);
 
     const copyTaskLink = useCallback(
-        async (taskId: string) => {
+        async (taskId: string, taskDate?: string | null) => {
             if (typeof window === 'undefined') return false;
 
             const localePrefix = getLocalePrefixFromPathname(pathname);
-            const url = buildTaskShareUrl(window.location.origin, taskId, localePrefix);
+            const url = buildTaskShareUrl(
+                window.location.origin,
+                taskId,
+                localePrefix,
+                taskDate
+            );
 
             try {
                 await navigator.clipboard.writeText(url);
