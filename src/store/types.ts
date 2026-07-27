@@ -124,6 +124,15 @@ export interface Toast {
     type: ToastType;
 }
 
+/** Result of focusing a task (search jump / permanent deep link). */
+export type FocusTaskResult =
+    | { status: 'not_found' }
+    | {
+          status: 'focused';
+          /** True only when openEdit was requested and UI edit permission passed. */
+          openedEdit: boolean;
+      };
+
 export interface UISlice {
     currentTime: Date;
     setCurrentTime: (time: Date) => void;
@@ -140,9 +149,24 @@ export interface UISlice {
     isSearchModalOpen: boolean;
     openSearchModal: () => void;
     closeSearchModal: () => void;
-    /** Search jump target; TaskList / RightSidebar highlight + scroll to this id. */
+    /** Search jump / deep-link target; TaskList / RightSidebar highlight + scroll to this id. */
     highlightedTaskId: string | null;
     setHighlightedTaskId: (taskId: string | null) => void;
+    /**
+     * When set, TaskList opens the existing Edit Item modal for this task id.
+     * Used by permanent task links (`?task=`) and can be cleared on modal close.
+     */
+    pendingEditTaskId: string | null;
+    setPendingEditTaskId: (taskId: string | null) => void;
+    /**
+     * Focus a task in the main tasks UI (date switch / unscheduled sidebar + highlight).
+     * Optionally queue opening the Edit Item modal when the user may edit the task
+     * (same rule as TaskList / TaskItem `canEditTask`).
+     */
+    focusTask: (
+        taskId: string,
+        options?: { openEdit?: boolean }
+    ) => FocusTaskResult;
     toasts: Toast[];
     showToast: (message: string, type?: ToastType) => void;
     dismissToast: (id: string) => void;

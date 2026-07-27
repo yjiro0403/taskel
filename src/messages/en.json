@@ -81,6 +81,13 @@
             "skipped": "Skipped"
         }
     },
+    "TaskLink": {
+        "copy": "Copy link",
+        "copied": "Link copied",
+        "copy_failed": "Failed to copy link",
+        "not_found": "Task not found or you do not have access",
+        "no_edit_access": "You do not have permission to edit this task"
+    },
     "AIChatPanel": {
         "inputPlaceholder": "Ask AI to create tasks or suggest plans..."
     }

@@ -81,6 +81,13 @@
             "skipped": "スキップ"
         }
     },
+    "TaskLink": {
+        "copy": "リンクをコピー",
+        "copied": "リンクをコピーしました",
+        "copy_failed": "リンクのコピーに失敗しました",
+        "not_found": "タスクが見つからないか、アクセス権限がありません",
+        "no_edit_access": "このタスクを編集する権限がありません"
+    },
     "AIChatPanel": {
         "inputPlaceholder": "AIにタスク作成や提案を依頼..."
     }
