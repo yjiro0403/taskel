@@ -165,7 +165,7 @@ export interface UISlice {
      */
     focusTask: (
         taskId: string,
-        options?: { openEdit?: boolean }
+        options?: { openEdit?: boolean; date?: string | null }
     ) => FocusTaskResult;
     toasts: Toast[];
     showToast: (message: string, type?: ToastType) => void;

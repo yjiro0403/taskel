@@ -250,20 +250,21 @@ export function TaskItem({
             <div className="ml-4 flex items-center gap-3 font-mono text-xs">
                 {canEdit && !isOverlay && (
                     <>
-                        {!task.isVirtual && (
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    void copyTaskLink(task.id);
-                                }}
-                                className="text-gray-300 hover:text-blue-600 transition-colors"
-                                title={tLink('copy')}
-                                aria-label={tLink('copy')}
-                                onPointerDown={(e) => e.stopPropagation()}
-                            >
-                                <Link2 size={16} />
-                            </button>
-                        )}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                void copyTaskLink(
+                                    task.id,
+                                    task.isVirtual ? task.date : undefined
+                                );
+                            }}
+                            className="text-gray-300 hover:text-blue-600 transition-colors"
+                            title={tLink('copy')}
+                            aria-label={tLink('copy')}
+                            onPointerDown={(e) => e.stopPropagation()}
+                        >
+                            <Link2 size={16} />
+                        </button>
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
