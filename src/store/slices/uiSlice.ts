@@ -60,7 +60,12 @@ export const createUISlice: StateCreator<StoreState, [], [], UISlice> = (set, ge
 
     focusTask: (taskId, options = {}): FocusTaskResult => {
         const state = get();
-        const task = state.tasks.find((entry) => entry.id === taskId);
+        const occurrenceDate = options.date?.trim();
+        const task =
+            state.tasks.find((entry) => entry.id === taskId) ??
+            (occurrenceDate
+                ? state.getMergedTasks(occurrenceDate).find((entry) => entry.id === taskId)
+                : undefined);
         if (!task) {
             return { status: 'not_found' };
         }

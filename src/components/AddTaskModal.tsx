@@ -436,11 +436,14 @@ export default function AddTaskModal({
                     <div className="flex justify-between items-center p-4">
                         <h2 className="text-lg font-semibold text-gray-800">{targetTask ? 'Edit Item' : 'Add New Item'}</h2>
                         <div className="flex items-center gap-1">
-                            {targetTask && !targetTask.isVirtual && (
+                            {targetTask && (
                                 <button
                                     type="button"
                                     onClick={async () => {
-                                        const ok = await copyTaskLink(targetTask.id);
+                                        const ok = await copyTaskLink(
+                                            targetTask.id,
+                                            targetTask.isVirtual ? targetTask.date : undefined
+                                        );
                                         if (ok) {
                                             setLinkCopied(true);
                                             window.setTimeout(() => setLinkCopied(false), 2000);

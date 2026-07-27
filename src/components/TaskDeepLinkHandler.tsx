@@ -5,7 +5,11 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
 import { useStore } from '@/store/useStore';
-import { parseTaskIdFromQuery, stripTaskQueryParam } from '@/lib/tasks/taskLinks';
+import {
+    parseTaskDateFromQuery,
+    parseTaskIdFromQuery,
+    stripTaskQueryParam,
+} from '@/lib/tasks/taskLinks';
 
 /**
  * Handles permanent task links: `/{locale}/tasks?task=<id>`.
@@ -24,27 +28,29 @@ export default function TaskDeepLinkHandler() {
     const focusTask = useStore((s) => s.focusTask);
     const showToast = useStore((s) => s.showToast);
 
-    /** Avoid re-processing the same task id after we strip the query param. */
-    const handledTaskIdRef = useRef<string | null>(null);
+    /** Avoid re-processing the same task occurrence after we strip the query params. */
+    const handledTaskKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
         const taskId = parseTaskIdFromQuery(searchParams);
         if (!taskId) {
-            handledTaskIdRef.current = null;
+            handledTaskKeyRef.current = null;
             return;
         }
+        const taskDate = parseTaskDateFromQuery(searchParams);
+        const taskKey = `${taskId}:${taskDate ?? ''}`;
 
         // Wait until the initial task fetch finishes so "not found" is reliable.
         if (!tasksLoaded) {
             return;
         }
 
-        if (handledTaskIdRef.current === taskId) {
+        if (handledTaskKeyRef.current === taskKey) {
             return;
         }
-        handledTaskIdRef.current = taskId;
+        handledTaskKeyRef.current = taskKey;
 
-        const result = focusTask(taskId, { openEdit: true });
+        const result = focusTask(taskId, { openEdit: true, date: taskDate });
         if (result.status === 'not_found') {
             // Missing or not returned under current RLS / ownership — stay on tasks UI.
             showToast(t('not_found'), 'error');
