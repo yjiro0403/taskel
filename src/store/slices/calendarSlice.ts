@@ -1,17 +1,21 @@
-import { StateCreator } from 'zustand';
-import { StoreState, CalendarSlice } from '../types';
-import { Task } from '@/types';
-import { getSectionForTime } from '@/lib/sectionUtils';
+import type { StateCreator } from 'zustand';
+import type { Task } from '../../types';
+import { getSectionForTime } from '../../lib/sectionUtils';
+import type { StoreState, CalendarSlice } from '../types';
 import { format } from 'date-fns';
 
 // Google Calendar同期スライス
 export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice> = (set, get) => ({
     syncGoogleCalendar: async (accessToken: string, targetDateStr?: string) => {
-        const { user, tasks, bulkAddTasks, updateTask, currentDate, sections, setCurrentDate } = get();
-        if (!user) return;
+        const { user, currentDate } = get();
+        if (!user) return 'cancelled';
+        const syncingUserId = user.uid;
 
         // 循環依存回避のためdynamic import
-        const { fetchCalendarEventsForDate } = await import('@/lib/calendarService');
+        const {
+            fetchCalendarEventsForDate,
+            GoogleCalendarAuthorizationError,
+        } = await import('../../lib/calendarService');
 
         try {
             // Explicit arg (TaskList / OAuth pending) wins; else UI store currentDate.
@@ -22,8 +26,23 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                 currentDate
             );
 
+            // OAuth return can overlap the initial Supabase data load. Always use
+            // the latest store snapshot after the network request, never the empty
+            // tasks/sections arrays captured before it.
+            const latestState = get();
+            if (latestState.user?.uid !== syncingUserId) {
+                return 'cancelled';
+            }
+            const {
+                tasks,
+                bulkAddTasks,
+                updateTask,
+                sections,
+                setCurrentDate,
+            } = latestState;
+
             // Keep UI + sessionStorage aligned with the date actually synced (OAuth reload safety).
-            if (dateStr !== currentDate) {
+            if (dateStr !== latestState.currentDate) {
                 setCurrentDate(dateStr);
             }
 
@@ -107,9 +126,14 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                 alert(message);
             }
 
+            return 'success';
         } catch (error) {
+            if (error instanceof GoogleCalendarAuthorizationError) {
+                return 'auth_required';
+            }
             console.error("Error syncing calendar:", error);
             alert("Failed to sync calendar.");
+            return 'failed';
         }
     },
 });
