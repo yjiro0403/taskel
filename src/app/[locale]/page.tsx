@@ -1,11 +1,36 @@
 import { Link } from '@/i18n/routing';
 import { ArrowRight, Play, Clock, BarChart3, Layout, Calendar } from 'lucide-react';
 import Image from 'next/image';
-import { useTranslations } from 'next-intl';
+import { redirect } from 'next/navigation';
+import { getTranslations } from 'next-intl/server';
 
-export default function LandingPage() {
-    const t = useTranslations('HomePage');
-    const tNav = useTranslations('Navigation');
+import { createClient } from '@/lib/supabase/server';
+
+export const dynamic = 'force-dynamic';
+
+export default async function LandingPage({
+    params,
+}: {
+    params: Promise<{ locale: string }>;
+}) {
+    const { locale } = await params;
+    let isAuthenticated = false;
+
+    try {
+        const supabase = await createClient();
+        const { data, error } = await supabase.auth.getClaims();
+        isAuthenticated = !error && Boolean(data?.claims?.sub);
+    } catch (error) {
+        // The public landing page should remain available during transient auth/config failures.
+        console.error('Failed to verify session on the landing page:', error);
+    }
+
+    if (isAuthenticated) {
+        redirect(`/${locale}/tasks`);
+    }
+
+    const t = await getTranslations('HomePage');
+    const tNav = await getTranslations('Navigation');
     const currentYear = new Date().getFullYear();
 
     return (
