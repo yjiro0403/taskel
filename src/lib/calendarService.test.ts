@@ -5,8 +5,14 @@ import {
   fetchCalendarEventsForDate,
   formatLocalDate,
   getLocalDayRange,
+  GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY,
+  GoogleCalendarAuthorizationError,
+  isGoogleCalendarSyncDataReady,
   peekStoredCurrentDate,
+  readGoogleCalendarProviderToken,
   resolveCalendarSyncDate,
+  clearGoogleCalendarProviderToken,
+  storeGoogleCalendarProviderToken,
 } from './calendarService';
 
 describe('getLocalDayRange', () => {
@@ -23,11 +29,11 @@ describe('getLocalDayRange', () => {
 
     expect(end.getFullYear()).toBe(2026);
     expect(end.getMonth()).toBe(6);
-    expect(end.getDate()).toBe(18);
-    expect(end.getHours()).toBe(23);
-    expect(end.getMinutes()).toBe(59);
-    expect(end.getSeconds()).toBe(59);
-    expect(end.getMilliseconds()).toBe(999);
+    expect(end.getDate()).toBe(19);
+    expect(end.getHours()).toBe(0);
+    expect(end.getMinutes()).toBe(0);
+    expect(end.getSeconds()).toBe(0);
+    expect(end.getMilliseconds()).toBe(0);
   });
 
   it('keeps the UI calendar day even when Date("yyyy-MM-dd") would shift', () => {
@@ -66,6 +72,90 @@ describe('peekStoredCurrentDate', () => {
   });
 });
 
+describe('Google Calendar provider token storage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('captures the one-time OAuth provider token for the pending sync', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+
+    expect(readGoogleCalendarProviderToken(undefined, 'user-1')).toBeNull();
+    storeGoogleCalendarProviderToken('google-provider-token', 'user-1');
+    expect(
+      JSON.parse(values.get(GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY)!)
+    ).toEqual({
+      token: 'google-provider-token',
+      userId: 'user-1',
+    });
+    expect(readGoogleCalendarProviderToken(undefined, 'user-1')).toBe(
+      'google-provider-token'
+    );
+
+    clearGoogleCalendarProviderToken();
+    expect(readGoogleCalendarProviderToken(undefined, 'user-1')).toBeNull();
+  });
+
+  it('prefers and stores a fresh session token for the current Taskel user', () => {
+    const values = new Map<string, string>([
+      [
+        GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY,
+        JSON.stringify({ token: 'old-token', userId: 'user-1' }),
+      ],
+    ]);
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+
+    expect(
+      readGoogleCalendarProviderToken('fresh-token', 'user-1')
+    ).toBe('fresh-token');
+    expect(
+      JSON.parse(values.get(GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY)!)
+    ).toEqual({
+      token: 'fresh-token',
+      userId: 'user-1',
+    });
+  });
+
+  it('does not reuse a Google token captured for a different Taskel user', () => {
+    const values = new Map<string, string>([
+      [
+        GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY,
+        JSON.stringify({ token: 'user-1-token', userId: 'user-1' }),
+      ],
+    ]);
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+
+    expect(
+      readGoogleCalendarProviderToken(undefined, 'user-2')
+    ).toBeNull();
+  });
+});
+
+describe('isGoogleCalendarSyncDataReady', () => {
+  it('waits for both tasks and sections after the OAuth return', () => {
+    expect(isGoogleCalendarSyncDataReady('loading', false, 0)).toBe(false);
+    expect(isGoogleCalendarSyncDataReady('ready', false, 1)).toBe(false);
+    expect(isGoogleCalendarSyncDataReady('ready', true, 0)).toBe(false);
+    expect(isGoogleCalendarSyncDataReady('ready', true, 1)).toBe(true);
+  });
+});
+
 describe('resolveCalendarSyncDate', () => {
   it('prefers explicit target over UI currentDate and never invents system today', () => {
     expect(resolveCalendarSyncDate('2026-07-18', '2026-07-14')).toBe('2026-07-18');
@@ -92,9 +182,9 @@ describe('Google Calendar API range integration (chosen local day)', () => {
     expect(request.timeMin).toBe(start.toISOString());
     expect(request.timeMax).toBe(end.toISOString());
 
-    // Round-trip: API bounds still represent local calendar day 2026-07-18
+    // Lower bound is the chosen day; exclusive upper bound is next local midnight.
     expect(formatLocalDate(new Date(request.timeMin))).toBe('2026-07-18');
-    expect(formatLocalDate(new Date(request.timeMax))).toBe('2026-07-18');
+    expect(formatLocalDate(new Date(request.timeMax))).toBe('2026-07-19');
 
     const url = new URL(request.urlPathWithQuery);
     expect(url.searchParams.get('timeMin')).toBe(request.timeMin);
@@ -130,7 +220,7 @@ describe('Google Calendar API range integration (chosen local day)', () => {
     expect(url.searchParams.get('timeMin')).toBe(expected.timeMin);
     expect(url.searchParams.get('timeMax')).toBe(expected.timeMax);
     expect(formatLocalDate(new Date(url.searchParams.get('timeMin')!))).toBe('2026-07-18');
-    expect(formatLocalDate(new Date(url.searchParams.get('timeMax')!))).toBe('2026-07-18');
+    expect(formatLocalDate(new Date(url.searchParams.get('timeMax')!))).toBe('2026-07-19');
     expect(init.headers).toMatchObject({
       Authorization: 'Bearer test-access-token',
     });
@@ -157,4 +247,25 @@ describe('Google Calendar API range integration (chosen local day)', () => {
     expect(url.searchParams.get('timeMin')).toBe(expected.timeMin);
     expect(url.searchParams.get('timeMax')).toBe(expected.timeMax);
   });
+
+  it.each([401, 403])(
+    'reports status %s as a reconnectable Google authorization error',
+    async (status) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status,
+        })
+      );
+
+      await expect(
+        fetchCalendarEventsForDate(
+          'expired-or-unscoped-token',
+          '2026-07-18',
+          '2026-07-18'
+        )
+      ).rejects.toEqual(new GoogleCalendarAuthorizationError(status));
+    }
+  );
 });

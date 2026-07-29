@@ -174,8 +174,17 @@ export interface UISlice {
 }
 
 export interface CalendarSlice {
-    syncGoogleCalendar: (accessToken: string, targetDateStr?: string) => Promise<void>;
+    syncGoogleCalendar: (
+        accessToken: string,
+        targetDateStr?: string
+    ) => Promise<CalendarSyncResult>;
 }
+
+export type CalendarSyncResult =
+    | 'success'
+    | 'auth_required'
+    | 'failed'
+    | 'cancelled';
 
 // 全スライスを統合した型
 export type StoreState =

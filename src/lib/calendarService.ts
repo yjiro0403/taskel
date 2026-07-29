@@ -6,13 +6,23 @@ interface CalendarEvent {
     end: { dateTime?: string; date?: string };
 }
 
+export class GoogleCalendarAuthorizationError extends Error {
+    constructor(public readonly status: number) {
+        super(`Google Calendar authorization failed (${status})`);
+        this.name = 'GoogleCalendarAuthorizationError';
+    }
+}
+
 export const CURRENT_DATE_STORAGE_KEY = 'taskel_current_date';
 export const PENDING_GOOGLE_CALENDAR_SYNC_KEY = 'pending_google_calendar_sync';
+export const GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY =
+    'taskel_google_calendar_provider_token';
 
 /**
- * Build local-midnight → local-end-of-day bounds from a UI date string (yyyy-MM-dd).
+ * Build local-midnight → next local midnight bounds from a UI date string (yyyy-MM-dd).
  * Avoids `new Date('yyyy-MM-dd')` which parses as UTC and shifts the calendar day
- * in timezones behind UTC.
+ * in timezones behind UTC. Google Calendar treats timeMax as exclusive, so the
+ * next midnight is the precise upper bound for the selected day.
  */
 export function getLocalDayRange(dateStr: string): { start: Date; end: Date } {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
@@ -26,7 +36,7 @@ export function getLocalDayRange(dateStr: string): { start: Date; end: Date } {
 
     return {
         start: new Date(year, month - 1, day, 0, 0, 0, 0),
-        end: new Date(year, month - 1, day, 23, 59, 59, 999),
+        end: new Date(year, month - 1, day + 1, 0, 0, 0, 0),
     };
 }
 
@@ -112,6 +122,80 @@ export function writeStoredCurrentDate(date: string): void {
     }
 }
 
+/**
+ * Provider tokens are only present immediately after Google OAuth. Keep the
+ * short-lived token in this tab so the post-callback sync can wait for Taskel's
+ * tasks/sections to finish loading without losing the token.
+ */
+export function storeGoogleCalendarProviderToken(
+    token: string | null | undefined,
+    userId: string | null | undefined
+): void {
+    if (typeof window === 'undefined' || !token || !userId) {
+        return;
+    }
+    try {
+        sessionStorage.setItem(
+            GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY,
+            JSON.stringify({ token, userId })
+        );
+    } catch {
+        // ignore storage access errors
+    }
+}
+
+export function readGoogleCalendarProviderToken(
+    sessionProviderToken: string | null | undefined,
+    userId: string | null | undefined
+): string | null {
+    if (!userId) {
+        return null;
+    }
+    if (sessionProviderToken) {
+        storeGoogleCalendarProviderToken(sessionProviderToken, userId);
+        return sessionProviderToken;
+    }
+    if (typeof window === 'undefined') {
+        return null;
+    }
+    try {
+        const value = sessionStorage.getItem(GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY);
+        if (!value) {
+            return null;
+        }
+        const stored = JSON.parse(value) as { token?: unknown; userId?: unknown };
+        return stored.userId === userId && typeof stored.token === 'string'
+            ? stored.token
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+export function clearGoogleCalendarProviderToken(): void {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    try {
+        sessionStorage.removeItem(GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY);
+    } catch {
+        // ignore storage access errors
+    }
+}
+
+/**
+ * Calendar imports need the authenticated user's tasks and sections. Running
+ * during the OAuth return bootstrap can otherwise create an invalid fallback
+ * section and make the first import fail while a second click succeeds.
+ */
+export function isGoogleCalendarSyncDataReady(
+    initialDataStatus: string,
+    tasksLoaded: boolean,
+    sectionCount: number
+): boolean {
+    return initialDataStatus === 'ready' && tasksLoaded && sectionCount > 0;
+}
+
 export async function fetchCalendarEvents(accessToken: string, timeMin: Date, timeMax: Date): Promise<CalendarEvent[]> {
     const params = new URLSearchParams({
         timeMin: timeMin.toISOString(),
@@ -127,9 +211,7 @@ export async function fetchCalendarEvents(accessToken: string, timeMin: Date, ti
         },
     });
 
-    if (!response.ok) {
-        throw new Error('Failed to fetch calendar events');
-    }
+    assertCalendarResponseAuthorized(response);
 
     const data = await response.json();
     return data.items || [];
@@ -150,10 +232,18 @@ export async function fetchCalendarEventsForDate(
         },
     });
 
-    if (!response.ok) {
-        throw new Error('Failed to fetch calendar events');
-    }
+    assertCalendarResponseAuthorized(response);
 
     const data = await response.json();
     return { dateStr, events: data.items || [] };
+}
+
+function assertCalendarResponseAuthorized(response: Response): void {
+    if (response.ok) {
+        return;
+    }
+    if (response.status === 401 || response.status === 403) {
+        throw new GoogleCalendarAuthorizationError(response.status);
+    }
+    throw new Error(`Failed to fetch calendar events (${response.status})`);
 }

@@ -29,18 +29,22 @@ import {
 import { AIChatPanel } from './AIChatPanel';
 import { createClient } from '@/lib/supabase/client';
 import {
+    clearGoogleCalendarProviderToken,
+    isGoogleCalendarSyncDataReady,
     PENDING_GOOGLE_CALENDAR_SYNC_KEY,
+    readGoogleCalendarProviderToken,
     writeStoredCurrentDate,
 } from '@/lib/calendarService';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 
 export default function TaskList() {
-    const { tasks, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId } = useStore();
+    const { tasks, tasksLoaded, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+    const pendingCalendarSyncInFlight = useRef<string | null>(null);
 
     // FTUE: 初回ユーザー向けオンボーディングツアー
     const { startTour } = useTour();
@@ -66,6 +70,28 @@ export default function TaskList() {
     // DnD Sensors
     // DnD Sensors removed (lifted to wrapper)
 
+    const startGoogleCalendarOAuth = async (selectedDate: string) => {
+        localStorage.setItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY, selectedDate);
+        writeStoredCurrentDate(selectedDate);
+
+        const supabase = createClient();
+        const redirectTo = `${window.location.origin}/auth/callback?next=/tasks`;
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo,
+                scopes: 'https://www.googleapis.com/auth/calendar.readonly',
+                queryParams: {
+                    access_type: 'offline',
+                    prompt: 'consent',
+                },
+            },
+        });
+        if (error) {
+            throw error;
+        }
+    };
+
     const handleSync = async () => {
         if (!user) return;
         setIsSyncing(true);
@@ -73,31 +99,22 @@ export default function TaskList() {
         try {
             const supabase = createClient();
             const { data } = await supabase.auth.getSession();
-            const accessToken = data.session?.provider_token;
+            const accessToken = readGoogleCalendarProviderToken(
+                data.session?.provider_token,
+                user.uid
+            );
             // Capture UI date at click time — do not re-read store after OAuth redirects.
             const selectedDate = currentDate;
 
             if (accessToken) {
-                await syncGoogleCalendar(accessToken, selectedDate);
+                const result = await syncGoogleCalendar(accessToken, selectedDate);
+                if (result === 'auth_required') {
+                    clearGoogleCalendarProviderToken();
+                    await startGoogleCalendarOAuth(selectedDate);
+                }
             } else {
                 // Survive full page reload after /auth/callback (Zustand re-inits).
-                localStorage.setItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY, selectedDate);
-                writeStoredCurrentDate(selectedDate);
-                const redirectTo = `${window.location.origin}/auth/callback?next=/tasks`;
-                const { error } = await supabase.auth.signInWithOAuth({
-                    provider: 'google',
-                    options: {
-                        redirectTo,
-                        scopes: 'https://www.googleapis.com/auth/calendar.readonly',
-                        queryParams: {
-                            access_type: 'offline',
-                            prompt: 'consent',
-                        },
-                    },
-                });
-                if (error) {
-                    throw error;
-                }
+                await startGoogleCalendarOAuth(selectedDate);
             }
         } catch (e) {
             console.error("Sync failed", e);
@@ -117,28 +134,55 @@ export default function TaskList() {
             setCurrentDate(pendingDate);
         }
 
+        if (
+            !isGoogleCalendarSyncDataReady(
+                initialDataStatus,
+                tasksLoaded,
+                sections.length
+            ) ||
+            pendingCalendarSyncInFlight.current === pendingDate
+        ) {
+            return;
+        }
+
         let cancelled = false;
         const syncPending = async () => {
             const supabase = createClient();
-            let accessToken = (await supabase.auth.getSession()).data.session?.provider_token;
-
-            // OAuth callback may set user slightly before provider_token is readable.
-            if (!accessToken) {
-                await new Promise((resolve) => setTimeout(resolve, 400));
-                if (cancelled) return;
-                accessToken = (await supabase.auth.getSession()).data.session?.provider_token;
-            }
+            const sessionProviderToken =
+                (await supabase.auth.getSession()).data.session?.provider_token;
+            const accessToken = readGoogleCalendarProviderToken(
+                sessionProviderToken,
+                user.uid
+            );
             if (!accessToken || cancelled) return;
 
+            pendingCalendarSyncInFlight.current = pendingDate;
             localStorage.removeItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
-            await syncGoogleCalendar(accessToken, pendingDate);
+            try {
+                const result = await syncGoogleCalendar(accessToken, pendingDate);
+                if (result === 'auth_required') {
+                    clearGoogleCalendarProviderToken();
+                    alert(
+                        'Google Calendar access was not granted. Please try connecting again.'
+                    );
+                }
+            } finally {
+                pendingCalendarSyncInFlight.current = null;
+            }
         };
 
         void syncPending();
         return () => {
             cancelled = true;
         };
-    }, [syncGoogleCalendar, user, setCurrentDate]);
+    }, [
+        initialDataStatus,
+        sections.length,
+        setCurrentDate,
+        syncGoogleCalendar,
+        tasksLoaded,
+        user,
+    ]);
 
     const handleEditTask = (task: Task) => {
         setEditingTask(task);

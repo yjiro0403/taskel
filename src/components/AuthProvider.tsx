@@ -9,6 +9,10 @@ import { mapSupabaseUser } from '@/lib/supabase/auth';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useStore } from '@/store/useStore';
 import TaskSearchModal from '@/components/TaskSearchModal';
+import {
+    clearGoogleCalendarProviderToken,
+    storeGoogleCalendarProviderToken,
+} from '@/lib/calendarService';
 
 function isPublicPath(normalizedPath: string) {
     // /reset-password must stay public so invalid-link messaging can render
@@ -53,7 +57,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             const {
                 data: { subscription: authSubscription },
-            } = supabase.auth.onAuthStateChange(async (_event, session) => {
+            } = supabase.auth.onAuthStateChange(async (event, session) => {
+                if (event === 'SIGNED_OUT') {
+                    clearGoogleCalendarProviderToken();
+                } else {
+                    storeGoogleCalendarProviderToken(
+                        session?.provider_token,
+                        session?.user.id
+                    );
+                }
+
                 if (!session?.user) {
                     setUser(null);
                 } else {
