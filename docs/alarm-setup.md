@@ -19,12 +19,38 @@ FCM 送信側（Next.js）も `FIREBASE_SERVICE_ACCOUNT` 未設定なら静か�
 
 ## 2. Android アプリを登録して google-services.json を配置
 
-1. プロジェクトの設定 → 「アプリを追加」→ Android
+> **重要: どの Firebase プロジェクトを使うか**
+>
+> このリポジトリには Firebase プロジェクトが 2 つ登場します。混同すると
+> **プッシュがエラーも出さずに届かなくなります**。
+>
+> | 環境変数 | 値 | 用途 |
+> |---|---|---|
+> | `FIREBASE_PROJECT_ID` / `FIREBASE_SERVICE_ACCOUNT` | **`taskel-prod`** | **FCM 送信先（こちらを使う）** |
+> | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | `dev-t-chute-app` | Supabase 移行元のレガシー設定。FCM とは無関係 |
+>
+> FCM 送信は `src/lib/server/fcm.ts` が `FIREBASE_SERVICE_ACCOUNT` の `project_id`
+> をそのままエンドポイントに使う実装なので、**Android アプリの登録先と
+> `google-services.json` の取得元は必ず `taskel-prod`** にすること。
+> 別プロジェクトの `google-services.json` を置くと、端末は別プロジェクトの
+> トークンを登録してしまい、送信側は 404 UNREGISTERED を返して
+> トークンを削除する（= 何も起きない）。
+
+1. **`taskel-prod`** プロジェクトの設定 → 「アプリを追加」→ Android
 2. **パッケージ名は `com.taskel.app`**（必ず一致させること）。SHA-1 は不要
 3. `google-services.json` をダウンロード
 4. リポジトリの **`android/app/google-services.json`** に配置
    - このファイルは配置しなくてもビルドは通る（build.gradle が存在チェックしてから
      google-services プラグインを適用する構成）。配置した場合のみ FCM が有効になる
+   - **git 管理外（`android/.gitignore` で ignore 済み）なので、チェックアウトごとに
+     手動配置が必要**。`git worktree` を使っている場合、メイン側に置いても
+     worktree 側には存在しないため、そこでビルドすると FCM 無効の APK が
+     黙って出来上がる（ビルドは成功するので気づきにくい）
+
+     ```bash
+     # worktree でビルドするときはメイン側からコピーする
+     cp /path/to/main/android/app/google-services.json android/app/
+     ```
 
 ## 3. サービスアカウント JSON の発行（サーバー送信用）
 
@@ -49,6 +75,44 @@ FCM 送信側（Next.js）も `FIREBASE_SERVICE_ACCOUNT` 未設定なら静か�
 
 ## 5. APK ビルド
 
+### 5-0. 前提ツールチェーン（初回のみ・macOS / Homebrew）
+
+このリポジトリは **AGP 8.13 / compileSdk 36 / Kotlin jvmTarget 21** の構成なので、
+**JDK 21** と **Android SDK (platform 36 + build-tools 36)** が必要です。
+Android Studio は不要（コマンドラインツールだけで完結します）。
+
+```bash
+# JDK 21（keg-only なので PATH には自動で入らない）
+brew install openjdk@21
+
+# Android SDK コマンドラインツール
+brew install --cask android-commandlinetools
+
+# ライセンス同意 + SDK 本体
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+  "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+```
+
+さらに、Gradle に SDK の場所を教えるため **`android/local.properties`** を作成します
+（gitignore 済み。チェックアウトごとに必要 — worktree を使う場合は worktree 側にも）。
+
+```bash
+echo "sdk.dir=/opt/homebrew/share/android-commandlinetools" > android/local.properties
+```
+
+`java` を毎回 PATH に通すのが面倒なら、`~/.zshrc` に以下を追記しておくと以後は不要です。
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+```
+
+### 5-1. ビルド
+
 ```bash
 # 初回 or クローン直後は Capacitor 同期が必要
 npx cap sync android
@@ -58,11 +122,51 @@ cd android
 # → android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
+`~/.zshrc` に追記していない場合は、`JAVA_HOME` を付けて実行します。
+
+```bash
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew assembleDebug
+```
+
 ## 6. サイドロード
 
+APK を端末に入れる方法は 3 つ。**USB 接続は必須ではない**。
+
+### 方法 A: Google ドライブ経由（USB 不要・おすすめ）
+
+Mac に Google ドライブ デスクトップアプリが入っていれば、同期フォルダに
+コピーするだけでよい（日付プレフィックスの命名で履歴を残す運用）。
+
+```bash
+cp android/app/build/outputs/apk/debug/app-debug.apk \
+  ~/Library/CloudStorage/GoogleDrive-<アカウント>/マイドライブ/storage/$(date +%Y%m%d)_taskel.apk
+```
+
+端末側: ドライブアプリ（同じ Google アカウントでログイン）→ `storage` フォルダ →
+該当 APK をタップ → ダウンロード → 通知から開く → インストール。
+初回は「このアプリからの不明なアプリのインストールを許可」を求められるので、
+ドライブアプリ（または Files アプリ）に対して許可する。
+
+### 方法 B: ワイヤレス ADB（Android 11+・USB 不要）
+
+繰り返しビルドして入れ替えるならこれが速い。Mac と端末が同じ LAN にあること。
+
+1. 端末: 開発者向けオプション → **ワイヤレス デバッグ** を ON
+2. 「ペア設定コードによるデバイスのペア設定」を開き、表示された IP:ポートとコードを使う
+
+```bash
+adb pair <端末IP>:<ペア用ポート>     # コードを入力（初回のみ）
+adb connect <端末IP>:<デバッグ用ポート>
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### 方法 C: USB 接続
+
 1. 端末の「設定 → セキュリティ」で提供元不明アプリのインストールを許可
-2. `app-debug.apk` を端末へ転送してインストール
-   （USB 接続なら `adb install -r app-debug.apk` が手軽）
+2. 開発者向けオプションで「USB デバッグ」を有効化
+   （設定 → デバイス情報 → ビルド番号を 7 回タップ）
+3. `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`
+   - `adb devices` に出てこない場合は、端末に出る「USB デバッグを許可しますか」を許可
 
 ## 7. 初回起動時の権限許可
 
@@ -84,9 +188,29 @@ cd android
 
 ## トラブルシューティング
 
+- **`Unable to locate a Java Runtime`**: JDK 未インストール、または keg-only の
+  `openjdk@21` が PATH に入っていない。5-0 を実施する
+- **`SDK location not found`**: `android/local.properties` が無い。5-0 の `echo ... >` を実行
+  （このファイルは gitignore 済みなので、clone / worktree ごとに作り直しが必要）
+- **`Failed to install the following SDK components ... licenses`**:
+  `yes | sdkmanager --licenses` でライセンス未同意を解消する
 - **プッシュが届かない**: Vercel の Function ログで `FCM:` プレフィックスのエラーを確認。
   端末側は `adb logcat -s TaskelFcmService TaskelAlarmScheduler` で受信ログを確認
+- **インストール時に「既存のパッケージと署名が一致しません」**:
+  別マシン（別の debug.keystore）でビルドした Taskel が既に入っている。
+  一度アンインストールしてから入れ直す
 - **アラームが鳴らない**: 権限バナーの 3 権限（特に「アラームとリマインダー」）と、
   メーカー独自の電池管理設定（自動起動許可など）を確認
 - **トークンが registration される気配がない**: google-services.json 配置後に
   `npx cap sync android` → 再ビルドしたか確認（配置しただけでは反映されない）
+- **ビルドは通るのに FCM が効かない**: そのビルドに google-services.json が
+  含まれていない可能性が高い（特に worktree）。以下で焼き込まれたか検証できる。
+  `project_id` が `taskel-prod`、`gcm_defaultSenderId` が `289232867204` なら正しい。
+
+  ```bash
+  grep -o 'name="project_id"[^>]*>[^<]*' \
+    android/app/build/generated/res/processDebugGoogleServices/values/values.xml
+  ```
+
+  ファイルごと存在しなければ google-services プラグインが適用されていない
+  （= FCM 無効の APK）。`android/app/google-services.json` を置いて再ビルドする

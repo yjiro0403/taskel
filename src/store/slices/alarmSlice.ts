@@ -53,7 +53,10 @@ export const createAlarmSlice: StateCreator<StoreState, [], [], AlarmSlice> = (s
             if (!res.ok) throw new Error('Failed to create alarm');
             const data = await res.json();
             const alarm = data.alarm as Alarm;
-            set((state) => ({ alarms: [...state.alarms, alarm] }));
+            // alarmsLoaded も同時に立てる。初回の fetchAlarms が失敗していると
+            // false のまま固定され、NativeAlarmBridge の同期 effect が
+            // 「アラームを何個作っても一度も走らない」状態になるため。
+            set((state) => ({ alarms: [...state.alarms, alarm], alarmsLoaded: true }));
             return alarm;
         } catch (error) {
             console.error('addAlarm error:', error);
