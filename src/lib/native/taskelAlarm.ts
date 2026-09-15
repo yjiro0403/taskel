@@ -44,6 +44,8 @@ declare global {
     interface Window {
         Capacitor?: {
             isNativePlatform?: () => boolean;
+            /** ネイティブブリッジが登録済みプラグインを公開する場所。 */
+            Plugins?: Record<string, unknown>;
         };
     }
 }
@@ -55,11 +57,32 @@ export function isNativePlatform(): boolean {
 
 let pluginPromise: Promise<TaskelAlarmPlugin> | null = null;
 
+/**
+ * プラグイン参照を得る。
+ *
+ * ネイティブブリッジは起動時に window.Capacitor.Plugins へ登録済みプラグインを
+ * 公開するので、まずそれを使う（同期的に取得でき、ネットワークを一切伴わない）。
+ *
+ * 動的 import('@capacitor/core') は bundler のチャンク取得＝ネットワークアクセスを
+ * 伴い、通信が不安定な端末では解決も reject もしないまま固まることがある。
+ * かつて結果を無条件にキャッシュしていたため、一度詰まるとページが生きている間
+ * すべてのプラグイン呼び出しが永久に待たされ、アラームが端末へ一度も同期されない
+ * 状態になっていた。フォールバック時も失敗はキャッシュせず再試行できるようにする。
+ */
 async function getPlugin(): Promise<TaskelAlarmPlugin> {
+    const bridged =
+        typeof window !== 'undefined'
+            ? (window.Capacitor?.Plugins?.TaskelAlarm as TaskelAlarmPlugin | undefined)
+            : undefined;
+    if (bridged) return bridged;
+
     if (!pluginPromise) {
-        pluginPromise = import('@capacitor/core').then(({ registerPlugin }) =>
-            registerPlugin<TaskelAlarmPlugin>('TaskelAlarm')
-        );
+        pluginPromise = import('@capacitor/core')
+            .then(({ registerPlugin }) => registerPlugin<TaskelAlarmPlugin>('TaskelAlarm'))
+            .catch((error) => {
+                pluginPromise = null;
+                throw error;
+            });
     }
     return pluginPromise;
 }
