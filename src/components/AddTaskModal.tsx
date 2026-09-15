@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslations } from 'next-intl';
 import { useStore } from '@/store/useStore';
 import { Task, Attachment, ChecklistItem } from '@/types';
-import { X, Sparkles, MessageSquare, Link2, Check } from 'lucide-react';
+import { X, MessageSquare, Link2, Check } from 'lucide-react';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
 import { TaskForm } from '@/components/TaskForm';
@@ -15,6 +15,16 @@ import { TaskAlarmSection } from '@/components/TaskAlarmSection';
 import { TaskTagSelector } from '@/components/TaskTagSelector';
 import { TaskDatePicker } from '@/components/TaskDatePicker';
 import { useCopyTaskLink } from '@/hooks/useCopyTaskLink';
+import { FinanceRowsEditor } from '@/components/finance/FinanceRowsEditor';
+import { resolveFinanceOccurrenceDate } from '@/lib/finance/dateRange';
+import { financeEntryToDraft } from '@/lib/finance/mapping';
+import type { FinanceDraftRow } from '@/lib/finance/types';
+import { isBlankFinanceDraft, serializeFinanceDraftRows } from '@/lib/finance/validation';
+import {
+    deriveFinanceLoadState,
+    gateExistingTaskFinanceReplace,
+    resolvePendingFinanceSourceTaskId,
+} from '@/lib/finance/taskEntriesGate';
 
 type TaskType = 'task' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -49,8 +59,9 @@ export default function AddTaskModal({
     existingTask,
     onTaskCreatedWithAI,
 }: AddTaskModalProps) {
-    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, addTag, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply } = useStore();
+    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, financeEnabled, financeCategories, loadFinanceCategories, loadFinanceEntriesForTask, replaceTaskFinanceEntries, user } = useStore();
     const tLink = useTranslations('TaskLink');
+    const tFinance = useTranslations('Finance');
     const { copyTaskLink } = useCopyTaskLink();
     const [linkCopied, setLinkCopied] = useState(false);
 
@@ -83,6 +94,33 @@ export default function AddTaskModal({
 
     // Validation State
     const [error, setError] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
+    const [persistedTaskId, setPersistedTaskId] = useState<string | null>(targetTask?.id ?? null);
+    const persistedTaskIdRef = useRef<string | null>(targetTask?.id ?? null);
+    const draftTaskIdRef = useRef<string | null>(targetTask?.id ?? null);
+    const financeSourceTaskIdRef = useRef<string | null>(null);
+    const [financeRows, setFinanceRows] = useState<FinanceDraftRow[]>([]);
+    const [financeLoadResult, setFinanceLoadResult] = useState<{
+        status: 'loaded' | 'error';
+        taskId: string;
+        entryCount?: number;
+    } | null>(null);
+    const [financeLoadNonce, setFinanceLoadNonce] = useState(0);
+    const financeSessionKey = `${isOpen ? 'open' : 'closed'}:${user?.uid ?? 'anonymous'}:${targetTask?.id ?? 'new'}:${financeEnabled ? 'on' : 'off'}`;
+    const activeSessionRef = useRef(financeSessionKey);
+    const [financeSession, setFinanceSession] = useState(financeSessionKey);
+    if (financeSession !== financeSessionKey) {
+        setFinanceSession(financeSessionKey);
+        setFinanceRows([]);
+        setFinanceLoadResult(null);
+        persistedTaskIdRef.current = targetTask?.id ?? null;
+        draftTaskIdRef.current = targetTask?.id ?? null;
+        financeSourceTaskIdRef.current = null;
+    }
+
+    useEffect(() => {
+        activeSessionRef.current = financeSessionKey;
+    }, [financeSessionKey]);
 
     // Context-dependent Date Fields
     const [date, setDate] = useState(() => {
@@ -117,8 +155,6 @@ export default function AddTaskModal({
     // Attachment State
     const [attachments, setAttachments] = useState<Attachment[]>(targetTask?.attachments || []);
     const [isUploading, setIsUploading] = useState(false);
-    const { user } = useStore(); // Need user for upload path
-
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0) return;
         if (!user) {
@@ -138,9 +174,10 @@ export default function AddTaskModal({
             const newAttachments = await Promise.all(uploadPromises);
 
             setAttachments(prev => [...prev, ...newAttachments]);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Upload failed", error);
-            alert(`Upload failed: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            alert(`Upload failed: ${message}`);
         } finally {
             setIsUploading(false);
             // Clear input value to allow selecting same file again if needed
@@ -182,15 +219,16 @@ export default function AddTaskModal({
             setProjectId(targetTask?.projectId || initialProjectId || '');
             setMilestoneId(targetTask?.milestoneId || initialMilestoneId || '');
 
-            // Determine Type
-            if (targetTask?.assignedDate || initialAssignedDate) setActiveType('daily');
-            else if (targetTask?.assignedWeek || initialAssignedWeek) setActiveType('weekly');
-            else if (targetTask?.assignedMonth || initialAssignedMonth) setActiveType('monthly');
-            else if (targetTask?.assignedYear || initialAssignedYear) setActiveType('yearly');
-            else setActiveType('task');
+            // Determine Type once and reuse it for dependent defaults.
+            let nextActiveType: TaskType = 'task';
+            if (targetTask?.assignedDate || initialAssignedDate) nextActiveType = 'daily';
+            else if (targetTask?.assignedWeek || initialAssignedWeek) nextActiveType = 'weekly';
+            else if (targetTask?.assignedMonth || initialAssignedMonth) nextActiveType = 'monthly';
+            else if (targetTask?.assignedYear || initialAssignedYear) nextActiveType = 'yearly';
+            setActiveType(nextActiveType);
 
             let initialSectionId = targetTask?.sectionId || defaultSectionId || sections[0]?.id || '';
-            let initialScheduledStart = targetTask?.scheduledStart || '';
+            const initialScheduledStart = targetTask?.scheduledStart || '';
 
             if (initialScheduledStart && initialScheduledStart.length === 5) {
                 const correctSection = getSectionForTime(sections, initialScheduledStart);
@@ -204,7 +242,7 @@ export default function AddTaskModal({
 
             // Context Fields
             setDate(targetTask ? (targetTask.date || '') : (initialDate !== undefined ? initialDate : currentDate));
-            setAssignedDate(targetTask?.assignedDate || initialAssignedDate || (activeType === 'daily' ? currentDate : ''));
+            setAssignedDate(targetTask?.assignedDate || initialAssignedDate || (nextActiveType === 'daily' ? currentDate : ''));
             setAssignedWeek(targetTask?.assignedWeek || initialAssignedWeek || '');
             setAssignedMonth(targetTask?.assignedMonth || initialAssignedMonth || '');
             setAssignedYear(targetTask?.assignedYear || initialAssignedYear || '');
@@ -218,8 +256,55 @@ export default function AddTaskModal({
             setChecklist(targetTask?.checklist || []);
             setAttachments(targetTask?.attachments || []);
             setError(null);
+            setIsSaving(false);
+            persistedTaskIdRef.current = targetTask?.id ?? null;
+            draftTaskIdRef.current = targetTask?.id ?? null;
+            financeSourceTaskIdRef.current = null;
+            setPersistedTaskId(targetTask?.id ?? null);
         }
     }, [isOpen, targetTask, defaultSectionId, initialProjectId, initialMilestoneId, initialDate, initialAssignedWeek, initialAssignedMonth, initialAssignedYear, initialAssignedDate, sections, currentDate]);
+
+    useEffect(() => {
+        if (!isOpen || !financeEnabled) {
+            return;
+        }
+        void loadFinanceCategories();
+    }, [isOpen, financeEnabled, loadFinanceCategories]);
+
+    const isFinanceCapableType = activeType === 'task' || activeType === 'daily';
+    const originalTaskCouldHaveFinance = Boolean(targetTask?.date || targetTask?.assignedDate);
+    const financeReadRequired = Boolean(
+        isOpen &&
+        financeEnabled &&
+        targetTask?.id &&
+        (isFinanceCapableType || originalTaskCouldHaveFinance)
+    );
+
+    useEffect(() => {
+        if (!financeReadRequired || !targetTask?.id) {
+            return;
+        }
+
+        const taskId = targetTask.id;
+        let cancelled = false;
+        loadFinanceEntriesForTask(taskId)
+            .then((entries) => {
+                if (!cancelled) {
+                    setFinanceRows(entries.map(financeEntryToDraft));
+                    setFinanceLoadResult({ status: 'loaded', taskId, entryCount: entries.length });
+                }
+            })
+            .catch((loadError) => {
+                console.error('Failed to load finance entries:', loadError);
+                if (!cancelled) {
+                    setFinanceLoadResult({ status: 'error', taskId });
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [financeReadRequired, targetTask?.id, financeLoadNonce, loadFinanceEntriesForTask]);
 
     // Exclusive Logic: Auto-select section when time changes
     useEffect(() => {
@@ -230,7 +315,7 @@ export default function AddTaskModal({
                 setSectionId(newSectionId);
             }
         }
-    }, [scheduledStart, sections]);
+    }, [scheduledStart, sections, sectionId]);
 
     // Check for inconsistency (used for UI warning)
     const isTimeSectionInconsistent = useMemo(() => {
@@ -241,8 +326,34 @@ export default function AddTaskModal({
 
     if (!isOpen) return null;
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const occurrenceDate = resolveFinanceOccurrenceDate({
+        activeType,
+        date,
+        assignedDate,
+    });
+    const showFinanceEditor = financeEnabled && isFinanceCapableType;
+    const existingFinanceTaskId = targetTask?.id ?? null;
+    const financeLoad = deriveFinanceLoadState({
+        existingTaskId: financeReadRequired ? existingFinanceTaskId : null,
+        result: financeLoadResult,
+    });
+    const financeReplaceGate = gateExistingTaskFinanceReplace({
+        enabled: showFinanceEditor,
+        occurrenceDate,
+        existingTaskId: existingFinanceTaskId,
+        load: financeLoad,
+    });
+    const financeLoading = financeLoad.status === 'loading';
+    const financeLoadError = financeLoad.status === 'error';
+    const existingFinanceEntryCount =
+        financeLoadResult?.status === 'loaded' &&
+        financeLoadResult.taskId === existingFinanceTaskId
+            ? financeLoadResult.entryCount ?? 0
+            : 0;
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        const submitSessionKey = financeSessionKey;
         setError(null);
 
         // Validation Logic
@@ -291,113 +402,164 @@ export default function AddTaskModal({
         }
 
         // Include currentTag if the user hasn't pressed Enter to add it yet but submits
-        let finalTags = [...tags];
+        const finalTags = [...tags];
         if (currentTag.trim() && !tags.includes(currentTag.trim())) {
             finalTags.push(currentTag.trim());
         }
 
-        finalTags.forEach(tagName => {
-            const exists = tagsList.find(t => t.name === tagName);
-            if (!exists) {
-                // Auto-create new global tag
-                addTag({
-                    id: crypto.randomUUID(),
-                    userId: 'user-1',
-                    name: tagName,
-                    memo: ''
-                });
+        let financePayload: ReturnType<typeof serializeFinanceDraftRows> | null = null;
+        const hasFinanceDraft = financeRows.some((row) => !isBlankFinanceDraft(row));
+        const hadExistingFinance = existingFinanceEntryCount > 0;
+        if (financeReadRequired && existingFinanceTaskId && financeLoad.status !== 'loaded') {
+            setError(
+                financeLoad.status === 'loading'
+                    ? tFinance('saveBlockedFinanceLoading')
+                    : tFinance('saveBlockedFinanceError')
+            );
+            return;
+        }
+        if (financeEnabled && !occurrenceDate && (hasFinanceDraft || hadExistingFinance)) {
+            setError(tFinance('datedTypeRequired'));
+            return;
+        }
+        if (showFinanceEditor && occurrenceDate) {
+            if (!financeReplaceGate.allow) {
+                setError(
+                    financeReplaceGate.reason === 'loading'
+                        ? tFinance('saveBlockedFinanceLoading')
+                        : tFinance('saveBlockedFinanceError')
+                );
+                return;
             }
-        });
-
-        if (targetTask) {
-            console.log("AddTaskModal Update:", { taskId: targetTask.id, projectId, finalTags });
-            // Taskel AI: aiTags の計算
-            const existingAiTags = targetTask.aiTags || [];
-            const updatedAiTags = taskelAIEnabled
-                ? (existingAiTags.includes('ai-workspace') ? existingAiTags : [...existingAiTags, 'ai-workspace'])
-                : existingAiTags.filter(t => t !== 'ai-workspace');
-
-            updateTask(targetTask.id, {
-                title,
-                sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal', // Dummy or empty for goals
-                projectId: projectId || '',
-                milestoneId: milestoneId || undefined,
-                estimatedMinutes: activeType === 'task' ? Number(estimatedMinutes) : 0,
-                actualMinutes: activeType === 'task' ? Number(actualMinutes) : 0,
-                // 空文字は time 列(scheduled_start)に渡せないため undefined を送る。
-                // 明示的 undefined は withClearedNullables で null（クリア）に変換される。
-                scheduledStart: activeType === 'task' ? (scheduledStart || undefined) : undefined,
-                date: activeType === 'task' ? date : '',
-                assignedDate: activeType === 'daily' ? (assignedDate || currentDate) : undefined,
-                assignedWeek: activeType === 'weekly' ? assignedWeek : undefined,
-                assignedMonth: activeType === 'monthly' ? assignedMonth : undefined,
-                assignedYear: activeType === 'yearly' ? assignedYear : undefined,
-                tags: finalTags,
-                score: score === '' ? undefined : Number(score),
-                memo,
-                checklist,
-                attachments,
-                aiTags: updatedAiTags.length > 0 ? updatedAiTags : undefined,
-                ...(taskelAIEnabled && !targetTask.aiStatus ? { aiStatus: 'pending' as const } : {}),
-            });
-        } else {
-            // Calculate new order: max order in this section + 1
-            const sectionTasks = tasks.filter(t => t.sectionId === (finalSectionId || ''));
-            const maxOrder = sectionTasks.length > 0 ? Math.max(...sectionTasks.map(t => t.order ?? 0)) : 0;
-            const newOrder = maxOrder + 1;
-
-            const newTaskPayload = {
-                id: crypto.randomUUID(),
-                userId: useStore.getState().user?.uid || 'user-1', // Use actual user ID
-                title,
-                sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal',
-                projectId: projectId || '',
-                milestoneId: milestoneId || undefined,
-                date: activeType === 'task' ? date : '',
-                status: 'open' as const,
-                estimatedMinutes: activeType === 'task' ? Number(estimatedMinutes) : 0,
-                actualMinutes: activeType === 'task' ? Number(actualMinutes) : 0,
-                // 空文字は time 列(scheduled_start)に渡せないため undefined を送る（未設定）。
-                scheduledStart: activeType === 'task' ? (scheduledStart || undefined) : undefined,
-                order: newOrder,
-                tags: finalTags,
-                memo,
-                checklist,
-                attachments,
-                assignedDate: activeType === 'daily' ? (assignedDate || currentDate) : undefined,
-                assignedWeek: activeType === 'weekly' ? assignedWeek : undefined,
-                assignedMonth: activeType === 'monthly' ? assignedMonth : undefined,
-                assignedYear: activeType === 'yearly' ? assignedYear : undefined,
-                score: score === '' ? undefined : Number(score),
-                ...(taskelAIEnabled ? {
-                    aiTags: ['ai-workspace'],
-                    aiStatus: 'pending' as const,
-                } : {}),
-            };
-            console.log("Creating new task:", newTaskPayload);
-            addTask(newTaskPayload);
-
-            // Taskel AI: 初期プロンプトがあればコールバックでトリガー
-            if (taskelAIEnabled && aiInitialPrompt.trim() && onTaskCreatedWithAI) {
-                onTaskCreatedWithAI(newTaskPayload.id, aiInitialPrompt.trim());
+            financePayload = serializeFinanceDraftRows(financeRows);
+            if (!financePayload.ok) {
+                if (financePayload.error.code === 'too_many') {
+                    setError(tFinance('validationTooMany', { max: financePayload.error.max }));
+                } else if (financePayload.error.code === 'category') {
+                    setError(tFinance('validationCategory'));
+                } else if (financePayload.error.code === 'amount') {
+                    setError(tFinance('validationAmount'));
+                } else {
+                    setError(tFinance('validationRows'));
+                }
+                return;
             }
         }
 
-        // ... (reset)
-        setTitle('');
-        setScore('');
-        setEstimatedMinutes(15);
-        setActualMinutes(0);
-        setScheduledStart('');
-        setProjectId('');
-        setMilestoneId('');
-        setMemo('');
-        setTags([]);
-        setChecklist([]);
-        setCurrentTag('');
-        setTaskelAIEnabled(false);
-        setAiInitialPrompt('');
-        onClose();
+        const existingAiTags = targetTask?.aiTags || [];
+        const updatedAiTags = taskelAIEnabled
+            ? (existingAiTags.includes('ai-workspace') ? existingAiTags : [...existingAiTags, 'ai-workspace'])
+            : existingAiTags.filter(tag => tag !== 'ai-workspace');
+
+        const taskFields = {
+            title,
+            sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal',
+            projectId: projectId || '',
+            milestoneId: milestoneId || undefined,
+            estimatedMinutes: activeType === 'task' ? Number(estimatedMinutes) : 0,
+            actualMinutes: activeType === 'task' ? Number(actualMinutes) : 0,
+            scheduledStart: activeType === 'task' ? (scheduledStart || undefined) : undefined,
+            date: activeType === 'task' ? date : '',
+            assignedDate: activeType === 'daily' ? (assignedDate || currentDate) : undefined,
+            assignedWeek: activeType === 'weekly' ? assignedWeek : undefined,
+            assignedMonth: activeType === 'monthly' ? assignedMonth : undefined,
+            assignedYear: activeType === 'yearly' ? assignedYear : undefined,
+            tags: finalTags,
+            score: score === '' ? undefined : Number(score),
+            memo,
+            checklist,
+            attachments,
+        };
+
+        setIsSaving(true);
+        try {
+            const existingId = persistedTaskIdRef.current ?? persistedTaskId ?? targetTask?.id ?? null;
+            let savedId = existingId;
+
+            if (existingId) {
+                const persistResult = await updateTask(existingId, {
+                    ...taskFields,
+                    aiTags: updatedAiTags.length > 0 ? updatedAiTags : undefined,
+                    ...(taskelAIEnabled && !targetTask?.aiStatus ? { aiStatus: 'pending' as const } : {}),
+                });
+                if (!persistResult.ok) {
+                    setError(tFinance('saveTaskFailed'));
+                    return;
+                }
+                savedId = persistResult.persistedId;
+                financeSourceTaskIdRef.current = resolvePendingFinanceSourceTaskId({
+                    pendingSourceTaskId: financeSourceTaskIdRef.current,
+                    attemptedTaskId: existingId,
+                    persistedTaskId: savedId,
+                });
+                persistedTaskIdRef.current = persistResult.persistedId;
+                setPersistedTaskId(persistResult.persistedId);
+            } else {
+                const sectionTasks = tasks.filter(task => task.sectionId === (finalSectionId || ''));
+                const maxOrder = sectionTasks.length > 0 ? Math.max(...sectionTasks.map(task => task.order ?? 0)) : 0;
+                const draftTaskId = draftTaskIdRef.current ?? crypto.randomUUID();
+                draftTaskIdRef.current = draftTaskId;
+                const newTaskPayload = {
+                    id: draftTaskId,
+                    userId: useStore.getState().user?.uid || 'user-1',
+                    status: 'open' as const,
+                    order: maxOrder + 1,
+                    ...taskFields,
+                    ...(taskelAIEnabled ? {
+                        aiTags: ['ai-workspace'],
+                        aiStatus: 'pending' as const,
+                    } : {}),
+                };
+                const persistResult = await addTask(newTaskPayload);
+                if (!persistResult.ok) {
+                    setError(tFinance('saveTaskFailed'));
+                    return;
+                }
+                savedId = persistResult.persistedId;
+                persistedTaskIdRef.current = persistResult.persistedId;
+                setPersistedTaskId(persistResult.persistedId);
+                if (taskelAIEnabled && aiInitialPrompt.trim() && onTaskCreatedWithAI) {
+                    onTaskCreatedWithAI(persistResult.persistedId, aiInitialPrompt.trim());
+                }
+            }
+
+            if (showFinanceEditor && occurrenceDate && financePayload?.ok && savedId && user) {
+                const financeOk = await replaceTaskFinanceEntries(
+                    savedId,
+                    financePayload.entries,
+                    financeSourceTaskIdRef.current ?? undefined
+                );
+                if (!financeOk) {
+                    setError(tFinance('saveFinanceFailed'));
+                    return;
+                }
+                financeSourceTaskIdRef.current = null;
+            }
+
+            if (activeSessionRef.current !== submitSessionKey) {
+                return;
+            }
+
+            setTitle('');
+            setScore('');
+            setEstimatedMinutes(15);
+            setActualMinutes(0);
+            setScheduledStart('');
+            setProjectId('');
+            setMilestoneId('');
+            setMemo('');
+            setTags([]);
+            setChecklist([]);
+            setCurrentTag('');
+            setTaskelAIEnabled(false);
+            setAiInitialPrompt('');
+            setFinanceRows([]);
+            onClose();
+        } finally {
+            if (activeSessionRef.current === submitSessionKey) {
+                setIsSaving(false);
+            }
+        }
     };
 
     const handleAddTag = (e: React.KeyboardEvent) => {
@@ -460,7 +622,13 @@ export default function AddTaskModal({
                                     </span>
                                 </button>
                             )}
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                disabled={isSaving}
+                                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                aria-label={tFinance('closeTaskModal')}
+                            >
                                 <X size={20} />
                             </button>
                         </div>
@@ -606,6 +774,27 @@ export default function AddTaskModal({
                         <TaskAlarmSection task={targetTask} />
                     )}
 
+                    {financeEnabled && (
+                        showFinanceEditor ||
+                        financeLoading ||
+                        financeLoadError ||
+                        existingFinanceEntryCount > 0
+                    ) && (
+                        <FinanceRowsEditor
+                            rows={financeRows}
+                            categories={financeCategories}
+                            occurrenceDate={occurrenceDate}
+                            disabled={isSaving || financeLoading || financeLoadError}
+                            loading={financeLoading}
+                            loadError={financeLoadError}
+                            onChange={setFinanceRows}
+                            onRetryLoad={() => {
+                                setFinanceLoadResult(null);
+                                setFinanceLoadNonce((nonce) => nonce + 1);
+                            }}
+                        />
+                    )}
+
                     {activeType === 'task' && (
                         <TaskChecklistEditor checklist={checklist} setChecklist={setChecklist} />
                     )}
@@ -632,22 +821,23 @@ export default function AddTaskModal({
 
                     <div className="flex flex-col items-end pt-2">
                         {error && (
-                            <p className="text-red-500 text-sm mb-2 font-medium">{error}</p>
+                            <p role="alert" className="text-red-500 text-sm mb-2 font-medium">{error}</p>
                         )}
                         <div className="flex justify-end">
                             <button
                                 type="button"
                                 onClick={onClose}
-                                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2 transition-colors"
+                                disabled={isSaving}
+                                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
-                                disabled={isUploading}
+                                disabled={isUploading || isSaving || financeLoading || financeLoadError}
                                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
                             >
-                                {targetTask ? 'Update Task' : 'Add Task'}
+                                {isSaving ? tFinance('saving') : targetTask ? 'Update Task' : 'Add Task'}
                             </button>
                         </div>
                     </div>

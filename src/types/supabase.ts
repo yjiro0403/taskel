@@ -105,6 +105,99 @@ export type Database = {
                 };
                 Relationships: [];
             };
+            finance_categories: {
+                Row: {
+                    created_at: string;
+                    id: string;
+                    label: string;
+                    normalized_label: string;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    id?: string;
+                    label: string;
+                    normalized_label?: string;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    id?: string;
+                    label?: string;
+                    normalized_label?: string;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
+            finance_entries: {
+                Row: {
+                    amount_yen: number;
+                    category_id: string;
+                    category_label_snapshot: string;
+                    created_at: string;
+                    entry_type: Database['public']['Enums']['finance_entry_type'];
+                    id: string;
+                    memo: string | null;
+                    occurred_on: string;
+                    task_id: string | null;
+                    task_title_snapshot: string;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    amount_yen: number;
+                    category_id: string;
+                    category_label_snapshot: string;
+                    created_at?: string;
+                    entry_type: Database['public']['Enums']['finance_entry_type'];
+                    id?: string;
+                    memo?: string | null;
+                    occurred_on: string;
+                    task_id?: string | null;
+                    task_title_snapshot: string;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    amount_yen?: number;
+                    category_id?: string;
+                    category_label_snapshot?: string;
+                    created_at?: string;
+                    entry_type?: Database['public']['Enums']['finance_entry_type'];
+                    id?: string;
+                    memo?: string | null;
+                    occurred_on?: string;
+                    task_id?: string | null;
+                    task_title_snapshot?: string;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
+            finance_preferences: {
+                Row: {
+                    created_at: string;
+                    enabled: boolean;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    enabled?: boolean;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    enabled?: boolean;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
             goals: {
                 Row: {
                     ai_analysis: Json | null;
@@ -715,13 +808,43 @@ export type Database = {
                 };
                 Returns: number;
             };
+            list_finance_entries_in_range: {
+                Args: {
+                    p_end: string;
+                    p_limit?: number;
+                    p_offset?: number;
+                    p_start: string;
+                };
+                Returns: Database['public']['Tables']['finance_entries']['Row'][];
+            };
+            replace_task_finance_entries: {
+                Args: {
+                    p_entries: Json;
+                    p_source_task_id?: string;
+                    p_task_id: string;
+                };
+                Returns: Database['public']['Tables']['finance_entries']['Row'][];
+            };
             set_updated_at: {
                 Args: Record<PropertyKey, never>;
                 Returns: unknown;
             };
+            summarize_finance_range: {
+                Args: {
+                    p_end: string;
+                    p_start: string;
+                };
+                Returns: {
+                    expense_count: number;
+                    expense_total: string;
+                    income_count: number;
+                    income_total: string;
+                }[];
+            };
         };
         Enums: {
             attachment_file_type: 'image' | 'file';
+            finance_entry_type: 'expense' | 'income';
             goal_status: 'pending' | 'in_progress' | 'achieved' | 'missed' | 'cancelled';
             goal_type: 'yearly' | 'monthly' | 'weekly';
             hub_role: 'owner' | 'admin' | 'member' | 'viewer';

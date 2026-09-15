@@ -148,3 +148,19 @@ This list covers all implemented features found in the codebase as of Jan 21, 20
 | **RACE-01** | Edit | Simultaneous Edit | 2 Devices/Tabs | 1. Device A opens task.<br>2. Device B opens task.<br>3. Both save different titles. | Last write wins (Firestore default). UI updates to match server. |
 | **RACE-02** | Delete | Edit Deleted Task | 2 Devices/Tabs | 1. Device A deletes task.<br>2. Device B tries to edit same task. | Error handled gracefully (e.g. "Task not found"). |
 | **RACE-03** | Timer | Double Start | Quick Click | 1. Rapidly click Start Timer. | Only one timer starts. No duplicate records. |
+
+## 18. Money Tracking (Finance)
+| ID | Feature | Test Case | Pre-conditions | Steps | Expected Result |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **FIN-01** | Settings | Default off | Logged in, no preference row | 1. Open Settings → General.<br>2. Open a dated task.<br>3. Check daily and planning headers. | Toggle is OFF. No finance editor or header totals. Apart from loading the preference itself, no category, entry, or summary request runs. Existing Taskel behavior is unchanged. |
+| **FIN-02** | Settings | Enable | FIN-01 | 1. Turn money tracking ON.<br>2. Reopen a dated task. | Finance rows editor appears. Header totals appear (¥0 if empty). |
+| **FIN-03** | Settings | Disable preserves data | Finance rows exist | 1. Turn money tracking OFF.<br>2. Confirm UI is hidden.<br>3. Turn ON again and reopen the task. | Records reappear. Nothing was deleted. |
+| **FIN-04** | Task modal | Multiple rows | Feature ON, dated task | 1. Add a 20,000 expense and a 10,000 income.<br>2. Save. | Both rows persist. Modal closes only after task **and** finance save succeed. |
+| **FIN-05** | Validation | Amount | Feature ON | 1. Enter `0`, `-1`, `1.5`, `1e3`.<br>2. Save. | Save blocked with an inline amount error. Modal stays open. |
+| **FIN-06** | Category | Create + autocomplete | Feature ON, prior category exists | 1. Type a new category and save.<br>2. Open another task and type a prefix. | New category is created. Suggestions list prior private categories. |
+| **FIN-07** | Date | Weekly/monthly/yearly | Feature ON | 1. Switch item type to Weekly Goal. | Finance editor is hidden. No silent date assignment. |
+| **FIN-08** | Date follow | Edit task date | Feature ON, rows exist | 1. Change the task date.<br>2. Save. | Finance rows follow the resulting task date. |
+| **FIN-09** | Summary | Daily / ISO week / month / year | Feature ON, mixed dates | 1. Check daily header for the selected day.<br>2. Check /planning week that crosses 1 Jan.<br>3. Click a summary. | Totals match `[start, end)` aggregation. Breakdown groups by type and category, with task title and memo. |
+| **FIN-10** | Privacy | Shared task | Two project members | 1. User A records finance on a shared task.<br>2. User B opens the same task. | User B does not see A's rows and can add their own. |
+| **FIN-11** | History | Delete / duplicate task | Feature ON, rows exist | 1. Duplicate the task.<br>2. Delete the original. | Duplicate has no finance rows. Breakdown still shows snapshots after delete. |
+| **FIN-12** | Persistence | Partial failure | Feature ON | 1. Cause finance RPC to fail after task save.<br>2. Observe modal. | Modal stays open with entered rows and an inline error. Task is not reported as fully saved. |

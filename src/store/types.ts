@@ -8,8 +8,14 @@ import type { GoalSlice } from './slices/goalSlice';
 import type { BillingSlice } from './slices/billingSlice';
 import type { WorkspaceSlice } from './slices/workspaceSlice';
 import type { AlarmSlice } from './slices/alarmSlice';
+import type { FinanceSlice } from './slices/financeSlice';
 
 // --- 各スライスの型定義 ---
+
+/** Result of persisting a task. Callers that need a follow-on write (finance) must use persistedId. */
+export type PersistTaskResult =
+    | { ok: false }
+    | { ok: true; persistedId: string };
 
 export interface TaskSlice {
     tasks: Task[];
@@ -24,8 +30,8 @@ export interface TaskSlice {
     currentDate: string;
     setCurrentDate: (date: string) => void;
     hydrateCurrentDateFromStorage: () => void;
-    addTask: (task: Task) => void;
-    updateTask: (taskId: string, updates: Partial<Task>) => Promise<boolean>;
+    addTask: (task: Task) => Promise<PersistTaskResult>;
+    updateTask: (taskId: string, updates: Partial<Task>) => Promise<PersistTaskResult>;
     duplicateTask: (taskId: string) => Promise<void>;
     deleteTask: (taskId: string) => void;
     bulkUpdateTasks: (taskIds: string[], updates: Partial<Task>) => void;
@@ -203,4 +209,5 @@ export type StoreState =
     GoalSlice &
     BillingSlice &
     WorkspaceSlice &
-    AlarmSlice;
+    AlarmSlice &
+    FinanceSlice;
