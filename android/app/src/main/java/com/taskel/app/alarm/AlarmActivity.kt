@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import com.taskel.app.R
 import java.text.DateFormat
 import java.util.Date
@@ -46,8 +47,20 @@ class AlarmActivity : Activity() {
         findViewById<android.widget.Button>(R.id.alarm_stop).setOnClickListener { stopAlarm(alarm) }
         findViewById<android.widget.Button>(R.id.alarm_snooze).setOnClickListener { snoozeAlarm(alarm) }
 
+        // 通知チャンネル側の INSISTENT 音を止めてから自前のループ再生へ引き継ぐ。
+        // （全画面が出せない場合は通知が鳴り続けるので、音source は常にどちらか一方）
+        cancelFiringNotification()
         startSound()
         startVibration()
+        Log.i(TAG, "AlarmActivity shown for $alarmId; took over sound from notification")
+    }
+
+    /** 発火通知を消す（= FLAG_INSISTENT のループ音を停止する）。 */
+    private fun cancelFiringNotification() {
+        runCatching {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(alarmId.hashCode())
+        }
     }
 
     private fun showOverLockScreen() {
@@ -124,8 +137,7 @@ class AlarmActivity : Activity() {
 
     private fun finishAlarmUi() {
         stopFeedback()
-        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .cancel(alarmId.hashCode())
+        cancelFiringNotification()
         finish()
     }
 
@@ -144,15 +156,16 @@ class AlarmActivity : Activity() {
         super.onDestroy()
     }
 
-    // 戻るボタンで音だけ残るのを防ぐ: 停止扱いにはせず、UI と音のみ閉じる
+    // 戻るボタンは無効化する。以前は音を止めて閉じられたため、アラームを
+    // 「停止」も「スヌーズ」もせずに黙らせることができてしまっていた。
+    // 目覚まし用途では明示的な操作を必須にする。
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        stopFeedback()
-        @Suppress("DEPRECATION")
-        super.onBackPressed()
+        Log.i(TAG, "Back pressed on AlarmActivity; ignored (use stop/snooze)")
     }
 
     companion object {
+        private const val TAG = "TaskelAlarmActivity"
         private const val DEFAULT_SNOOZE_MINUTES = 5
 
         fun createIntent(context: Context, alarm: StoredAlarm): Intent =

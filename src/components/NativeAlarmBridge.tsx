@@ -17,6 +17,55 @@ import {
     type NativeAlarmPermissionStatus,
 } from '@/lib/native/taskelAlarm';
 
+/** 同期ロックの有効期限。await が固まっても次回の試行を許可するための保険。 */
+const SYNC_LOCK_TIMEOUT_MS = 30_000;
+/** 個々のネットワーク/プラグイン呼び出しの上限。reject ではなく hang する経路への保険。 */
+const STEP_TIMEOUT_MS = 15_000;
+
+/**
+ * 解決しない Promise で処理全体が止まるのを防ぐ。
+ * fetch はネットワーク断のタイミング次第で reject せず宙吊りになることがあり、
+ * その場合 finally が走らず同期ロックが永久に残る（= 以後アラームが同期されない）。
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            }
+        );
+    });
+}
+
+/**
+ * サイドロード運用の実機調査用。WebView の DevTools から
+ * `window.__taskelAlarmDebug` で同期の進行状況を確認できるようにする。
+ */
+interface AlarmDebugState {
+    isNative?: boolean;
+    userPresent?: boolean;
+    alarmsLoaded?: boolean;
+    lastRunNativeSyncAt?: string;
+    lastFetchAlarmsAt?: string;
+    lastSyncToNativeAt?: string;
+    lastSyncedCount?: number;
+    lockHeldSince?: string | null;
+    lastError?: string;
+    skipped?: string;
+}
+
+function debugAlarm(patch: AlarmDebugState): void {
+    if (typeof window === 'undefined') return;
+    const w = window as typeof window & { __taskelAlarmDebug?: AlarmDebugState };
+    w.__taskelAlarmDebug = { ...(w.__taskelAlarmDebug ?? {}), ...patch };
+}
+
 /**
  * ネイティブの操作イベント1件を Supabase へ書き戻す（PATCH /api/alarms/[id]）。
  * - dismissed → status: 'dismissed'
@@ -67,7 +116,8 @@ export function NativeAlarmBridge() {
     const [needsPermission, setNeedsPermission] = useState(false);
     const [dismissed, setDismissed] = useState(false);
 
-    const syncInFlightRef = useRef(false);
+    // 進行中フラグは開始時刻で保持する（boolean だと hang 時に永久ロックになる）
+    const syncStartedAtRef = useRef<number | null>(null);
     const tokenRegisteredRef = useRef(false);
 
     /**
@@ -78,34 +128,66 @@ export function NativeAlarmBridge() {
      * この順にしないと、書き戻し前の古い状態で端末側が上書きされて矛盾する。
      */
     const runNativeSync = useCallback(async () => {
-        if (syncInFlightRef.current) return;
-        syncInFlightRef.current = true;
+        const startedAt = syncStartedAtRef.current;
+        if (startedAt !== null && Date.now() - startedAt < SYNC_LOCK_TIMEOUT_MS) {
+            debugAlarm({ skipped: `sync lock held since ${new Date(startedAt).toISOString()}` });
+            return;
+        }
+        syncStartedAtRef.current = Date.now();
+        debugAlarm({
+            lastRunNativeSyncAt: new Date().toISOString(),
+            lockHeldSince: new Date().toISOString(),
+        });
         try {
             try {
-                const events = await drainNativeAlarmEvents();
+                const events = await withTimeout(drainNativeAlarmEvents(), STEP_TIMEOUT_MS, 'drainEvents');
                 for (const event of events) {
-                    await writeBackAlarmEvent(event);
+                    await withTimeout(writeBackAlarmEvent(event), STEP_TIMEOUT_MS, 'writeBackAlarmEvent');
                 }
             } catch (error) {
                 console.error('drainNativeAlarmEvents failed:', error);
+                debugAlarm({ lastError: `drainEvents: ${String(error)}` });
             }
 
-            await fetchAlarms();
+            try {
+                await withTimeout(fetchAlarms(), STEP_TIMEOUT_MS, 'fetchAlarms');
+                debugAlarm({ lastFetchAlarmsAt: new Date().toISOString() });
+            } catch (error) {
+                console.error('fetchAlarms failed:', error);
+                debugAlarm({ lastError: `fetchAlarms: ${String(error)}` });
+            }
+
+            // 下の購読 effect の依存更新に頼らず、ここでも明示的に同期する。
+            // 依存が変化しないケース（取得結果が前回と同一など）でも端末へ確実に反映させる。
+            try {
+                await withTimeout(
+                    syncAlarmsToNative(useStore.getState().alarms),
+                    STEP_TIMEOUT_MS,
+                    'syncAlarmsToNative'
+                );
+            } catch (error) {
+                console.error('syncAlarmsToNative failed:', error);
+                debugAlarm({ lastError: `syncAlarmsToNative: ${String(error)}` });
+            }
 
             if (!tokenRegisteredRef.current) {
                 try {
-                    const result = await getNativeFcmToken();
+                    const result = await withTimeout(getNativeFcmToken(), STEP_TIMEOUT_MS, 'getFcmToken');
                     // token が null = Firebase 未設定ビルド or 取得前。次回の同期で再試行する。
                     if (result?.token) {
                         const deviceName = result.deviceName?.trim();
-                        const res = await fetch('/api/device-tokens', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                fcmToken: result.token,
-                                deviceName: deviceName ? deviceName.slice(0, 200) : null,
+                        const res = await withTimeout(
+                            fetch('/api/device-tokens', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    fcmToken: result.token,
+                                    deviceName: deviceName ? deviceName.slice(0, 200) : null,
+                                }),
                             }),
-                        });
+                            STEP_TIMEOUT_MS,
+                            'device-tokens'
+                        );
                         if (res.ok) {
                             tokenRegisteredRef.current = true;
                         } else {
@@ -117,7 +199,8 @@ export function NativeAlarmBridge() {
                 }
             }
         } finally {
-            syncInFlightRef.current = false;
+            syncStartedAtRef.current = null;
+            debugAlarm({ lockHeldSince: null });
         }
     }, [fetchAlarms]);
 
@@ -141,13 +224,29 @@ export function NativeAlarmBridge() {
         return () => document.removeEventListener('visibilitychange', handleVisibility);
     }, [isNative, user, runNativeSync]);
 
+    // 実機調査用: ガード条件の実値を常に window へ反映しておく
+    useEffect(() => {
+        debugAlarm({ isNative, userPresent: Boolean(user), alarmsLoaded });
+    }, [isNative, user, alarmsLoaded]);
+
     // alarms の変更を購読し、変更のたびに全件リコンサイルでネイティブへ渡す
     useEffect(() => {
-        if (!isNative || !alarmsLoaded) return;
-        syncAlarmsToNative(alarms).catch((error) => {
-            console.error('syncAlarmsToNative failed:', error);
-        });
-    }, [isNative, alarmsLoaded, alarms]);
+        if (!isNative || !alarmsLoaded) {
+            debugAlarm({ skipped: `sync effect gated (isNative=${isNative}, alarmsLoaded=${alarmsLoaded})` });
+            return;
+        }
+        syncAlarmsToNative(alarms)
+            .then(() => {
+                debugAlarm({
+                    lastSyncToNativeAt: new Date().toISOString(),
+                    lastSyncedCount: alarms.filter((alarm) => alarm.status === 'scheduled').length,
+                });
+            })
+            .catch((error) => {
+                console.error('syncAlarmsToNative failed:', error);
+                debugAlarm({ lastError: `syncEffect: ${String(error)}` });
+            });
+    }, [isNative, alarmsLoaded, alarms, user]);
 
     // 権限状態をバナー表示可否へ反映する（非同期コールバックからのみ呼ぶ）
     const applyPermissionStatus = useCallback((status: NativeAlarmPermissionStatus | null) => {
