@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { AlarmClock, Plus, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 
+import { taskStartToMillis } from '@/lib/alarmTime';
 import { useStore } from '@/store/useStore';
 import { Alarm, Task } from '@/types';
 
@@ -25,13 +26,6 @@ function toDatetimeLocalValue(ms: number): string {
     const d = new Date(ms);
     const pad = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-// タスクの date (YYYY-MM-DD) + scheduledStart (HH:mm) をローカル時刻の epoch ms に変換する。
-function taskStartToMillis(date: string, scheduledStart: string): number | null {
-    const parsed = new Date(`${date}T${scheduledStart}:00`);
-    const ms = parsed.getTime();
-    return Number.isNaN(ms) ? null : ms;
 }
 
 /** 開始時刻からの「何分前か」。負値 = 開始より後。 */
@@ -82,10 +76,12 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
         [alarms, task.id]
     );
 
-    const startMillis = useMemo(() => {
-        if (!task.date || !task.scheduledStart) return null;
-        return taskStartToMillis(task.date, task.scheduledStart);
-    }, [task.date, task.scheduledStart]);
+    // Supabase の time は "HH:mm:ss"、input[type=time] は "HH:mm" を返す。
+    // ヘルパー側で正規化するので、どちらの表記でも相対指定 UI が出る。
+    const startMillis = useMemo(
+        () => taskStartToMillis(task.date, task.scheduledStart),
+        [task.date, task.scheduledStart]
+    );
 
     /** 「30分前」等のラベル。端数（1時間30分前）や開始後にも耐えるようにする。 */
     function formatOffset(minutes: number): string {
