@@ -15,4 +15,6 @@
 | **VIRT-04** | Virtual | Routine Deletion Sync | Routine and virtual tasks exist | 1. Delete a Routine. | All associated virtual tasks for all future dates disappear immediately. |
 | **TASK-02** | Tasks | Sorting by Scheduled Start | Tasks exist in section | 1. Set Task A time "10:00".<br>2. Set Task B time "09:00". | Task B appears before Task A in the list. |
 | **TASK-03** | Mobile/UI | Tag Selection via Enter | Mobile Soft Keyboard | 1. Open Add Task/Routine Modal.<br>2. Type tag.<br>3. Press Enter on keypad. | Tag is added as a chip. Form does NOT submit. Focus remains. |
-| **TASK-04** | Tasks | Task Duplication | Task exists | 1. Locate task.<br>2. Click Duplicate (Copy icon left of time). | A new task with "(copy)" suffix is created in the same section with same metadata. |
+| **TASK-04** | Tasks | Task Duplication | Task exists | 1. Locate task.<br>2. Click Duplicate (Copy icon left of time). | A new task with "(copy)" suffix is created in the same section with same metadata. Finance rows are **not** copied. |
+| **FIN-01** | Finance | Default off | Authenticated | 1. Open Settings → General.<br>2. Confirm money tracking is OFF.<br>3. Open a task and the planning header. | No finance UI, no totals, existing Taskel behavior unchanged. |
+| **FIN-02** | Finance | Record + totals | FIN-01, toggle ON | 1. Add a 20,000 expense and 10,000 income on a dated task.<br>2. Save.<br>3. Click the daily/planning summary. | Totals match. Breakdown is grouped by type and category and stays private to the user. |

@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, FileText } from 'lucide-react';
 import { addDays, format, parseISO, isSameDay } from 'date-fns';
+import { FinancePeriodSummary } from '@/components/finance/FinancePeriodSummary';
+import { dayRange } from '@/lib/finance/dateRange';
 
 export default function DateNavigation() {
     const { currentDate, setCurrentDate, hydrateCurrentDateFromStorage, toggleDailyNoteModal } = useStore();
@@ -31,10 +33,11 @@ export default function DateNavigation() {
 
     const displayDate = parseISO(currentDate);
     const isToday = isSameDay(displayDate, new Date());
+    const financeRange = dayRange(currentDate);
 
     return (
-        <div className="flex items-center justify-between bg-white p-4 mb-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between bg-white p-4 mb-4 rounded-lg shadow-sm border border-gray-200 gap-3 flex-wrap">
+            <div className="flex min-w-0 max-w-full items-center gap-1 sm:gap-4">
                 <button
                     type="button"
                     aria-label="Previous day"
@@ -48,11 +51,11 @@ export default function DateNavigation() {
                     <CalendarIcon size={20} className="text-blue-600" />
                     <span
                         data-testid="current-date-display"
-                        className="text-lg font-bold text-gray-800"
+                        className="text-base sm:text-lg font-bold text-gray-800"
                     >
                         {format(displayDate, 'yyyy-MM-dd')}
                     </span>
-                    <span className="text-sm text-gray-500 font-medium">
+                    <span className="hidden sm:inline text-sm text-gray-500 font-medium">
                         ({format(displayDate, 'EEE')})
                     </span>
                     <button
@@ -74,6 +77,8 @@ export default function DateNavigation() {
                     <ChevronRight size={24} />
                 </button>
             </div>
+
+            <FinancePeriodSummary start={financeRange.start} end={financeRange.end} />
 
             {!isToday && (
                 <button

@@ -5,9 +5,11 @@ import WeeklyView from './WeeklyView';
 import MonthlyView from './MonthlyView';
 import YearlyView from './YearlyView';
 import clsx from 'clsx';
-import { format, addWeeks, subWeeks, addMonths, subMonths, addYears, subYears, startOfWeek, getISOWeek, getISOWeekYear } from 'date-fns';
+import { format, addWeeks, subWeeks, addMonths, subMonths, addYears, subYears, startOfWeek, getISOWeek } from 'date-fns';
 import { ChevronLeft, ChevronRight, Menu } from 'lucide-react';
 import { useStore } from '@/store/useStore';
+import { FinancePeriodSummary } from '@/components/finance/FinancePeriodSummary';
+import { isoWeekRangeFromDate, monthRangeFromDate, yearRangeFromDate } from '@/lib/finance/dateRange';
 
 type Tab = 'weekly' | 'monthly' | 'yearly';
 
@@ -30,6 +32,13 @@ export default function PlanningView() {
 
     const handleToday = () => setCurrentDate(new Date());
 
+    const financeRange =
+        activeTab === 'weekly'
+            ? isoWeekRangeFromDate(currentDate)
+            : activeTab === 'monthly'
+                ? monthRangeFromDate(currentDate)
+                : yearRangeFromDate(currentDate);
+
     const getHeaderLabel = () => {
         if (activeTab === 'weekly') {
             const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
@@ -47,10 +56,10 @@ export default function PlanningView() {
     return (
         <div className="flex flex-col h-[calc(100vh-64px)] md:h-full bg-gray-50">
             {/* Unified Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between px-4 py-3 md:px-6 md:py-4 bg-white border-b border-gray-200 shrink-0 z-10 gap-3 md:gap-0">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between px-4 py-3 md:px-6 md:py-4 bg-white border-b border-gray-200 shrink-0 z-10 gap-3 lg:gap-0">
 
                 {/* Mobile Top Row: Menu + View Select + Sync? */}
-                <div className="flex items-center justify-between w-full md:w-auto md:hidden">
+                <div className="flex items-center justify-between w-full lg:w-auto lg:hidden">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={toggleLeftSidebar}
@@ -88,15 +97,16 @@ export default function PlanningView() {
                 </div>
 
                 {/* Mobile Date Title (Row 2) */}
-                <div className="flex md:hidden items-center justify-center pb-1">
+                <div className="flex lg:hidden items-center justify-center pb-1 gap-2 flex-wrap">
                     <h1 className="text-base font-bold text-gray-800" onClick={handleToday}>
                         {getHeaderLabel()}
                     </h1>
+                    <FinancePeriodSummary start={financeRange.start} end={financeRange.end} />
                 </div>
 
 
                 {/* Desktop Header Layout (Hidden on Mobile) */}
-                <div className="hidden md:flex items-center gap-6">
+                <div className="hidden min-w-0 lg:flex items-center gap-4 xl:gap-6">
                     <button
                         onClick={toggleLeftSidebar}
                         className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
@@ -123,10 +133,11 @@ export default function PlanningView() {
 
                     <div className="h-6 w-px bg-gray-300 mx-2" />
 
-                    <div className="flex items-center gap-4">
-                        <h1 className="text-xl font-bold text-gray-800 min-w-[200px]">
+                    <div className="flex min-w-0 items-center gap-3 xl:gap-4">
+                        <h1 className="min-w-0 xl:min-w-[200px] text-lg xl:text-xl font-bold text-gray-800">
                             {getHeaderLabel()}
                         </h1>
+                        <FinancePeriodSummary start={financeRange.start} end={financeRange.end} />
                         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                             <button onClick={handlePrev} className="p-1 hover:bg-white rounded-md transition-shadow shadow-sm">
                                 <ChevronLeft size={20} className="text-gray-600" />

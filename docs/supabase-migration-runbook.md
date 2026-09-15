@@ -4,7 +4,8 @@ Taskel を Firebase から Supabase へ移行し、既存の実データを引�
 
 > このブランチ（`fix/security-and-validation` 系）は「コード側の移行実装」を仕上げた状態です。
 > **実 Supabase プロジェクトへの migration 適用・実データ移行・動作検証は、この手順に沿って
-> オーナー環境で実施する必要があります。** DB 接続を伴う検証は未実施です。
+> オーナー環境で実施する必要があります。** migration の構文・制約・RLS/RPC 挙動は PostgreSQL
+> 18 互換のローカル環境で検証済みですが、実 Supabase プロジェクトへの接続検証は未実施です。
 
 ---
 
@@ -60,6 +61,23 @@ SQL エディタで個別適用する場合も、必ず番号・タイムスタ�
 - **`20260712*`**: コラボ RLS 強化・添付保護・招待/メンバーシップ・セクション削除 RPC
 - **`20260713120000_allow_multi_active_tasks.sql`**: ユーザーあたり1件の `in_progress` 制限を撤廃
   （複数タイマー並行実行）
+- **`20260714010036_repair_routine_sections_and_optimize_task_loading.sql`**: ルーチンのセクション再配置とタスク読み込み用索引
+- **`20260915120000_finance_tracking.sql`**: ユーザー私有の収支テーブル（`finance_preferences` / `finance_categories` / `finance_entries`）、RLS、原子的 replace RPC、期間集計 RPC。共有 `tasks` 行には埋め込まない。適用後も設定トグルはデフォルト OFF。
+
+適用後に確認（finance）:
+```sql
+select c.relname, c.relrowsecurity
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relname in ('finance_preferences', 'finance_categories', 'finance_entries');
+
+select proname
+from pg_proc
+join pg_namespace n on n.oid = pg_proc.pronamespace
+where n.nspname = 'public'
+  and proname in ('replace_task_finance_entries', 'summarize_finance_range', 'list_finance_entries_in_range');
+```
 
 適用後に確認:
 ```sql
@@ -128,6 +146,9 @@ npm run migrate:supabase -- --send-reset-emails
 - [ ] 並び替え（スナップバックなし）
 - [ ] Realtime 同期（別タブ/共有プロジェクトで反映）
 - [ ] 添付ファイル（後述の「残課題」参照）
+- [ ] 収支記録を ON/OFF し、OFF でも既存の収支データが保持される
+- [ ] 同一タスクに支出・収入を複数保存し、日/ISO週/月/年の合計・内訳が一致する
+- [ ] 共有タスクの収支が本人以外には見えず、タスク削除後も本人の履歴が残る
 
 ---
 
