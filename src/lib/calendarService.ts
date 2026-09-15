@@ -1,9 +1,42 @@
-interface CalendarEvent {
+/** Google Calendar の通知設定 1 件（events.list が返す形）。 */
+export interface CalendarReminderOverride {
+    /** 'popup' | 'email' など。アラームに変換するのは popup のみ。 */
+    method?: string;
+    /** 開始時刻の何分前か。 */
+    minutes?: number;
+}
+
+export interface CalendarEvent {
     id: string;
     summary: string;
     htmlLink?: string;
     start: { dateTime?: string; date?: string };
     end: { dateTime?: string; date?: string };
+    /**
+     * useDefault=true のときはイベント固有の設定を持たず、カレンダー既定の通知
+     * （events.list レスポンス最上位の defaultReminders）が適用される。
+     */
+    reminders?: {
+        useDefault?: boolean;
+        overrides?: CalendarReminderOverride[];
+    };
+}
+
+/** popup 通知だけを取り出し、分単位の昇順・重複排除で返す。 */
+export function resolveEventReminderMinutes(
+    event: CalendarEvent,
+    defaultReminders: CalendarReminderOverride[]
+): number[] {
+    const source = event.reminders?.useDefault
+        ? defaultReminders
+        : (event.reminders?.overrides ?? []);
+
+    const minutes = source
+        .filter((reminder) => (reminder.method ?? 'popup') === 'popup')
+        .map((reminder) => reminder.minutes)
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+    return [...new Set(minutes)].sort((a, b) => a - b);
 }
 
 export class GoogleCalendarAuthorizationError extends Error {
@@ -222,7 +255,11 @@ export async function fetchCalendarEventsForDate(
     accessToken: string,
     targetDateStr: string | undefined,
     uiCurrentDate: string
-): Promise<{ dateStr: string; events: CalendarEvent[] }> {
+): Promise<{
+    dateStr: string;
+    events: CalendarEvent[];
+    defaultReminders: CalendarReminderOverride[];
+}> {
     const dateStr = resolveCalendarSyncDate(targetDateStr, uiCurrentDate);
     const request = buildGoogleCalendarDayRequest(dateStr);
     const response = await fetch(request.urlPathWithQuery, {
@@ -235,7 +272,12 @@ export async function fetchCalendarEventsForDate(
     assertCalendarResponseAuthorized(response);
 
     const data = await response.json();
-    return { dateStr, events: data.items || [] };
+    return {
+        dateStr,
+        events: data.items || [],
+        // useDefault のイベント用。events.list は最上位でカレンダー既定の通知を返す。
+        defaultReminders: data.defaultReminders || [],
+    };
 }
 
 function assertCalendarResponseAuthorized(response: Response): void {

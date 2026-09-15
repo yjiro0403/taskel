@@ -217,6 +217,7 @@ export function mapAlarm(row: Tables['alarms']['Row']): Alarm {
         taskId: row.task_id ?? undefined,
         label: row.label ?? undefined,
         fireAt: new Date(row.fire_at).getTime(),
+        offsetMinutes: row.offset_minutes ?? undefined,
         snoozeMinutes: row.snooze_minutes,
         // check 制約で3値に制限されているが、型上は text のためここで絞り込む
         status: row.status as AlarmStatus,

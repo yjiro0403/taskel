@@ -37,7 +37,10 @@ export async function GET() {
 export async function POST(req: Request) {
     try {
         const user = await requireAuth();
-        const { taskId, label, fireAt, snoozeMinutes } = await parseJsonBody(req, alarmCreateSchema);
+        const { taskId, label, fireAt, offsetMinutes, snoozeMinutes } = await parseJsonBody(
+            req,
+            alarmCreateSchema
+        );
         const supabase = await createClient();
 
         // taskId 指定時は、自分から見えるタスクかを RLS 越しに確認する
@@ -65,6 +68,8 @@ export async function POST(req: Request) {
                 task_id: taskId ?? null,
                 label: label ?? null,
                 fire_at: new Date(fireAt).toISOString(),
+                // 相対指定。設定されているとタスクの開始時刻変更に DB 側で追従する。
+                offset_minutes: offsetMinutes ?? null,
                 ...(snoozeMinutes !== undefined ? { snooze_minutes: snoozeMinutes } : {}),
             })
             .select('*')

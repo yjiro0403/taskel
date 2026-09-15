@@ -7,10 +7,17 @@ export interface AlarmCreateInput {
     taskId?: string;
     label?: string;
     fireAt: number; // timestamp (ms)
+    /** タスク開始時刻の何分前か。省略 = 絶対時刻指定。 */
+    offsetMinutes?: number | null;
     snoozeMinutes?: number;
 }
 
-export type AlarmUpdateInput = Partial<Pick<Alarm, 'label' | 'fireAt' | 'snoozeMinutes' | 'status'>>;
+export type AlarmUpdateInput = Partial<
+    Pick<Alarm, 'label' | 'fireAt' | 'snoozeMinutes' | 'status'>
+> & {
+    /** null を渡すと絶対時刻指定へ戻す。 */
+    offsetMinutes?: number | null;
+};
 
 export interface AlarmSlice {
     alarms: Alarm[];
@@ -70,9 +77,19 @@ export const createAlarmSlice: StateCreator<StoreState, [], [], AlarmSlice> = (s
         const previous = alarms.find((alarm) => alarm.id === alarmId);
         if (!previous) return false;
 
+        // API では null が「絶対時刻指定へ戻す」を意味するが、Alarm 型では undefined。
+        // 楽観的更新にそのまま流すと型が合わないため、ここで正規化する。
+        const { offsetMinutes, ...rest } = updates;
+        const optimistic: Partial<Alarm> = {
+            ...rest,
+            ...(offsetMinutes !== undefined ? { offsetMinutes: offsetMinutes ?? undefined } : {}),
+        };
+
         // 楽観的更新。失敗時は対象 id のみ元へ戻す（taskSlice と同じ方針）。
         set((state) => ({
-            alarms: state.alarms.map((alarm) => (alarm.id === alarmId ? { ...alarm, ...updates } : alarm)),
+            alarms: state.alarms.map((alarm) =>
+                alarm.id === alarmId ? { ...alarm, ...optimistic } : alarm
+            ),
         }));
 
         try {

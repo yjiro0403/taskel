@@ -15,6 +15,7 @@ export type Database = {
                     fire_at: string;
                     id: string;
                     label: string | null;
+                    offset_minutes: number | null;
                     snooze_minutes: number;
                     status: string;
                     task_id: string | null;
@@ -26,6 +27,7 @@ export type Database = {
                     fire_at: string;
                     id?: string;
                     label?: string | null;
+                    offset_minutes?: number | null;
                     snooze_minutes?: number;
                     status?: string;
                     task_id?: string | null;
@@ -37,6 +39,7 @@ export type Database = {
                     fire_at?: string;
                     id?: string;
                     label?: string | null;
+                    offset_minutes?: number | null;
                     snooze_minutes?: number;
                     status?: string;
                     task_id?: string | null;

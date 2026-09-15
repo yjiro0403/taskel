@@ -2,7 +2,7 @@
 
 import { useStore } from '@/store/useStore';
 import { Task, Section } from '@/types';
-import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar } from 'lucide-react';
+import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar, CalendarSync, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import { calculateTaskSchedule, formatTime, type TimeSlot } from '@/lib/timeUtils';
 import { useEffect, useState, useMemo, useRef } from 'react';
@@ -409,9 +409,15 @@ export default function TaskList() {
                         <button
                             onClick={handleSync}
                             disabled={isSyncing}
-                            className="text-sm bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                            className="p-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={isSyncing ? "Syncing Google Calendar..." : "Sync Google Calendar"}
+                            aria-label={isSyncing ? "Syncing Google Calendar" : "Sync Google Calendar"}
                         >
-                            {isSyncing ? "Syncing..." : "Sync Google Calendar"}
+                            {isSyncing ? (
+                                <RefreshCw size={18} className="animate-spin" />
+                            ) : (
+                                <CalendarSync size={18} />
+                            )}
                         </button>
                     </div>
                 </div>

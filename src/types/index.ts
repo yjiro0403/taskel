@@ -222,6 +222,11 @@ export interface Alarm {
     taskId?: string; // 紐付くタスク。undefined = タスクに紐付かない単発アラーム
     label?: string;
     fireAt: number; // timestamp (ms)
+    /**
+     * タスク開始時刻の何分前か。undefined = 絶対時刻指定（fireAt をそのまま使う）。
+     * 設定されている場合、タスクの開始時刻を動かすと fireAt も DB 側で追従する。
+     */
+    offsetMinutes?: number;
     snoozeMinutes: number;
     status: AlarmStatus;
     createdAt: number;
