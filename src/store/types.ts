@@ -7,6 +7,7 @@ import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
 import type { BillingSlice } from './slices/billingSlice';
 import type { WorkspaceSlice } from './slices/workspaceSlice';
+import type { AlarmSlice } from './slices/alarmSlice';
 
 // --- 各スライスの型定義 ---
 
@@ -201,4 +202,5 @@ export type StoreState =
     AISlice &
     GoalSlice &
     BillingSlice &
-    WorkspaceSlice;
+    WorkspaceSlice &
+    AlarmSlice;

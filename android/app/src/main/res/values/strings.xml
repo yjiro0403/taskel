@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Taskel</string>
+    <string name="title_activity_main">Taskel</string>
+    <string name="package_name">com.taskel.app</string>
+    <string name="custom_url_scheme">com.taskel.app</string>
+    <string name="alarm_stop">停止</string>
+    <string name="alarm_snooze">スヌーズ</string>
+    <string name="alarm_default_label">アラーム</string>
+</resources>

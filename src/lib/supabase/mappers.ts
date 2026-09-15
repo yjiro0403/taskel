@@ -1,4 +1,4 @@
-import type { Attachment, ChecklistItem, Goal, ItemTemplate, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
+import type { Alarm, AlarmStatus, Attachment, ChecklistItem, DeviceToken, Goal, ItemTemplate, Project, Routine, Section, Tag, Task, TaskComment } from '@/types';
 import type { Database, Json } from '@/types/supabase';
 
 type Tables = Database['public']['Tables'];
@@ -206,6 +206,31 @@ export function mapTaskComment(row: Tables['task_comments']['Row']): TaskComment
         authorName: row.author_name ?? undefined,
         content: row.content,
         createdAt: new Date(row.created_at).getTime(),
+        updatedAt: new Date(row.updated_at).getTime(),
+    };
+}
+
+export function mapAlarm(row: Tables['alarms']['Row']): Alarm {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        taskId: row.task_id ?? undefined,
+        label: row.label ?? undefined,
+        fireAt: new Date(row.fire_at).getTime(),
+        snoozeMinutes: row.snooze_minutes,
+        // check 制約で3値に制限されているが、型上は text のためここで絞り込む
+        status: row.status as AlarmStatus,
+        createdAt: new Date(row.created_at).getTime(),
+        updatedAt: new Date(row.updated_at).getTime(),
+    };
+}
+
+export function mapDeviceToken(row: Tables['device_tokens']['Row']): DeviceToken {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        fcmToken: row.fcm_token,
+        deviceName: row.device_name ?? undefined,
         updatedAt: new Date(row.updated_at).getTime(),
     };
 }

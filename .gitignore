@@ -73,3 +73,10 @@ storybook-static
 # Supabase CLI local state
 /supabase/.branches/
 /supabase/.temp/
+
+# Capacitor Android build artifacts (android/ source itself is committed)
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/release/
+/android/local.properties

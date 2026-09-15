@@ -84,6 +84,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         get().resetAISlice();
         get().resetBillingSlice();
         get().resetWorkspaceSlice();
+        get().resetAlarmSlice();
         get().resetUISlice();
     },
 

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#111827"
+    android:padding="32dp">
+
+    <TextView
+        android:id="@+id/alarm_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="64sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/alarm_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textColor="#D1D5DB"
+        android:textSize="22sp"
+        android:gravity="center"
+        android:maxLines="3"
+        android:ellipsize="end" />
+
+    <Button
+        android:id="@+id/alarm_snooze"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="64dp"
+        android:padding="16dp"
+        android:text="@string/alarm_snooze"
+        android:textSize="18sp"
+        android:backgroundTint="#374151"
+        android:textColor="#FFFFFF" />
+
+    <Button
+        android:id="@+id/alarm_stop"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:padding="16dp"
+        android:text="@string/alarm_stop"
+        android:textSize="18sp"
+        android:backgroundTint="#2563EB"
+        android:textColor="#FFFFFF" />
+</LinearLayout>

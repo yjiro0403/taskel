@@ -211,6 +211,32 @@ export interface DailyNote {
     updatedAt: number;
 }
 
+export type AlarmStatus = 'scheduled' | 'fired' | 'dismissed';
+
+// 目覚まし型アラーム（Phase A: Web + DB）。
+// Supabase を単一の情報源とし、後続フェーズで Capacitor アプリが同期して
+// 端末の AlarmManager に登録する。
+export interface Alarm {
+    id: string;
+    userId: string;
+    taskId?: string; // 紐付くタスク。undefined = タスクに紐付かない単発アラーム
+    label?: string;
+    fireAt: number; // timestamp (ms)
+    snoozeMinutes: number;
+    status: AlarmStatus;
+    createdAt: number;
+    updatedAt: number;
+}
+
+// FCM 端末トークン（後続フェーズのプッシュ通知用。Phase A では登録APIのみ）。
+export interface DeviceToken {
+    id: string;
+    userId: string;
+    fcmToken: string;
+    deviceName?: string;
+    updatedAt: number;
+}
+
 export interface Invitation {
     id: string;
     projectId: string;
