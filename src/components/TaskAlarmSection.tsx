@@ -6,7 +6,7 @@ import { AlarmClock, Plus, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 
 import { useStore } from '@/store/useStore';
-import { Task } from '@/types';
+import { Alarm, Task } from '@/types';
 
 interface TaskAlarmSectionProps {
     task: Task;
@@ -39,6 +39,14 @@ function offsetMinutesFrom(startMillis: number, fireAt: number): number {
     return Math.round((startMillis - fireAt) / 60000);
 }
 
+/**
+ * 表示に使うオフセット。保存済みの offsetMinutes を優先し、無い場合（この機能の
+ * 導入前に作られたアラーム）は fireAt から導出する。
+ */
+function displayOffset(alarm: Alarm, startMillis: number): number {
+    return alarm.offsetMinutes ?? offsetMinutesFrom(startMillis, alarm.fireAt);
+}
+
 /** 時刻のみの表示（実際に何時に鳴るかを常に併記するため）。 */
 function formatClock(ms: number): string {
     const d = new Date(ms);
@@ -49,10 +57,10 @@ function formatClock(ms: number): string {
 /**
  * タスク編集モーダル内のアラーム設定セクション。
  *
- * 開始時刻（date + scheduledStart）があるタスクでは「30分前」のような相対表記で
- * 扱う。保存されるのは絶対時刻（fireAt）なので、あとからタスクの開始時刻を
- * 動かした場合、表示上のオフセットはその分ずれて見える（鳴る時刻自体は不変）。
- * 開始時刻が未設定のタスクでは従来どおり日時を直接指定する。
+ * 開始時刻（date + scheduledStart）があるタスクでは「30分前」のような相対指定を
+ * 既定とし、offsetMinutes を一次情報として保存する。タスクの開始時刻を動かすと
+ * DB のトリガーが fireAt を同じ差分だけずらすため、相対関係は維持される。
+ * 開始時刻が未設定のタスクでは従来どおり日時を直接指定する（offsetMinutes は null）。
  */
 export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
     const t = useTranslations('Alarm');
@@ -94,10 +102,10 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
         return t('offset_minutes', { count: minutes });
     }
 
-    const handleCreate = async (fireAt: number) => {
+    const handleCreate = async (fireAt: number, offsetMinutes?: number) => {
         setIsSubmitting(true);
         try {
-            await addAlarm({ taskId: task.id, label: task.title, fireAt });
+            await addAlarm({ taskId: task.id, label: task.title, fireAt, offsetMinutes });
         } finally {
             setIsSubmitting(false);
         }
@@ -105,7 +113,8 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
 
     const handleAddRelative = async () => {
         if (startMillis === null) return;
-        await handleCreate(startMillis - newOffset * 60000);
+        // offsetMinutes を渡すと、以後タスクの開始時刻変更に追従する
+        await handleCreate(startMillis - newOffset * 60000, newOffset);
     };
 
     const handleAddCustom = async () => {
@@ -146,20 +155,21 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                             {start !== null ? (
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
                                     <select
-                                        value={offsetMinutesFrom(start, alarm.fireAt)}
+                                        value={displayOffset(alarm, start)}
                                         onChange={(e) => {
                                             const next = Number(e.target.value);
                                             if (Number.isNaN(next)) return;
                                             // 時刻変更したアラームは再度 ON（scheduled）へ戻す
                                             updateAlarm(alarm.id, {
                                                 fireAt: start - next * 60000,
+                                                offsetMinutes: next,
                                                 status: 'scheduled',
                                             });
                                         }}
                                         className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                         aria-label={t('pick_offset')}
                                     >
-                                        {optionsFor(offsetMinutesFrom(start, alarm.fireAt)).map((minutes) => (
+                                        {optionsFor(displayOffset(alarm, start)).map((minutes) => (
                                             <option key={minutes} value={minutes}>
                                                 {formatOffset(minutes)}
                                             </option>

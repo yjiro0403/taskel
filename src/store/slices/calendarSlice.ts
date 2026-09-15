@@ -50,7 +50,12 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
 
             const tasksToAdd: Task[] = [];
             // 取り込んだイベントの通知（30分前 など）を、タスク作成後にアラーム化する。
-            const alarmsToAdd: { taskId: string; label: string; fireAt: number }[] = [];
+            const alarmsToAdd: {
+                taskId: string;
+                label: string;
+                fireAt: number;
+                offsetMinutes: number;
+            }[] = [];
             let updatedCount = 0;
 
             for (const event of events) {
@@ -104,8 +109,14 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                     if (event.start.dateTime) {
                         const startMs = new Date(event.start.dateTime).getTime();
                         for (const minutes of resolveEventReminderMinutes(event, defaultReminders)) {
-                            const fireAt = startMs - minutes * 60000;
-                            alarmsToAdd.push({ taskId, label: event.summary, fireAt });
+                            // Google 側と同じ「何分前」を保存する。以後タスクの開始時刻を
+                            // 動かしても、この相対関係は DB のトリガーが維持する。
+                            alarmsToAdd.push({
+                                taskId,
+                                label: event.summary,
+                                fireAt: startMs - minutes * 60000,
+                                offsetMinutes: minutes,
+                            });
                         }
                     }
                 } else {

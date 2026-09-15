@@ -27,6 +27,10 @@ export async function PATCH(
         if (updates.label !== undefined) {
             payload.label = updates.label;
         }
+        if (updates.offsetMinutes !== undefined) {
+            // null を明示的に送ると絶対時刻指定へ戻す
+            payload.offset_minutes = updates.offsetMinutes;
+        }
         if (updates.snoozeMinutes !== undefined) {
             payload.snooze_minutes = updates.snoozeMinutes;
         }
