@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { CalendarEvent } from './calendarService';
 import {
   buildGoogleCalendarDayRequest,
   fetchCalendarEventsForDate,
+  resolveEventReminderMinutes,
   formatLocalDate,
   getLocalDayRange,
   GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY,
@@ -268,4 +270,90 @@ describe('Google Calendar API range integration (chosen local day)', () => {
       ).rejects.toEqual(new GoogleCalendarAuthorizationError(status));
     }
   );
+});
+
+
+describe('resolveEventReminderMinutes', () => {
+  const baseEvent = (
+    reminders: CalendarEvent['reminders']
+  ): CalendarEvent => ({
+    id: 'evt-1',
+    summary: '面談',
+    start: { dateTime: '2026-09-15T18:30:00+09:00' },
+    end: { dateTime: '2026-09-15T19:00:00+09:00' },
+    reminders,
+  });
+
+  it('overrides の popup 通知を分の昇順で返す', () => {
+    const event = baseEvent({
+      useDefault: false,
+      overrides: [
+        { method: 'popup', minutes: 60 },
+        { method: 'popup', minutes: 30 },
+      ],
+    });
+    expect(resolveEventReminderMinutes(event, [])).toEqual([30, 60]);
+  });
+
+  it('useDefault のときはカレンダー既定の通知を使う', () => {
+    const event = baseEvent({ useDefault: true });
+    expect(
+      resolveEventReminderMinutes(event, [{ method: 'popup', minutes: 10 }])
+    ).toEqual([10]);
+  });
+
+  it('useDefault のとき overrides があっても既定側を優先する', () => {
+    const event = baseEvent({
+      useDefault: true,
+      overrides: [{ method: 'popup', minutes: 45 }],
+    });
+    expect(
+      resolveEventReminderMinutes(event, [{ method: 'popup', minutes: 5 }])
+    ).toEqual([5]);
+  });
+
+  it('email など popup 以外の通知は除外する', () => {
+    const event = baseEvent({
+      useDefault: false,
+      overrides: [
+        { method: 'email', minutes: 1440 },
+        { method: 'popup', minutes: 15 },
+      ],
+    });
+    expect(resolveEventReminderMinutes(event, [])).toEqual([15]);
+  });
+
+  it('method 未指定は popup とみなす', () => {
+    const event = baseEvent({ useDefault: false, overrides: [{ minutes: 20 }] });
+    expect(resolveEventReminderMinutes(event, [])).toEqual([20]);
+  });
+
+  it('重複する分は1件にまとめる', () => {
+    const event = baseEvent({
+      useDefault: false,
+      overrides: [
+        { method: 'popup', minutes: 30 },
+        { method: 'popup', minutes: 30 },
+      ],
+    });
+    expect(resolveEventReminderMinutes(event, [])).toEqual([30]);
+  });
+
+  it('reminders が無い / minutes が欠けている場合は空配列', () => {
+    expect(resolveEventReminderMinutes(baseEvent(undefined), [])).toEqual([]);
+    expect(
+      resolveEventReminderMinutes(
+        baseEvent({ useDefault: false, overrides: [{ method: 'popup' }] }),
+        []
+      )
+    ).toEqual([]);
+  });
+
+  it('0分前（開始時刻ちょうど）も有効な値として扱う', () => {
+    const event = baseEvent({
+      useDefault: false,
+      overrides: [{ method: 'popup', minutes: 0 }],
+    });
+    expect(resolveEventReminderMinutes(event, [])).toEqual([0]);
+  });
 });

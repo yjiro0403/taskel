@@ -1,166 +1,174 @@
 {
-    "HomePage": {
-        "alpha": "Alpha Version Live",
-        "title": "Focus on <execution>execution.</execution>",
-        "description": "The smart task partner for professionals.<br></br>計画と実行のズレをなくし、あなたのパフォーマンスを最大化する。<br></br>時間の流れを可視化する、新しいタスク管理ツール。",
-        "cta": "Start Using Taskel",
-        "features": {
-            "visualized": {
-                "title": "Visualized Timeline",
-                "description": "<strong>時間を「視覚」で捉える。</strong><br></br>1日の残り時間とタスクの総量をリアルタイムに可視化。「なんとなく」の不安を消し去り、明瞭な見通し（Visibility）を提供します。"
-            },
-            "execution": {
-                "title": "Seamless Execution",
-                "description": "<strong>思考を止めない、スムーズな実行。</strong><br></br>タスクの開始・終了は、再生ボタンを押すだけのワンアクション。複雑な操作を排除し、フロー状態への没入を妨げません。"
-            },
-            "logging": {
-                "title": "Reliable Logging",
-                "description": "<strong>実績が、次の計画を磨く。</strong><br></br>予実管理を自動でログ化。感覚ではなくデータに基づいたフィードバックループが、あなたの時間感覚をより鋭敏にします。"
-            },
-            "section_planning": {
-                "title": "Section Planning",
-                "description": "1日を時間帯（セクション）で分割管理。コンテキストに合わせた無理のない計画立案。"
-            },
-            "one_click_timer": {
-                "title": "One-Click Timer",
-                "description": "直感的なストップウォッチ機能。現在実行中のタスクを明確化。"
-            },
-            "hierarchical_planning": {
-                "title": "Hierarchical Planning",
-                "description": "イヤリー、マンスリー、ウィークリーの各期間でゴールを設定。上位の目標に基づいたタスク設計で、迷いのない実行を実現。"
-            }
-        },
-        "key_features_title": "Key Features"
+  "HomePage": {
+    "alpha": "Alpha Version Live",
+    "title": "Focus on <execution>execution.</execution>",
+    "description": "The smart task partner for professionals.<br></br>計画と実行のズレをなくし、あなたのパフォーマンスを最大化する。<br></br>時間の流れを可視化する、新しいタスク管理ツール。",
+    "cta": "Start Using Taskel",
+    "features": {
+      "visualized": {
+        "title": "Visualized Timeline",
+        "description": "<strong>時間を「視覚」で捉える。</strong><br></br>1日の残り時間とタスクの総量をリアルタイムに可視化。「なんとなく」の不安を消し去り、明瞭な見通し（Visibility）を提供します。"
+      },
+      "execution": {
+        "title": "Seamless Execution",
+        "description": "<strong>思考を止めない、スムーズな実行。</strong><br></br>タスクの開始・終了は、再生ボタンを押すだけのワンアクション。複雑な操作を排除し、フロー状態への没入を妨げません。"
+      },
+      "logging": {
+        "title": "Reliable Logging",
+        "description": "<strong>実績が、次の計画を磨く。</strong><br></br>予実管理を自動でログ化。感覚ではなくデータに基づいたフィードバックループが、あなたの時間感覚をより鋭敏にします。"
+      },
+      "section_planning": {
+        "title": "Section Planning",
+        "description": "1日を時間帯（セクション）で分割管理。コンテキストに合わせた無理のない計画立案。"
+      },
+      "one_click_timer": {
+        "title": "One-Click Timer",
+        "description": "直感的なストップウォッチ機能。現在実行中のタスクを明確化。"
+      },
+      "hierarchical_planning": {
+        "title": "Hierarchical Planning",
+        "description": "イヤリー、マンスリー、ウィークリーの各期間でゴールを設定。上位の目標に基づいたタスク設計で、迷いのない実行を実現。"
+      }
     },
-    "Navigation": {
-        "login": "Log in",
-        "get_started": "Get Started",
-        "terms": "利用規約",
-        "privacy": "プライバシーポリシー",
-        "copyright": "© {year} Taskel (t-chute). Simple, yet powerful."
-    },
-    "Sidebar": {
-        "menu": "メニュー",
-        "navigation": "ナビゲーション",
-        "task_list": "タスク一覧",
-        "project_list": "プロジェクト一覧",
-        "planning": "プランニング",
-        "routine_management": "ルーチン管理",
-        "analytics": "分析",
-        "settings": "設定"
-    },
-    "TaskList": {
-        "current": "現在時刻",
-        "finish_at": "終了予定",
-        "menu": "メニュー",
-        "toggle_unscheduled": "未スケジュールのタスクを表示/非表示",
-        "add_task": "タスクを追加"
-    },
-    "Search": {
-        "title": "タスク検索",
-        "open_button": "タスクを検索",
-        "placeholder": "タイトルやメモで検索…（スペース区切りで AND）",
-        "close": "閉じる",
-        "date_from": "開始",
-        "date_to": "終了",
-        "include_undated": "未スケジュールも含む",
-        "hint_title": "過去の作業を振り返る",
-        "hint_body": "キーワード（複合語可）や日付範囲で、タスクのタイトルとメモを横断検索できます。",
-        "hint_shortcut": "ショートカット: / または ⌘K / Ctrl+K",
-        "no_results": "一致するタスクが見つかりませんでした",
-        "undated": "未スケジュール",
-        "match_title": "タイトル",
-        "match_memo": "メモ",
-        "result_count": "{count} 件",
-        "footer_idle": "入力すると検索が始まります",
-        "footer_keys": "↑↓ 移動 · Enter 開く · Esc 閉じる",
-        "status": {
-            "open": "未着手",
-            "in_progress": "進行中",
-            "done": "完了",
-            "skipped": "スキップ"
-        }
-    },
-    "TaskLink": {
-        "copy": "リンクをコピー",
-        "copied": "リンクをコピーしました",
-        "copy_failed": "リンクのコピーに失敗しました",
-        "not_found": "タスクが見つからないか、アクセス権限がありません",
-        "no_edit_access": "このタスクを編集する権限がありません"
-    },
-    "Alarm": {
-        "title": "アラーム",
-        "no_alarms": "アラームは未設定です",
-        "at_start": "開始時刻にアラーム（{time}）",
-        "add": "追加",
-        "delete": "アラームを削除",
-        "pick_time": "日時を選択",
-        "on": "ON",
-        "off": "OFF",
-        "turn_on": "アラームをONにする",
-        "turn_off": "アラームをOFFにする"
-    },
-    "NativeAlarm": {
-        "permission_title": "アラームの権限が必要です",
-        "permission_description": "指定時刻にアラームを鳴らすには、通知と正確なアラームの権限を許可してください。",
-        "grant": "権限を許可する",
-        "dismiss": "閉じる"
-    },
-    "AIChatPanel": {
-        "inputPlaceholder": "AIにタスク作成や提案を依頼..."
-    },
-    "Finance": {
-        "settingsTitle": "収支記録",
-        "settingsDescription": "日付のあるタスクに、円単位の支出・収入を任意で記録できます。初期状態はオフです。",
-        "settingsToggleLabel": "収支記録を有効にする",
-        "settingsToggleHintOn": "日付のあるタスクに収支欄が表示され、日次・プランニングのヘッダーに合計が出ます。",
-        "settingsToggleHintOff": "収支欄と合計は非表示になります。既存の記録は削除されません。",
+    "key_features_title": "Key Features"
+  },
+  "Navigation": {
+    "login": "Log in",
+    "get_started": "Get Started",
+    "terms": "利用規約",
+    "privacy": "プライバシーポリシー",
+    "copyright": "© {year} Taskel (t-chute). Simple, yet powerful."
+  },
+  "Sidebar": {
+    "menu": "メニュー",
+    "navigation": "ナビゲーション",
+    "task_list": "タスク一覧",
+    "project_list": "プロジェクト一覧",
+    "planning": "プランニング",
+    "routine_management": "ルーチン管理",
+    "analytics": "分析",
+    "settings": "設定"
+  },
+  "TaskList": {
+    "current": "現在時刻",
+    "finish_at": "終了予定",
+    "menu": "メニュー",
+    "toggle_unscheduled": "未スケジュールのタスクを表示/非表示",
+    "add_task": "タスクを追加"
+  },
+  "Search": {
+    "title": "タスク検索",
+    "open_button": "タスクを検索",
+    "placeholder": "タイトルやメモで検索…（スペース区切りで AND）",
+    "close": "閉じる",
+    "date_from": "開始",
+    "date_to": "終了",
+    "include_undated": "未スケジュールも含む",
+    "hint_title": "過去の作業を振り返る",
+    "hint_body": "キーワード（複合語可）や日付範囲で、タスクのタイトルとメモを横断検索できます。",
+    "hint_shortcut": "ショートカット: / または ⌘K / Ctrl+K",
+    "no_results": "一致するタスクが見つかりませんでした",
+    "undated": "未スケジュール",
+    "match_title": "タイトル",
+    "match_memo": "メモ",
+    "result_count": "{count} 件",
+    "footer_idle": "入力すると検索が始まります",
+    "footer_keys": "↑↓ 移動 · Enter 開く · Esc 閉じる",
+    "status": {
+      "open": "未着手",
+      "in_progress": "進行中",
+      "done": "完了",
+      "skipped": "スキップ"
+    }
+  },
+  "TaskLink": {
+    "copy": "リンクをコピー",
+    "copied": "リンクをコピーしました",
+    "copy_failed": "リンクのコピーに失敗しました",
+    "not_found": "タスクが見つからないか、アクセス権限がありません",
+    "no_edit_access": "このタスクを編集する権限がありません"
+  },
+  "Alarm": {
+    "title": "アラーム",
+    "no_alarms": "アラームは未設定です",
+    "at_start": "開始時刻にアラーム（{time}）",
+    "add": "追加",
+    "delete": "アラームを削除",
+    "pick_time": "日時を選択",
+    "on": "ON",
+    "off": "OFF",
+    "turn_on": "アラームをONにする",
+    "turn_off": "アラームをOFFにする",
+    "offset_at_start": "開始時刻",
+    "offset_minutes": "{count}分前",
+    "offset_hours": "{count}時間前",
+    "offset_hours_minutes": "{hours}時間{minutes}分前",
+    "offset_days": "{count}日前",
+    "offset_after": "開始後 {label}",
+    "pick_offset": "通知のタイミングを選択",
+    "needs_start_time": "開始時刻を設定すると「何分前」で指定できます"
+  },
+  "NativeAlarm": {
+    "permission_title": "アラームの権限が必要です",
+    "permission_description": "指定時刻にアラームを鳴らすには、通知と正確なアラームの権限を許可してください。",
+    "grant": "権限を許可する",
+    "dismiss": "閉じる"
+  },
+  "AIChatPanel": {
+    "inputPlaceholder": "AIにタスク作成や提案を依頼..."
+  },
+  "Finance": {
+    "settingsTitle": "収支記録",
+    "settingsDescription": "日付のあるタスクに、円単位の支出・収入を任意で記録できます。初期状態はオフです。",
+    "settingsToggleLabel": "収支記録を有効にする",
+    "settingsToggleHintOn": "日付のあるタスクに収支欄が表示され、日次・プランニングのヘッダーに合計が出ます。",
+    "settingsToggleHintOff": "収支欄と合計は非表示になります。既存の記録は削除されません。",
     "settingsEntitlementNote": "これは有料プランの権利ではなく、個人の機能設定です。",
     "settingsSaveError": "収支記録の設定を保存できませんでした。通信環境を確認してください。",
-        "sectionTitle": "収支記録",
-        "sectionDescription": "共有プロジェクトのタスクでも、収支はあなただけに非公開です。",
-        "addRow": "記録を追加",
-        "removeRow": "記録を削除",
-        "entryType": "種別",
-        "expense": "支出",
-        "income": "収入",
-        "category": "カテゴリ",
-        "categoryPlaceholder": "例: 食費",
-        "categoryCreate": "「{label}」を作成",
-        "categoryNoMatches": "一致するカテゴリはありません",
-        "amount": "金額（円）",
-        "amountPlaceholder": "20000",
-        "memo": "メモ",
-        "memoPlaceholder": "任意",
-        "emptyRows": "まだ収支記録はありません。",
-        "summaryExpense": "支出 {amount}",
-        "summaryIncome": "収入 {amount}",
-        "summaryAria": "収支の合計: 支出 {expense}、収入 {income}。内訳を開く。",
-        "summaryLoading": "収支を読み込み中",
+    "sectionTitle": "収支記録",
+    "sectionDescription": "共有プロジェクトのタスクでも、収支はあなただけに非公開です。",
+    "addRow": "記録を追加",
+    "removeRow": "記録を削除",
+    "entryType": "種別",
+    "expense": "支出",
+    "income": "収入",
+    "category": "カテゴリ",
+    "categoryPlaceholder": "例: 食費",
+    "categoryCreate": "「{label}」を作成",
+    "categoryNoMatches": "一致するカテゴリはありません",
+    "amount": "金額（円）",
+    "amountPlaceholder": "20000",
+    "memo": "メモ",
+    "memoPlaceholder": "任意",
+    "emptyRows": "まだ収支記録はありません。",
+    "summaryExpense": "支出 {amount}",
+    "summaryIncome": "収入 {amount}",
+    "summaryAria": "収支の合計: 支出 {expense}、収入 {income}。内訳を開く。",
+    "summaryLoading": "収支を読み込み中",
     "summaryError": "収支を読み込めませんでした",
     "summaryRetryAria": "収支を読み込めませんでした。再試行して内訳を開く。",
-        "breakdownTitle": "収支の内訳",
-        "breakdownEmpty": "この期間の収支記録はありません。",
-        "breakdownLoading": "内訳を読み込み中…",
-        "breakdownError": "内訳を読み込めませんでした。",
-        "breakdownClose": "閉じる",
-        "breakdownCount": "{count} 件",
-        "breakdownNoTask": "削除されたタスク",
-        "breakdownTotal": "合計",
-        "saveTaskFailed": "タスクを保存できませんでした。通信環境を確認して、もう一度保存してください。",
+    "breakdownTitle": "収支の内訳",
+    "breakdownEmpty": "この期間の収支記録はありません。",
+    "breakdownLoading": "内訳を読み込み中…",
+    "breakdownError": "内訳を読み込めませんでした。",
+    "breakdownClose": "閉じる",
+    "breakdownCount": "{count} 件",
+    "breakdownNoTask": "削除されたタスク",
+    "breakdownTotal": "合計",
+    "saveTaskFailed": "タスクを保存できませんでした。通信環境を確認して、もう一度保存してください。",
     "saveFinanceFailed": "タスクは保存されましたが、収支記録の保存に失敗しました。入力内容は残っています。もう一度保存してください。",
     "saving": "保存中…",
     "closeTaskModal": "タスク編集を閉じる",
-        "loadFinanceLoading": "収支記録を読み込み中…",
-        "loadFinanceFailed": "既存の収支記録を読み込めませんでした。上書きしないよう、保存はできません。",
-        "loadFinanceRetry": "再試行",
-        "saveBlockedFinanceLoading": "収支記録を読み込み中です。表示されてから保存してください。",
-        "saveBlockedFinanceError": "既存の収支記録を読み込めませんでした。再試行してから保存してください。",
-        "validationAmount": "金額は1円以上の整数のみです（小数・0・指数表記は不可）。",
-        "validationCategory": "カテゴリを入力してください。",
-        "validationRows": "収支記録を直してから保存してください。",
-        "validationTooMany": "1つのタスクに登録できる収支は最大 {max} 件です。",
+    "loadFinanceLoading": "収支記録を読み込み中…",
+    "loadFinanceFailed": "既存の収支記録を読み込めませんでした。上書きしないよう、保存はできません。",
+    "loadFinanceRetry": "再試行",
+    "saveBlockedFinanceLoading": "収支記録を読み込み中です。表示されてから保存してください。",
+    "saveBlockedFinanceError": "既存の収支記録を読み込めませんでした。再試行してから保存してください。",
+    "validationAmount": "金額は1円以上の整数のみです（小数・0・指数表記は不可）。",
+    "validationCategory": "カテゴリを入力してください。",
+    "validationRows": "収支記録を直してから保存してください。",
+    "validationTooMany": "1つのタスクに登録できる収支は最大 {max} 件です。",
     "needDate": "収支を記録するには日付を設定してください。",
     "datedTypeRequired": "収支記録がある項目は、日付のあるタスクまたはデイリー目標として保存してください。先に収支を削除して保存すると種類を変更できます。"
-    }
+  }
 }

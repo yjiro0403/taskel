@@ -1,166 +1,174 @@
 {
-    "HomePage": {
-        "alpha": "Alpha Version Live",
-        "title": "Focus on <execution>execution.</execution>",
-        "description": "The smart task partner for professionals.<br></br>Eliminate the gap between planning and execution to maximize your performance.<br></br>A new task management tool that visualizes the flow of time.",
-        "cta": "Start Using Taskel",
-        "features": {
-            "visualized": {
-                "title": "Visualized Timeline",
-                "description": "<strong>Capture time \"visually\".</strong><br></br>Real-time visualization of the remaining time of the day and total task volume. Eliminate vague anxiety and provide clear visibility."
-            },
-            "execution": {
-                "title": "Seamless Execution",
-                "description": "<strong>Uninterrupted thinking, smooth execution.</strong><br></br>Start and end tasks with just one action: the play button. Eliminating complex operations to not hinder your immersion into the flow state."
-            },
-            "logging": {
-                "title": "Reliable Logging",
-                "description": "<strong>Results refine the next plan.</strong><br></br>Automatically log planned vs. actual management. A feedback loop based on data, not intuition, sharpens your sense of time."
-            },
-            "section_planning": {
-                "title": "Section Planning",
-                "description": "Divide and manage your day by time zones (sections). Plan reasonably according to the context."
-            },
-            "one_click_timer": {
-                "title": "One-Click Timer",
-                "description": "Intuitive stopwatch function. Clarify the task currently being executed."
-            },
-            "hierarchical_planning": {
-                "title": "Hierarchical Planning",
-                "description": "Set goals for yearly, monthly, and weekly periods. Realize unhesitating execution with task design based on higher-level goals."
-            }
-        },
-        "key_features_title": "Key Features"
+  "HomePage": {
+    "alpha": "Alpha Version Live",
+    "title": "Focus on <execution>execution.</execution>",
+    "description": "The smart task partner for professionals.<br></br>Eliminate the gap between planning and execution to maximize your performance.<br></br>A new task management tool that visualizes the flow of time.",
+    "cta": "Start Using Taskel",
+    "features": {
+      "visualized": {
+        "title": "Visualized Timeline",
+        "description": "<strong>Capture time \"visually\".</strong><br></br>Real-time visualization of the remaining time of the day and total task volume. Eliminate vague anxiety and provide clear visibility."
+      },
+      "execution": {
+        "title": "Seamless Execution",
+        "description": "<strong>Uninterrupted thinking, smooth execution.</strong><br></br>Start and end tasks with just one action: the play button. Eliminating complex operations to not hinder your immersion into the flow state."
+      },
+      "logging": {
+        "title": "Reliable Logging",
+        "description": "<strong>Results refine the next plan.</strong><br></br>Automatically log planned vs. actual management. A feedback loop based on data, not intuition, sharpens your sense of time."
+      },
+      "section_planning": {
+        "title": "Section Planning",
+        "description": "Divide and manage your day by time zones (sections). Plan reasonably according to the context."
+      },
+      "one_click_timer": {
+        "title": "One-Click Timer",
+        "description": "Intuitive stopwatch function. Clarify the task currently being executed."
+      },
+      "hierarchical_planning": {
+        "title": "Hierarchical Planning",
+        "description": "Set goals for yearly, monthly, and weekly periods. Realize unhesitating execution with task design based on higher-level goals."
+      }
     },
-    "Navigation": {
-        "login": "Log in",
-        "get_started": "Get Started",
-        "terms": "Terms",
-        "privacy": "Privacy Policy",
-        "copyright": "© {year} Taskel (t-chute). Simple, yet powerful."
-    },
-    "Sidebar": {
-        "menu": "Menu",
-        "navigation": "Navigation",
-        "task_list": "Task List",
-        "project_list": "Project List",
-        "planning": "Planning",
-        "routine_management": "Routine Management",
-        "analytics": "Analytics",
-        "settings": "Settings"
-    },
-    "TaskList": {
-        "current": "Current",
-        "finish_at": "Finish at",
-        "menu": "Menu",
-        "toggle_unscheduled": "Toggle Unscheduled Tasks",
-        "add_task": "Add Task"
-    },
-    "Search": {
-        "title": "Search tasks",
-        "open_button": "Search tasks",
-        "placeholder": "Search titles and memos… (space-separated AND)",
-        "close": "Close",
-        "date_from": "From",
-        "date_to": "To",
-        "include_undated": "Include unscheduled",
-        "hint_title": "Look back at past work",
-        "hint_body": "Search task titles and memos with keywords (multi-word AND) and optional date ranges.",
-        "hint_shortcut": "Shortcuts: / or ⌘K / Ctrl+K",
-        "no_results": "No matching tasks",
-        "undated": "Unscheduled",
-        "match_title": "Title",
-        "match_memo": "Memo",
-        "result_count": "{count} results",
-        "footer_idle": "Start typing to search",
-        "footer_keys": "↑↓ navigate · Enter open · Esc close",
-        "status": {
-            "open": "Open",
-            "in_progress": "In progress",
-            "done": "Done",
-            "skipped": "Skipped"
-        }
-    },
-    "TaskLink": {
-        "copy": "Copy link",
-        "copied": "Link copied",
-        "copy_failed": "Failed to copy link",
-        "not_found": "Task not found or you do not have access",
-        "no_edit_access": "You do not have permission to edit this task"
-    },
-    "Alarm": {
-        "title": "Alarms",
-        "no_alarms": "No alarms set",
-        "at_start": "Alarm at start time ({time})",
-        "add": "Add",
-        "delete": "Delete alarm",
-        "pick_time": "Pick date & time",
-        "on": "ON",
-        "off": "OFF",
-        "turn_on": "Turn alarm on",
-        "turn_off": "Turn alarm off"
-    },
-    "NativeAlarm": {
-        "permission_title": "Alarm permissions needed",
-        "permission_description": "To ring alarms at the exact time, please allow notifications and exact alarms.",
-        "grant": "Grant permissions",
-        "dismiss": "Dismiss"
-    },
-    "AIChatPanel": {
-        "inputPlaceholder": "Ask AI to create tasks or suggest plans..."
-    },
-    "Finance": {
-        "settingsTitle": "Money tracking",
-        "settingsDescription": "Optionally record yen expenses and income on dated tasks. This setting is off by default.",
-        "settingsToggleLabel": "Enable money tracking",
-        "settingsToggleHintOn": "Money fields appear on dated tasks, and totals appear in daily and planning headers.",
-        "settingsToggleHintOff": "Money fields and totals are hidden. Existing records are kept and are not deleted.",
+    "key_features_title": "Key Features"
+  },
+  "Navigation": {
+    "login": "Log in",
+    "get_started": "Get Started",
+    "terms": "Terms",
+    "privacy": "Privacy Policy",
+    "copyright": "© {year} Taskel (t-chute). Simple, yet powerful."
+  },
+  "Sidebar": {
+    "menu": "Menu",
+    "navigation": "Navigation",
+    "task_list": "Task List",
+    "project_list": "Project List",
+    "planning": "Planning",
+    "routine_management": "Routine Management",
+    "analytics": "Analytics",
+    "settings": "Settings"
+  },
+  "TaskList": {
+    "current": "Current",
+    "finish_at": "Finish at",
+    "menu": "Menu",
+    "toggle_unscheduled": "Toggle Unscheduled Tasks",
+    "add_task": "Add Task"
+  },
+  "Search": {
+    "title": "Search tasks",
+    "open_button": "Search tasks",
+    "placeholder": "Search titles and memos… (space-separated AND)",
+    "close": "Close",
+    "date_from": "From",
+    "date_to": "To",
+    "include_undated": "Include unscheduled",
+    "hint_title": "Look back at past work",
+    "hint_body": "Search task titles and memos with keywords (multi-word AND) and optional date ranges.",
+    "hint_shortcut": "Shortcuts: / or ⌘K / Ctrl+K",
+    "no_results": "No matching tasks",
+    "undated": "Unscheduled",
+    "match_title": "Title",
+    "match_memo": "Memo",
+    "result_count": "{count} results",
+    "footer_idle": "Start typing to search",
+    "footer_keys": "↑↓ navigate · Enter open · Esc close",
+    "status": {
+      "open": "Open",
+      "in_progress": "In progress",
+      "done": "Done",
+      "skipped": "Skipped"
+    }
+  },
+  "TaskLink": {
+    "copy": "Copy link",
+    "copied": "Link copied",
+    "copy_failed": "Failed to copy link",
+    "not_found": "Task not found or you do not have access",
+    "no_edit_access": "You do not have permission to edit this task"
+  },
+  "Alarm": {
+    "title": "Alarms",
+    "no_alarms": "No alarms set",
+    "at_start": "Alarm at start time ({time})",
+    "add": "Add",
+    "delete": "Delete alarm",
+    "pick_time": "Pick date & time",
+    "on": "ON",
+    "off": "OFF",
+    "turn_on": "Turn alarm on",
+    "turn_off": "Turn alarm off",
+    "offset_at_start": "At start time",
+    "offset_minutes": "{count} minutes before",
+    "offset_hours": "{count} hours before",
+    "offset_hours_minutes": "{hours}h {minutes}m before",
+    "offset_days": "{count} days before",
+    "offset_after": "{label} after start",
+    "pick_offset": "Choose notification timing",
+    "needs_start_time": "Set a start time to use relative reminders"
+  },
+  "NativeAlarm": {
+    "permission_title": "Alarm permissions needed",
+    "permission_description": "To ring alarms at the exact time, please allow notifications and exact alarms.",
+    "grant": "Grant permissions",
+    "dismiss": "Dismiss"
+  },
+  "AIChatPanel": {
+    "inputPlaceholder": "Ask AI to create tasks or suggest plans..."
+  },
+  "Finance": {
+    "settingsTitle": "Money tracking",
+    "settingsDescription": "Optionally record yen expenses and income on dated tasks. This setting is off by default.",
+    "settingsToggleLabel": "Enable money tracking",
+    "settingsToggleHintOn": "Money fields appear on dated tasks, and totals appear in daily and planning headers.",
+    "settingsToggleHintOff": "Money fields and totals are hidden. Existing records are kept and are not deleted.",
     "settingsEntitlementNote": "This is a personal feature preference, not a paid-plan setting.",
     "settingsSaveError": "Could not save the money tracking setting. Check your connection and try again.",
-        "sectionTitle": "Money records",
-        "sectionDescription": "These records are private to you, even on a shared project task.",
-        "addRow": "Add record",
-        "removeRow": "Remove record",
-        "entryType": "Type",
-        "expense": "Expense",
-        "income": "Income",
-        "category": "Category",
-        "categoryPlaceholder": "e.g. Groceries",
-        "categoryCreate": "Create \"{label}\"",
-        "categoryNoMatches": "No matching categories",
-        "amount": "Amount (JPY)",
-        "amountPlaceholder": "20000",
-        "memo": "Memo",
-        "memoPlaceholder": "Optional",
-        "emptyRows": "No money records yet.",
-        "summaryExpense": "Expense {amount}",
-        "summaryIncome": "Income {amount}",
-        "summaryAria": "Money summary: expense {expense}, income {income}. Open breakdown.",
-        "summaryLoading": "Loading money summary",
+    "sectionTitle": "Money records",
+    "sectionDescription": "These records are private to you, even on a shared project task.",
+    "addRow": "Add record",
+    "removeRow": "Remove record",
+    "entryType": "Type",
+    "expense": "Expense",
+    "income": "Income",
+    "category": "Category",
+    "categoryPlaceholder": "e.g. Groceries",
+    "categoryCreate": "Create \"{label}\"",
+    "categoryNoMatches": "No matching categories",
+    "amount": "Amount (JPY)",
+    "amountPlaceholder": "20000",
+    "memo": "Memo",
+    "memoPlaceholder": "Optional",
+    "emptyRows": "No money records yet.",
+    "summaryExpense": "Expense {amount}",
+    "summaryIncome": "Income {amount}",
+    "summaryAria": "Money summary: expense {expense}, income {income}. Open breakdown.",
+    "summaryLoading": "Loading money summary",
     "summaryError": "Could not load money summary",
     "summaryRetryAria": "Could not load the money summary. Retry and open the breakdown.",
-        "breakdownTitle": "Money breakdown",
-        "breakdownEmpty": "No money records in this period.",
-        "breakdownLoading": "Loading details…",
-        "breakdownError": "Could not load details.",
-        "breakdownClose": "Close",
-        "breakdownCount": "{count} records",
-        "breakdownNoTask": "Deleted task",
-        "breakdownTotal": "Total",
-        "saveTaskFailed": "Could not save the task. Check your connection and try again.",
+    "breakdownTitle": "Money breakdown",
+    "breakdownEmpty": "No money records in this period.",
+    "breakdownLoading": "Loading details…",
+    "breakdownError": "Could not load details.",
+    "breakdownClose": "Close",
+    "breakdownCount": "{count} records",
+    "breakdownNoTask": "Deleted task",
+    "breakdownTotal": "Total",
+    "saveTaskFailed": "Could not save the task. Check your connection and try again.",
     "saveFinanceFailed": "The task was saved, but money records could not be saved. Your entries are still here — try saving again.",
     "saving": "Saving…",
     "closeTaskModal": "Close task editor",
-        "loadFinanceLoading": "Loading money records…",
-        "loadFinanceFailed": "Could not load existing money records. Saving is blocked so those records are not overwritten.",
-        "loadFinanceRetry": "Retry",
-        "saveBlockedFinanceLoading": "Money records are still loading. Wait until they appear, then save.",
-        "saveBlockedFinanceError": "Existing money records could not be loaded. Retry the load before saving.",
-        "validationAmount": "Amount must be a positive whole number in yen (no decimals, zero, or exponents).",
-        "validationCategory": "Enter a category.",
-        "validationRows": "Fix the money records before saving.",
-        "validationTooMany": "You can add at most {max} money records per task.",
+    "loadFinanceLoading": "Loading money records…",
+    "loadFinanceFailed": "Could not load existing money records. Saving is blocked so those records are not overwritten.",
+    "loadFinanceRetry": "Retry",
+    "saveBlockedFinanceLoading": "Money records are still loading. Wait until they appear, then save.",
+    "saveBlockedFinanceError": "Existing money records could not be loaded. Retry the load before saving.",
+    "validationAmount": "Amount must be a positive whole number in yen (no decimals, zero, or exponents).",
+    "validationCategory": "Enter a category.",
+    "validationRows": "Fix the money records before saving.",
+    "validationTooMany": "You can add at most {max} money records per task.",
     "needDate": "Set a date to record money on this task.",
     "datedTypeRequired": "Items with money records must remain a dated task or daily goal. Save after removing the records before changing the item type."
-    }
+  }
 }
