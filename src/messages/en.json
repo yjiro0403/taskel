@@ -88,6 +88,24 @@
         "not_found": "Task not found or you do not have access",
         "no_edit_access": "You do not have permission to edit this task"
     },
+    "Alarm": {
+        "title": "Alarms",
+        "no_alarms": "No alarms set",
+        "at_start": "Alarm at start time ({time})",
+        "add": "Add",
+        "delete": "Delete alarm",
+        "pick_time": "Pick date & time",
+        "on": "ON",
+        "off": "OFF",
+        "turn_on": "Turn alarm on",
+        "turn_off": "Turn alarm off"
+    },
+    "NativeAlarm": {
+        "permission_title": "Alarm permissions needed",
+        "permission_description": "To ring alarms at the exact time, please allow notifications and exact alarms.",
+        "grant": "Grant permissions",
+        "dismiss": "Dismiss"
+    },
     "AIChatPanel": {
         "inputPlaceholder": "Ask AI to create tasks or suggest plans..."
     },

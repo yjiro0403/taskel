@@ -88,6 +88,24 @@
         "not_found": "タスクが見つからないか、アクセス権限がありません",
         "no_edit_access": "このタスクを編集する権限がありません"
     },
+    "Alarm": {
+        "title": "アラーム",
+        "no_alarms": "アラームは未設定です",
+        "at_start": "開始時刻にアラーム（{time}）",
+        "add": "追加",
+        "delete": "アラームを削除",
+        "pick_time": "日時を選択",
+        "on": "ON",
+        "off": "OFF",
+        "turn_on": "アラームをONにする",
+        "turn_off": "アラームをOFFにする"
+    },
+    "NativeAlarm": {
+        "permission_title": "アラームの権限が必要です",
+        "permission_description": "指定時刻にアラームを鳴らすには、通知と正確なアラームの権限を許可してください。",
+        "grant": "権限を許可する",
+        "dismiss": "閉じる"
+    },
     "AIChatPanel": {
         "inputPlaceholder": "AIにタスク作成や提案を依頼..."
     },

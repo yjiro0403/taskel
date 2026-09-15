@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
+import { NativeAlarmBridge } from "@/components/NativeAlarmBridge";
 import Toaster from "@/components/Toaster";
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
@@ -52,6 +53,8 @@ export default async function RootLayout({
             {children}
             {/* トースト通知はアプリ全体で1度だけマウントする */}
             <Toaster />
+            {/* Capacitor(Android) 環境でのみ動くアラーム同期ブリッジ。Web では何もしない */}
+            <NativeAlarmBridge />
           </AuthProvider>
         </NextIntlClientProvider>
       </body>

@@ -11,6 +11,7 @@ import { TaskCommentThread } from '@/components/TaskCommentThread';
 import { TaskForm } from '@/components/TaskForm';
 import { TaskAttachments } from '@/components/TaskAttachments';
 import { TaskChecklistEditor } from '@/components/TaskChecklistEditor';
+import { TaskAlarmSection } from '@/components/TaskAlarmSection';
 import { TaskTagSelector } from '@/components/TaskTagSelector';
 import { TaskDatePicker } from '@/components/TaskDatePicker';
 import { useCopyTaskLink } from '@/hooks/useCopyTaskLink';
@@ -765,6 +766,13 @@ export default function AddTaskModal({
                             )}
                         </div>
                     )} */}
+
+                    {/* アラーム設定（Phase A: Web + DB）。
+                        alarms.task_id は tasks への FK のため、DB に行が存在する既存タスク
+                        編集時のみ表示する（新規作成中・未実体化の仮想ルーチンタスクは対象外）。 */}
+                    {activeType === 'task' && targetTask && !targetTask.isVirtual && (
+                        <TaskAlarmSection task={targetTask} />
+                    )}
 
                     {financeEnabled && (
                         showFinanceEditor ||

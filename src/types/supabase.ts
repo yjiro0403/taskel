@@ -9,6 +9,66 @@ export type Json =
 export type Database = {
     public: {
         Tables: {
+            alarms: {
+                Row: {
+                    created_at: string;
+                    fire_at: string;
+                    id: string;
+                    label: string | null;
+                    snooze_minutes: number;
+                    status: string;
+                    task_id: string | null;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    fire_at: string;
+                    id?: string;
+                    label?: string | null;
+                    snooze_minutes?: number;
+                    status?: string;
+                    task_id?: string | null;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    fire_at?: string;
+                    id?: string;
+                    label?: string | null;
+                    snooze_minutes?: number;
+                    status?: string;
+                    task_id?: string | null;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
+            device_tokens: {
+                Row: {
+                    device_name: string | null;
+                    fcm_token: string;
+                    id: string;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    device_name?: string | null;
+                    fcm_token: string;
+                    id?: string;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    device_name?: string | null;
+                    fcm_token?: string;
+                    id?: string;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
             attachments: {
                 Row: {
                     created_at: string;
