@@ -84,6 +84,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         get().resetAISlice();
         get().resetBillingSlice();
         get().resetWorkspaceSlice();
+        get().resetFinanceSlice();
         get().resetUISlice();
     },
 
@@ -122,8 +123,14 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             return;
         }
 
+        if (existingUser?.uid && existingUser.uid !== user.uid) {
+            get().resetFinanceSlice();
+        }
+
         // Mark loading before any await so a concurrent same-uid setUser will not race a second fetch.
         set({ user, unsubscribe: null, initialDataStatus: 'loading' });
+        // Isolated from the main bootstrap: a missing finance migration must not block tasks.
+        void get().loadFinancePreference();
 
         const supabase = createClient();
         let disposed = false;

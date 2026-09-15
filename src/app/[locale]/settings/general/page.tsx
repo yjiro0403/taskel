@@ -1,10 +1,11 @@
 'use client';
 
 import SettingsLayout from '@/components/SettingsLayout';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useRouter, usePathname } from '@/i18n/routing';
-import { Globe } from 'lucide-react';
+import { Globe, JapaneseYen } from 'lucide-react';
 import clsx from 'clsx';
+import { useStore } from '@/store/useStore';
 
 const languages = [
     { code: 'ja', label: '日本語', flag: '🇯🇵' },
@@ -13,8 +14,14 @@ const languages = [
 
 export default function GeneralSettingsPage() {
     const locale = useLocale();
+    const tFinance = useTranslations('Finance');
     const router = useRouter();
     const pathname = usePathname();
+    const financeEnabled = useStore((state) => state.financeEnabled);
+    const financePreferenceLoaded = useStore((state) => state.financePreferenceLoaded);
+    const financePreferenceSaving = useStore((state) => state.financePreferenceSaving);
+    const setFinanceEnabled = useStore((state) => state.setFinanceEnabled);
+    const showToast = useStore((state) => state.showToast);
 
     const handleLanguageChange = (newLocale: string) => {
         // 現在のパスを維持しながらロケールを変更
@@ -70,6 +77,53 @@ export default function GeneralSettingsPage() {
                                 </button>
                             ))}
                         </div>
+                    </div>
+                </section>
+
+                <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                        <div className="flex items-center gap-3">
+                            <JapaneseYen size={20} className="text-gray-600" />
+                            <h3 className="font-semibold text-gray-900">{tFinance('settingsTitle')}</h3>
+                        </div>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <p className="text-sm text-gray-600">{tFinance('settingsDescription')}</p>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={financeEnabled}
+                            aria-label={tFinance('settingsToggleLabel')}
+                            disabled={!financePreferenceLoaded || financePreferenceSaving}
+                            onClick={async () => {
+                                const saved = await setFinanceEnabled(!financeEnabled);
+                                if (!saved) {
+                                    showToast(tFinance('settingsSaveError'), 'error');
+                                }
+                            }}
+                            className="flex items-center justify-between w-full gap-4 p-4 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed text-left"
+                        >
+                            <div>
+                                <p className="font-medium text-gray-900">{tFinance('settingsToggleLabel')}</p>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {financeEnabled ? tFinance('settingsToggleHintOn') : tFinance('settingsToggleHintOff')}
+                                </p>
+                            </div>
+                            <div
+                                className={clsx(
+                                    'relative w-11 h-6 rounded-full transition-colors flex-shrink-0',
+                                    financeEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                                )}
+                            >
+                                <div
+                                    className={clsx(
+                                        'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform',
+                                        financeEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'
+                                    )}
+                                />
+                            </div>
+                        </button>
+                        <p className="text-xs text-gray-400">{tFinance('settingsEntitlementNote')}</p>
                     </div>
                 </section>
             </div>
