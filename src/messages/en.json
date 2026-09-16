@@ -98,7 +98,8 @@
         "on": "ON",
         "off": "OFF",
         "turn_on": "Turn alarm on",
-        "turn_off": "Turn alarm off"
+        "turn_off": "Turn alarm off",
+        "save_failed": "The task was saved, but saving alarms failed. Please try saving again."
     },
     "NativeAlarm": {
         "permission_title": "Alarm permissions needed",

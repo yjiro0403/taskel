@@ -14,6 +14,7 @@ import { TaskChecklistEditor } from '@/components/TaskChecklistEditor';
 import { TaskAlarmSection } from '@/components/TaskAlarmSection';
 import { TaskTagSelector } from '@/components/TaskTagSelector';
 import { TaskDatePicker } from '@/components/TaskDatePicker';
+import { persistAlarmDrafts, type AlarmDraft } from '@/lib/tasks/alarmDrafts';
 import { useCopyTaskLink } from '@/hooks/useCopyTaskLink';
 import { FinanceRowsEditor } from '@/components/finance/FinanceRowsEditor';
 import { resolveFinanceOccurrenceDate } from '@/lib/finance/dateRange';
@@ -59,9 +60,10 @@ export default function AddTaskModal({
     existingTask,
     onTaskCreatedWithAI,
 }: AddTaskModalProps) {
-    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, financeEnabled, financeCategories, loadFinanceCategories, loadFinanceEntriesForTask, replaceTaskFinanceEntries, user } = useStore();
+    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, financeEnabled, financeCategories, loadFinanceCategories, loadFinanceEntriesForTask, replaceTaskFinanceEntries, user, addAlarm, updateAlarm } = useStore();
     const tLink = useTranslations('TaskLink');
     const tFinance = useTranslations('Finance');
+    const tAlarm = useTranslations('Alarm');
     const { copyTaskLink } = useCopyTaskLink();
     const [linkCopied, setLinkCopied] = useState(false);
 
@@ -151,6 +153,8 @@ export default function AddTaskModal({
 
     // 持ち物リスト State
     const [checklist, setChecklist] = useState<ChecklistItem[]>(targetTask?.checklist || []);
+    // 新規作成時のアラーム下書き。編集時は TaskAlarmSection が即時保存するため空のまま。
+    const [draftAlarms, setDraftAlarms] = useState<AlarmDraft[]>([]);
 
     // Attachment State
     const [attachments, setAttachments] = useState<Attachment[]>(targetTask?.attachments || []);
@@ -255,6 +259,7 @@ export default function AddTaskModal({
             setAiInitialPrompt('');
             setChecklist(targetTask?.checklist || []);
             setAttachments(targetTask?.attachments || []);
+            setDraftAlarms([]);
             setError(null);
             setIsSaving(false);
             persistedTaskIdRef.current = targetTask?.id ?? null;
@@ -536,6 +541,21 @@ export default function AddTaskModal({
                 financeSourceTaskIdRef.current = null;
             }
 
+            if (activeType === 'task' && savedId && draftAlarms.length > 0) {
+                const { remaining } = await persistAlarmDrafts({
+                    drafts: draftAlarms,
+                    taskId: savedId,
+                    label: title,
+                    addAlarm,
+                    updateAlarm,
+                });
+                setDraftAlarms(remaining);
+                if (remaining.length > 0) {
+                    setError(tAlarm('save_failed'));
+                    return;
+                }
+            }
+
             if (activeSessionRef.current !== submitSessionKey) {
                 return;
             }
@@ -554,6 +574,7 @@ export default function AddTaskModal({
             setTaskelAIEnabled(false);
             setAiInitialPrompt('');
             setFinanceRows([]);
+            setDraftAlarms([]);
             onClose();
         } finally {
             if (activeSessionRef.current === submitSessionKey) {
@@ -768,10 +789,17 @@ export default function AddTaskModal({
                     )} */}
 
                     {/* アラーム設定（Phase A: Web + DB）。
-                        alarms.task_id は tasks への FK のため、DB に行が存在する既存タスク
-                        編集時のみ表示する（新規作成中・未実体化の仮想ルーチンタスクは対象外）。 */}
-                    {activeType === 'task' && targetTask && !targetTask.isVirtual && (
-                        <TaskAlarmSection task={targetTask} />
+                        未実体化の仮想ルーチンタスクは対象外。新規作成時は下書きとして保持し、
+                        タスク保存後に alarms.task_id へ紐付けて書き込む。 */}
+                    {activeType === 'task' && !targetTask?.isVirtual && (
+                        <TaskAlarmSection
+                            task={targetTask}
+                            title={title}
+                            date={date}
+                            scheduledStart={scheduledStart}
+                            drafts={draftAlarms}
+                            onDraftsChange={setDraftAlarms}
+                        />
                     )}
 
                     {financeEnabled && (

@@ -98,7 +98,8 @@
         "on": "ON",
         "off": "OFF",
         "turn_on": "アラームをONにする",
-        "turn_off": "アラームをOFFにする"
+        "turn_off": "アラームをOFFにする",
+        "save_failed": "タスクは保存しましたが、アラームの保存に失敗しました。もう一度保存してください。"
     },
     "NativeAlarm": {
         "permission_title": "アラームの権限が必要です",

@@ -7,67 +7,86 @@ import clsx from 'clsx';
 
 import { useStore } from '@/store/useStore';
 import { Task } from '@/types';
+import {
+    createAlarmDraft,
+    removeAlarmDraft,
+    taskStartToMillis,
+    toDatetimeLocalValue,
+    updateAlarmDraft,
+    type AlarmDraft,
+} from '@/lib/tasks/alarmDrafts';
 
 interface TaskAlarmSectionProps {
-    task: Task;
-}
-
-// epoch ms → <input type="datetime-local"> 用のローカル時刻文字列（YYYY-MM-DDTHH:mm）。
-// toISOString() は UTC になり JST では日時がずれるため、ローカル成分から組み立てる。
-function toDatetimeLocalValue(ms: number): string {
-    const d = new Date(ms);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-// タスクの date (YYYY-MM-DD) + scheduledStart (HH:mm) をローカル時刻の epoch ms に変換する。
-function taskStartToMillis(date: string, scheduledStart: string): number | null {
-    const parsed = new Date(`${date}T${scheduledStart}:00`);
-    const ms = parsed.getTime();
-    return Number.isNaN(ms) ? null : ms;
+    /** 既存タスク（編集時）。指定時は API へ即時保存する。未指定なら下書きとして親が保持する。 */
+    task?: Task | null;
+    title: string;
+    date: string;
+    scheduledStart: string;
+    drafts: AlarmDraft[];
+    onDraftsChange: (drafts: AlarmDraft[]) => void;
 }
 
 /**
- * タスク編集モーダル内のアラーム設定セクション（Phase A: Web + DB）。
- * 設定は Supabase に保存され、後続フェーズで Capacitor アプリが端末の
- * AlarmManager へ同期して鳴らす。
+ * タスク作成/編集モーダル内のアラーム設定セクション（Phase A: Web + DB）。
+ * 編集時は Supabase に即時保存する。新規作成時は親の下書きを更新し、
+ * タスク保存後に親が同じ内容を書き込む。
  */
-export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
+export function TaskAlarmSection({
+    task,
+    title,
+    date,
+    scheduledStart,
+    drafts,
+    onDraftsChange,
+}: TaskAlarmSectionProps) {
     const t = useTranslations('Alarm');
     const { alarms, alarmsLoaded, fetchAlarms, addAlarm, updateAlarm, deleteAlarm } = useStore();
     const [customFireAt, setCustomFireAt] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const persistedTaskId = task?.id;
+    const isPersisted = Boolean(persistedTaskId);
 
     useEffect(() => {
+        if (!isPersisted) return;
         // モーダルを開くたびに最新化する（他端末での変更を拾う）。
         fetchAlarms();
-    }, [fetchAlarms]);
+    }, [isPersisted, fetchAlarms]);
 
-    const taskAlarms = useMemo(
-        () =>
-            alarms
-                .filter((alarm) => alarm.taskId === task.id)
-                .sort((a, b) => a.fireAt - b.fireAt),
-        [alarms, task.id]
+    const visibleAlarms: AlarmDraft[] = useMemo(() => {
+        if (persistedTaskId) {
+            return alarms
+                .filter((alarm) => alarm.taskId === persistedTaskId)
+                .map((alarm) => ({
+                    id: alarm.id,
+                    fireAt: alarm.fireAt,
+                    status: alarm.status,
+                }))
+                .sort((a, b) => a.fireAt - b.fireAt);
+        }
+        return [...drafts].sort((a, b) => a.fireAt - b.fireAt);
+    }, [persistedTaskId, alarms, drafts]);
+
+    const startMillis = useMemo(
+        () => taskStartToMillis(date, scheduledStart),
+        [date, scheduledStart]
     );
 
-    const startMillis = useMemo(() => {
-        if (!task.date || !task.scheduledStart) return null;
-        return taskStartToMillis(task.date, task.scheduledStart);
-    }, [task.date, task.scheduledStart]);
-
     const hasStartAlarm = useMemo(
-        () => startMillis !== null && taskAlarms.some((alarm) => alarm.fireAt === startMillis),
-        [taskAlarms, startMillis]
+        () => startMillis !== null && visibleAlarms.some((alarm) => alarm.fireAt === startMillis),
+        [visibleAlarms, startMillis]
     );
 
     const handleCreate = async (fireAt: number) => {
-        setIsSubmitting(true);
-        try {
-            await addAlarm({ taskId: task.id, label: task.title, fireAt });
-        } finally {
-            setIsSubmitting(false);
+        if (persistedTaskId) {
+            setIsSubmitting(true);
+            try {
+                await addAlarm({ taskId: persistedTaskId, label: title, fireAt });
+            } finally {
+                setIsSubmitting(false);
+            }
+            return;
         }
+        onDraftsChange([...drafts, createAlarmDraft(fireAt)]);
     };
 
     const handleAddCustom = async () => {
@@ -78,42 +97,62 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
         setCustomFireAt('');
     };
 
+    const handleFireAtChange = (id: string, value: string) => {
+        const ms = new Date(value).getTime();
+        if (Number.isNaN(ms)) return;
+        if (persistedTaskId) {
+            updateAlarm(id, { fireAt: ms, status: 'scheduled' });
+            return;
+        }
+        onDraftsChange(updateAlarmDraft(drafts, id, { fireAt: ms, status: 'scheduled' }));
+    };
+
+    const handleToggle = (id: string, isOn: boolean) => {
+        const status = isOn ? 'dismissed' : 'scheduled';
+        if (persistedTaskId) {
+            updateAlarm(id, { status });
+            return;
+        }
+        onDraftsChange(updateAlarmDraft(drafts, id, { status }));
+    };
+
+    const handleDelete = (id: string) => {
+        if (persistedTaskId) {
+            deleteAlarm(id);
+            return;
+        }
+        onDraftsChange(removeAlarmDraft(drafts, id));
+    };
+
+    const showEmpty = visibleAlarms.length === 0 && (isPersisted ? alarmsLoaded : true);
+
     return (
         <div className="rounded-lg border border-gray-200 overflow-hidden">
             <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
                 <AlarmClock size={14} className="text-gray-400" />
                 <span className="text-xs font-medium text-gray-600">{t('title')}</span>
-                {taskAlarms.length > 0 && (
-                    <span className="text-[10px] text-gray-400">({taskAlarms.length})</span>
+                {visibleAlarms.length > 0 && (
+                    <span className="text-[10px] text-gray-400">({visibleAlarms.length})</span>
                 )}
             </div>
 
             <div className="p-3 space-y-2">
-                {/* 設定済みアラーム一覧 */}
-                {taskAlarms.length === 0 && alarmsLoaded && (
+                {showEmpty && (
                     <p className="text-xs text-gray-400">{t('no_alarms')}</p>
                 )}
-                {taskAlarms.map((alarm) => {
+                {visibleAlarms.map((alarm) => {
                     const isOn = alarm.status === 'scheduled';
                     return (
                         <div key={alarm.id} className="flex items-center gap-2">
                             <input
                                 type="datetime-local"
                                 value={toDatetimeLocalValue(alarm.fireAt)}
-                                onChange={(e) => {
-                                    const ms = new Date(e.target.value).getTime();
-                                    if (!Number.isNaN(ms)) {
-                                        // 時刻変更したアラームは再度 ON（scheduled）へ戻す
-                                        updateAlarm(alarm.id, { fireAt: ms, status: 'scheduled' });
-                                    }
-                                }}
+                                onChange={(e) => handleFireAtChange(alarm.id, e.target.value)}
                                 className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                             />
                             <button
                                 type="button"
-                                onClick={() =>
-                                    updateAlarm(alarm.id, { status: isOn ? 'dismissed' : 'scheduled' })
-                                }
+                                onClick={() => handleToggle(alarm.id, isOn)}
                                 className={clsx(
                                     'px-2.5 py-1.5 text-xs font-semibold rounded-full transition-colors flex-shrink-0',
                                     isOn
@@ -127,7 +166,7 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => deleteAlarm(alarm.id)}
+                                onClick={() => handleDelete(alarm.id)}
                                 className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
                                 aria-label={t('delete')}
                                 title={t('delete')}
@@ -138,7 +177,6 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                     );
                 })}
 
-                {/* 開始時刻ワンタップ作成（date + scheduledStart 設定時のみ） */}
                 {startMillis !== null && !hasStartAlarm && (
                     <button
                         type="button"
@@ -147,11 +185,10 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                         className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <AlarmClock size={14} />
-                        {t('at_start', { time: task.scheduledStart ?? '' })}
+                        {t('at_start', { time: scheduledStart })}
                     </button>
                 )}
 
-                {/* 任意時刻での追加 */}
                 <div className="flex items-center gap-2">
                     <input
                         type="datetime-local"
