@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useTranslations } from 'next-intl';
 import { AlarmClock, Plus, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
@@ -13,12 +13,35 @@ interface TaskAlarmSectionProps {
     task: Task;
 }
 
-/**
- * 「何分前」の選択肢（分）。Google カレンダーの通知 UI に倣う。
- * 0 = 開始時刻ちょうど。
- */
-const OFFSET_PRESETS_MINUTES = [0, 5, 10, 15, 30, 60, 120, 1440];
-const DEFAULT_OFFSET_MINUTES = 30;
+/** 通知タイミングの単位。保存は常に分（offsetMinutes）で行う。 */
+type OffsetUnit = 'minutes' | 'hours' | 'days';
+
+const UNIT_MULTIPLIER: Record<OffsetUnit, number> = { minutes: 1, hours: 60, days: 1440 };
+/** DB 制約（0〜40320 分 = 4 週間）と揃える。 */
+const MAX_OFFSET_MINUTES = 40320;
+const DEFAULT_OFFSET: { value: number; unit: OffsetUnit } = { value: 30, unit: 'minutes' };
+
+/** 分 → 表示用の値と単位。割り切れる最大の単位を選ぶ（90分は 90分、120分は 2時間）。 */
+function toUnitValue(minutes: number): { value: number; unit: OffsetUnit } {
+    if (minutes > 0 && minutes % 1440 === 0) return { value: minutes / 1440, unit: 'days' };
+    if (minutes > 0 && minutes % 60 === 0) return { value: minutes / 60, unit: 'hours' };
+    return { value: minutes, unit: 'minutes' };
+}
+
+/** 入力文字列を 0 以上の整数として解釈する。無効なら null。 */
+function parseWhole(raw: string): number | null {
+    if (!/^\d+$/.test(raw.trim())) return null;
+    const n = Number(raw);
+    return Number.isSafeInteger(n) ? n : null;
+}
+
+function toMinutes(value: number, unit: OffsetUnit): number {
+    return value * UNIT_MULTIPLIER[unit];
+}
+
+function maxValueFor(unit: OffsetUnit): number {
+    return Math.floor(MAX_OFFSET_MINUTES / UNIT_MULTIPLIER[unit]);
+}
 
 // epoch ms → <input type="datetime-local"> 用のローカル時刻文字列（YYYY-MM-DDTHH:mm）。
 // toISOString() は UTC になり JST では日時がずれるため、ローカル成分から組み立てる。
@@ -48,19 +71,161 @@ function formatClock(ms: number): string {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+interface OffsetFieldsProps {
+    value: string;
+    unit: OffsetUnit;
+    invalid: boolean;
+    onValueChange: (value: string) => void;
+    onUnitChange: (unit: OffsetUnit) => void;
+    onBlur?: () => void;
+    onEnter?: () => void;
+}
+
+/** 「[40] [分 ▾] 前」の入力欄。状態は親が持ち、ここは見た目だけを担当する。 */
+function OffsetFields({ value, unit, invalid, onValueChange, onUnitChange, onBlur, onEnter }: OffsetFieldsProps) {
+    const t = useTranslations('Alarm');
+
+    const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            onEnter?.();
+        }
+    };
+
+    return (
+        <div className="flex items-center gap-1.5 min-w-0">
+            <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={maxValueFor(unit)}
+                step={1}
+                value={value}
+                onChange={(e) => onValueChange(e.target.value)}
+                onBlur={onBlur}
+                onKeyDown={handleKeyDown}
+                aria-label={t('pick_offset_value')}
+                aria-invalid={invalid}
+                className={clsx(
+                    'w-16 px-2 py-1.5 border rounded-lg text-sm text-gray-900 text-right tabular-nums focus:ring-2 outline-none',
+                    invalid
+                        ? 'border-red-400 focus:ring-red-400 focus:border-red-400'
+                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                )}
+            />
+            <select
+                value={unit}
+                onChange={(e) => onUnitChange(e.target.value as OffsetUnit)}
+                aria-label={t('pick_offset_unit')}
+                className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            >
+                <option value="minutes">{t('unit_minutes')}</option>
+                <option value="hours">{t('unit_hours')}</option>
+                <option value="days">{t('unit_days')}</option>
+            </select>
+            <span className="text-sm text-gray-600 flex-shrink-0">{t('offset_before')}</span>
+        </div>
+    );
+}
+
+interface ExistingOffsetEditorProps {
+    minutes: number;
+    startMillis: number;
+    onCommit: (minutes: number) => void;
+}
+
+/**
+ * 設定済みアラーム 1 件分の編集欄。
+ * 入力途中で保存が走らないよう、確定は blur / Enter / 単位変更のタイミングに限る。
+ */
+function ExistingOffsetEditor({ minutes, startMillis, onCommit }: ExistingOffsetEditorProps) {
+    const t = useTranslations('Alarm');
+    const initial = toUnitValue(minutes);
+    const [value, setValue] = useState(String(initial.value));
+    const [unit, setUnit] = useState<OffsetUnit>(initial.unit);
+
+    // 保存値が外から変わったとき（別端末の更新など）は下書きを追従させる。
+    // ただし下書きが既に同じ分数を表していれば、ユーザーが選んだ単位を崩さない
+    // （60 と入力して確定した直後に「1 時間」へ勝手に変わるのを防ぐ）。
+    // effect や ref を使わず、React が推奨する「前回の props を state に持つ」形で
+    // レンダー中に同期する。
+    const [syncedMinutes, setSyncedMinutes] = useState(minutes);
+    if (minutes !== syncedMinutes) {
+        setSyncedMinutes(minutes);
+        const parsed = parseWhole(value);
+        if (parsed === null || toMinutes(parsed, unit) !== minutes) {
+            const next = toUnitValue(minutes);
+            setValue(String(next.value));
+            setUnit(next.unit);
+        }
+    }
+
+    const parsed = parseWhole(value);
+    const invalid = parsed === null || parsed > maxValueFor(unit);
+    const draftMinutes = parsed !== null && !invalid ? toMinutes(parsed, unit) : null;
+
+    const revert = () => {
+        // 単位はなるべく維持し、割り切れないときだけ最適な単位へ落とす
+        const keepUnit = minutes % UNIT_MULTIPLIER[unit] === 0;
+        const next = keepUnit ? { value: minutes / UNIT_MULTIPLIER[unit], unit } : toUnitValue(minutes);
+        setValue(String(next.value));
+        setUnit(next.unit);
+    };
+
+    const commit = () => {
+        if (draftMinutes === null) {
+            revert();
+            return;
+        }
+        if (draftMinutes !== minutes) onCommit(draftMinutes);
+    };
+
+    const changeUnit = (next: OffsetUnit) => {
+        setUnit(next);
+        const p = parseWhole(value);
+        if (p !== null && p <= maxValueFor(next)) {
+            const m = toMinutes(p, next);
+            if (m !== minutes) onCommit(m);
+        }
+    };
+
+    return (
+        <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+                <OffsetFields
+                    value={value}
+                    unit={unit}
+                    invalid={invalid}
+                    onValueChange={setValue}
+                    onUnitChange={changeUnit}
+                    onBlur={commit}
+                    onEnter={commit}
+                />
+                <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0">
+                    {formatClock(startMillis - (draftMinutes ?? minutes) * 60000)}
+                </span>
+            </div>
+            {invalid && (
+                <p className="mt-1 text-[11px] text-red-600">{t('offset_invalid', { max: maxValueFor(unit) })}</p>
+            )}
+        </div>
+    );
+}
+
 /**
  * タスク編集モーダル内のアラーム設定セクション。
  *
- * 開始時刻（date + scheduledStart）があるタスクでは「30分前」のような相対指定を
- * 既定とし、offsetMinutes を一次情報として保存する。タスクの開始時刻を動かすと
- * DB のトリガーが fireAt を同じ差分だけずらすため、相対関係は維持される。
+ * 開始時刻（date + scheduledStart）があるタスクでは「40分前」「2時間前」のような
+ * 相対指定を既定とし、offsetMinutes を一次情報として保存する。タスクの開始時刻を
+ * 動かすと DB のトリガーが fireAt を同じ差分だけずらすため、相対関係は維持される。
  * 開始時刻が未設定のタスクでは従来どおり日時を直接指定する（offsetMinutes は null）。
  */
 export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
     const t = useTranslations('Alarm');
     const { alarms, alarmsLoaded, fetchAlarms, addAlarm, updateAlarm, deleteAlarm } = useStore();
     const [customFireAt, setCustomFireAt] = useState('');
-    const [newOffset, setNewOffset] = useState(DEFAULT_OFFSET_MINUTES);
+    const [newValue, setNewValue] = useState(String(DEFAULT_OFFSET.value));
+    const [newUnit, setNewUnit] = useState<OffsetUnit>(DEFAULT_OFFSET.unit);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
@@ -83,20 +248,9 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
         [task.date, task.scheduledStart]
     );
 
-    /** 「30分前」等のラベル。端数（1時間30分前）や開始後にも耐えるようにする。 */
-    function formatOffset(minutes: number): string {
-        if (minutes === 0) return t('offset_at_start');
-        if (minutes < 0) return t('offset_after', { label: formatOffset(-minutes) });
-        if (minutes % 1440 === 0) return t('offset_days', { count: minutes / 1440 });
-        if (minutes % 60 === 0) return t('offset_hours', { count: minutes / 60 });
-        if (minutes > 60) {
-            return t('offset_hours_minutes', {
-                hours: Math.floor(minutes / 60),
-                minutes: minutes % 60,
-            });
-        }
-        return t('offset_minutes', { count: minutes });
-    }
+    const newParsed = parseWhole(newValue);
+    const newInvalid = newParsed === null || newParsed > maxValueFor(newUnit);
+    const newMinutes = newParsed !== null && !newInvalid ? toMinutes(newParsed, newUnit) : null;
 
     const handleCreate = async (fireAt: number, offsetMinutes?: number) => {
         setIsSubmitting(true);
@@ -108,9 +262,9 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
     };
 
     const handleAddRelative = async () => {
-        if (startMillis === null) return;
+        if (startMillis === null || newMinutes === null || isSubmitting) return;
         // offsetMinutes を渡すと、以後タスクの開始時刻変更に追従する
-        await handleCreate(startMillis - newOffset * 60000, newOffset);
+        await handleCreate(startMillis - newMinutes * 60000, newMinutes);
     };
 
     const handleAddCustom = async () => {
@@ -120,12 +274,6 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
         await handleCreate(ms);
         setCustomFireAt('');
     };
-
-    /** 既存アラームの選択肢。プリセットに無いオフセットは実値を追加して選択状態を保つ。 */
-    const optionsFor = (current: number): number[] =>
-        OFFSET_PRESETS_MINUTES.includes(current)
-            ? OFFSET_PRESETS_MINUTES
-            : [...OFFSET_PRESETS_MINUTES, current].sort((a, b) => a - b);
 
     return (
         <div className="rounded-lg border border-gray-200 overflow-hidden">
@@ -146,35 +294,23 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                     const isOn = alarm.status === 'scheduled';
                     // ternary 内で narrowing を効かせるためローカルへ束ねる
                     const start = startMillis;
+                    // 開始より後に設定された古いアラームは相対表現に収まらないため日時指定へ
+                    const relative = start !== null && displayOffset(alarm, start) >= 0;
                     return (
-                        <div key={alarm.id} className="flex items-center gap-2">
-                            {start !== null ? (
-                                <div className="flex-1 min-w-0 flex items-center gap-2">
-                                    <select
-                                        value={displayOffset(alarm, start)}
-                                        onChange={(e) => {
-                                            const next = Number(e.target.value);
-                                            if (Number.isNaN(next)) return;
-                                            // 時刻変更したアラームは再度 ON（scheduled）へ戻す
-                                            updateAlarm(alarm.id, {
-                                                fireAt: start - next * 60000,
-                                                offsetMinutes: next,
-                                                status: 'scheduled',
-                                            });
-                                        }}
-                                        className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                        aria-label={t('pick_offset')}
-                                    >
-                                        {optionsFor(displayOffset(alarm, start)).map((minutes) => (
-                                            <option key={minutes} value={minutes}>
-                                                {formatOffset(minutes)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0">
-                                        {formatClock(alarm.fireAt)}
-                                    </span>
-                                </div>
+                        <div key={alarm.id} className="flex items-start gap-2">
+                            {start !== null && relative ? (
+                                <ExistingOffsetEditor
+                                    minutes={displayOffset(alarm, start)}
+                                    startMillis={start}
+                                    onCommit={(minutes) => {
+                                        // 時刻変更したアラームは再度 ON（scheduled）へ戻す
+                                        updateAlarm(alarm.id, {
+                                            fireAt: start - minutes * 60000,
+                                            offsetMinutes: minutes,
+                                            status: 'scheduled',
+                                        });
+                                    }}
+                                />
                             ) : (
                                 <input
                                     type="datetime-local"
@@ -182,7 +318,7 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                                     onChange={(e) => {
                                         const ms = new Date(e.target.value).getTime();
                                         if (!Number.isNaN(ms)) {
-                                            updateAlarm(alarm.id, { fireAt: ms, status: 'scheduled' });
+                                            updateAlarm(alarm.id, { fireAt: ms, offsetMinutes: null, status: 'scheduled' });
                                         }
                                     }}
                                     className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
@@ -219,31 +355,32 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
 
                 {/* 追加 UI。開始時刻があれば「何分前」、無ければ日時指定にフォールバック */}
                 {startMillis !== null ? (
-                    <div className="flex items-center gap-2">
-                        <select
-                            value={newOffset}
-                            onChange={(e) => setNewOffset(Number(e.target.value))}
-                            className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                            aria-label={t('pick_offset')}
-                        >
-                            {OFFSET_PRESETS_MINUTES.map((minutes) => (
-                                <option key={minutes} value={minutes}>
-                                    {formatOffset(minutes)}
-                                </option>
-                            ))}
-                        </select>
-                        <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0">
-                            {formatClock(startMillis - newOffset * 60000)}
-                        </span>
-                        <button
-                            type="button"
-                            onClick={handleAddRelative}
-                            disabled={isSubmitting}
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                        >
-                            <Plus size={14} />
-                            {t('add')}
-                        </button>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <OffsetFields
+                                value={newValue}
+                                unit={newUnit}
+                                invalid={newInvalid}
+                                onValueChange={setNewValue}
+                                onUnitChange={setNewUnit}
+                                onEnter={handleAddRelative}
+                            />
+                            <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0">
+                                {newMinutes !== null ? formatClock(startMillis - newMinutes * 60000) : '--:--'}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={handleAddRelative}
+                                disabled={newMinutes === null || isSubmitting}
+                                className="ml-auto flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                            >
+                                <Plus size={14} />
+                                {t('add')}
+                            </button>
+                        </div>
+                        {newInvalid && (
+                            <p className="mt-1 text-[11px] text-red-600">{t('offset_invalid', { max: maxValueFor(newUnit) })}</p>
+                        )}
                     </div>
                 ) : (
                     <>

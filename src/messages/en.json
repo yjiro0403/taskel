@@ -91,7 +91,6 @@
   "Alarm": {
     "title": "Alarms",
     "no_alarms": "No alarms set",
-    "at_start": "Alarm at start time ({time})",
     "add": "Add",
     "delete": "Delete alarm",
     "pick_time": "Pick date & time",
@@ -99,14 +98,14 @@
     "off": "OFF",
     "turn_on": "Turn alarm on",
     "turn_off": "Turn alarm off",
-    "offset_at_start": "At start time",
-    "offset_minutes": "{count} minutes before",
-    "offset_hours": "{count} hours before",
-    "offset_hours_minutes": "{hours}h {minutes}m before",
-    "offset_days": "{count} days before",
-    "offset_after": "{label} after start",
-    "pick_offset": "Choose notification timing",
-    "needs_start_time": "Set a start time to use relative reminders"
+    "needs_start_time": "Set a start time to use relative reminders",
+    "unit_minutes": "minutes",
+    "unit_hours": "hours",
+    "unit_days": "days",
+    "offset_before": "before",
+    "offset_invalid": "Enter a whole number from 0 to {max}",
+    "pick_offset_value": "Reminder amount",
+    "pick_offset_unit": "Reminder unit"
   },
   "NativeAlarm": {
     "permission_title": "Alarm permissions needed",

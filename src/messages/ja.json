@@ -91,7 +91,6 @@
   "Alarm": {
     "title": "アラーム",
     "no_alarms": "アラームは未設定です",
-    "at_start": "開始時刻にアラーム（{time}）",
     "add": "追加",
     "delete": "アラームを削除",
     "pick_time": "日時を選択",
@@ -99,14 +98,14 @@
     "off": "OFF",
     "turn_on": "アラームをONにする",
     "turn_off": "アラームをOFFにする",
-    "offset_at_start": "開始時刻",
-    "offset_minutes": "{count}分前",
-    "offset_hours": "{count}時間前",
-    "offset_hours_minutes": "{hours}時間{minutes}分前",
-    "offset_days": "{count}日前",
-    "offset_after": "開始後 {label}",
-    "pick_offset": "通知のタイミングを選択",
-    "needs_start_time": "開始時刻を設定すると「何分前」で指定できます"
+    "needs_start_time": "開始時刻を設定すると「何分前」で指定できます",
+    "unit_minutes": "分",
+    "unit_hours": "時間",
+    "unit_days": "日",
+    "offset_before": "前",
+    "offset_invalid": "0〜{max}の整数で入力してください",
+    "pick_offset_value": "通知までの数値",
+    "pick_offset_unit": "通知の単位"
   },
   "NativeAlarm": {
     "permission_title": "アラームの権限が必要です",
