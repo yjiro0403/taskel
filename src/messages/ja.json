@@ -106,7 +106,8 @@
     "offset_days": "{count}日前",
     "offset_after": "開始後 {label}",
     "pick_offset": "通知のタイミングを選択",
-    "needs_start_time": "開始時刻を設定すると「何分前」で指定できます"
+    "needs_start_time": "開始時刻を設定すると「何分前」で指定できます",
+    "save_failed": "タスクは保存しましたが、アラームの保存に失敗しました。もう一度保存してください。"
   },
   "NativeAlarm": {
     "permission_title": "アラームの権限が必要です",

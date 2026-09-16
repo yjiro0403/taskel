@@ -106,7 +106,8 @@
     "offset_days": "{count} days before",
     "offset_after": "{label} after start",
     "pick_offset": "Choose notification timing",
-    "needs_start_time": "Set a start time to use relative reminders"
+    "needs_start_time": "Set a start time to use relative reminders",
+    "save_failed": "The task was saved, but saving alarms failed. Please try saving again."
   },
   "NativeAlarm": {
     "permission_title": "Alarm permissions needed",
