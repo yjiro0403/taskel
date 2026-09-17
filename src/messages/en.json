@@ -105,7 +105,8 @@
     "offset_before": "before",
     "offset_invalid": "Enter a whole number from 0 to {max}",
     "pick_offset_value": "Reminder amount",
-    "pick_offset_unit": "Reminder unit"
+    "pick_offset_unit": "Reminder unit",
+    "save_failed": "The task was saved, but saving alarms failed. Please try saving again."
   },
   "NativeAlarm": {
     "permission_title": "Alarm permissions needed",

@@ -105,7 +105,8 @@
     "offset_before": "前",
     "offset_invalid": "0〜{max}の整数で入力してください",
     "pick_offset_value": "通知までの数値",
-    "pick_offset_unit": "通知の単位"
+    "pick_offset_unit": "通知の単位",
+    "save_failed": "タスクは保存しましたが、アラームの保存に失敗しました。もう一度保存してください。"
   },
   "NativeAlarm": {
     "permission_title": "アラームの権限が必要です",

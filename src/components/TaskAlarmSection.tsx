@@ -6,11 +6,24 @@ import { AlarmClock, Plus, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 
 import { taskStartToMillis } from '@/lib/alarmTime';
+import {
+    createAlarmDraft,
+    fireAtForOffset,
+    removeAlarmDraft,
+    updateAlarmDraft,
+    type AlarmDraft,
+} from '@/lib/tasks/alarmDrafts';
 import { useStore } from '@/store/useStore';
-import { Alarm, Task } from '@/types';
+import { Task } from '@/types';
 
 interface TaskAlarmSectionProps {
-    task: Task;
+    /** 既存タスク（編集時）。指定時は API へ即時保存する。未指定なら下書きとして親が保持する。 */
+    task?: Task | null;
+    title: string;
+    date: string;
+    scheduledStart: string;
+    drafts: AlarmDraft[];
+    onDraftsChange: (drafts: AlarmDraft[]) => void;
 }
 
 /** 通知タイミングの単位。保存は常に分（offsetMinutes）で行う。 */
@@ -43,28 +56,20 @@ function maxValueFor(unit: OffsetUnit): number {
     return Math.floor(MAX_OFFSET_MINUTES / UNIT_MULTIPLIER[unit]);
 }
 
-// epoch ms → <input type="datetime-local"> 用のローカル時刻文字列（YYYY-MM-DDTHH:mm）。
-// toISOString() は UTC になり JST では日時がずれるため、ローカル成分から組み立てる。
 function toDatetimeLocalValue(ms: number): string {
     const d = new Date(ms);
     const pad = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 開始時刻からの「何分前か」。負値 = 開始より後。 */
 function offsetMinutesFrom(startMillis: number, fireAt: number): number {
     return Math.round((startMillis - fireAt) / 60000);
 }
 
-/**
- * 表示に使うオフセット。保存済みの offsetMinutes を優先し、無い場合（この機能の
- * 導入前に作られたアラーム）は fireAt から導出する。
- */
-function displayOffset(alarm: Alarm, startMillis: number): number {
+function displayOffset(alarm: AlarmDraft, startMillis: number): number {
     return alarm.offsetMinutes ?? offsetMinutesFrom(startMillis, alarm.fireAt);
 }
 
-/** 時刻のみの表示（実際に何時に鳴るかを常に併記するため）。 */
 function formatClock(ms: number): string {
     const d = new Date(ms);
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -144,11 +149,6 @@ function ExistingOffsetEditor({ minutes, startMillis, onCommit }: ExistingOffset
     const [value, setValue] = useState(String(initial.value));
     const [unit, setUnit] = useState<OffsetUnit>(initial.unit);
 
-    // 保存値が外から変わったとき（別端末の更新など）は下書きを追従させる。
-    // ただし下書きが既に同じ分数を表していれば、ユーザーが選んだ単位を崩さない
-    // （60 と入力して確定した直後に「1 時間」へ勝手に変わるのを防ぐ）。
-    // effect や ref を使わず、React が推奨する「前回の props を state に持つ」形で
-    // レンダー中に同期する。
     const [syncedMinutes, setSyncedMinutes] = useState(minutes);
     if (minutes !== syncedMinutes) {
         setSyncedMinutes(minutes);
@@ -165,7 +165,6 @@ function ExistingOffsetEditor({ minutes, startMillis, onCommit }: ExistingOffset
     const draftMinutes = parsed !== null && !invalid ? toMinutes(parsed, unit) : null;
 
     const revert = () => {
-        // 単位はなるべく維持し、割り切れないときだけ最適な単位へ落とす
         const keepUnit = minutes % UNIT_MULTIPLIER[unit] === 0;
         const next = keepUnit ? { value: minutes / UNIT_MULTIPLIER[unit], unit } : toUnitValue(minutes);
         setValue(String(next.value));
@@ -213,39 +212,52 @@ function ExistingOffsetEditor({ minutes, startMillis, onCommit }: ExistingOffset
 }
 
 /**
- * タスク編集モーダル内のアラーム設定セクション。
+ * タスク作成/編集モーダル内のアラーム設定。
  *
- * 開始時刻（date + scheduledStart）があるタスクでは「40分前」「2時間前」のような
- * 相対指定を既定とし、offsetMinutes を一次情報として保存する。タスクの開始時刻を
- * 動かすと DB のトリガーが fireAt を同じ差分だけずらすため、相対関係は維持される。
- * 開始時刻が未設定のタスクでは従来どおり日時を直接指定する（offsetMinutes は null）。
+ * 開始時刻（フォームの date + scheduledStart）があるときは「40分前」のような
+ * 相対指定を既定とし、offsetMinutes を一次情報として保存する。
+ * 編集時は API へ即時保存。新規作成時は親の下書きを更新し、タスク保存後に書き込む。
  */
-export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
+export function TaskAlarmSection({
+    task,
+    title,
+    date,
+    scheduledStart,
+    drafts,
+    onDraftsChange,
+}: TaskAlarmSectionProps) {
     const t = useTranslations('Alarm');
     const { alarms, alarmsLoaded, fetchAlarms, addAlarm, updateAlarm, deleteAlarm } = useStore();
     const [customFireAt, setCustomFireAt] = useState('');
     const [newValue, setNewValue] = useState(String(DEFAULT_OFFSET.value));
     const [newUnit, setNewUnit] = useState<OffsetUnit>(DEFAULT_OFFSET.unit);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const persistedTaskId = task?.id;
+    const isPersisted = Boolean(persistedTaskId);
 
     useEffect(() => {
-        // モーダルを開くたびに最新化する（他端末での変更を拾う）。
+        if (!isPersisted) return;
         fetchAlarms();
-    }, [fetchAlarms]);
+    }, [isPersisted, fetchAlarms]);
 
-    const taskAlarms = useMemo(
-        () =>
-            alarms
-                .filter((alarm) => alarm.taskId === task.id)
-                .sort((a, b) => a.fireAt - b.fireAt),
-        [alarms, task.id]
-    );
+    const visibleAlarms: AlarmDraft[] = useMemo(() => {
+        if (persistedTaskId) {
+            return alarms
+                .filter((alarm) => alarm.taskId === persistedTaskId)
+                .map((alarm) => ({
+                    id: alarm.id,
+                    fireAt: alarm.fireAt,
+                    status: alarm.status,
+                    offsetMinutes: alarm.offsetMinutes,
+                }))
+                .sort((a, b) => a.fireAt - b.fireAt);
+        }
+        return [...drafts].sort((a, b) => a.fireAt - b.fireAt);
+    }, [persistedTaskId, alarms, drafts]);
 
-    // Supabase の time は "HH:mm:ss"、input[type=time] は "HH:mm" を返す。
-    // ヘルパー側で正規化するので、どちらの表記でも相対指定 UI が出る。
     const startMillis = useMemo(
-        () => taskStartToMillis(task.date, task.scheduledStart),
-        [task.date, task.scheduledStart]
+        () => taskStartToMillis(date, scheduledStart),
+        [date, scheduledStart]
     );
 
     const newParsed = parseWhole(newValue);
@@ -253,18 +265,21 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
     const newMinutes = newParsed !== null && !newInvalid ? toMinutes(newParsed, newUnit) : null;
 
     const handleCreate = async (fireAt: number, offsetMinutes?: number) => {
-        setIsSubmitting(true);
-        try {
-            await addAlarm({ taskId: task.id, label: task.title, fireAt, offsetMinutes });
-        } finally {
-            setIsSubmitting(false);
+        if (persistedTaskId) {
+            setIsSubmitting(true);
+            try {
+                await addAlarm({ taskId: persistedTaskId, label: title, fireAt, offsetMinutes });
+            } finally {
+                setIsSubmitting(false);
+            }
+            return;
         }
+        onDraftsChange([...drafts, createAlarmDraft({ fireAt, offsetMinutes })]);
     };
 
     const handleAddRelative = async () => {
         if (startMillis === null || newMinutes === null || isSubmitting) return;
-        // offsetMinutes を渡すと、以後タスクの開始時刻変更に追従する
-        await handleCreate(startMillis - newMinutes * 60000, newMinutes);
+        await handleCreate(fireAtForOffset(startMillis, newMinutes), newMinutes);
     };
 
     const handleAddCustom = async () => {
@@ -275,26 +290,61 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
         setCustomFireAt('');
     };
 
+    const handleRelativeCommit = (id: string, minutes: number, start: number) => {
+        const fireAt = fireAtForOffset(start, minutes);
+        if (persistedTaskId) {
+            updateAlarm(id, { fireAt, offsetMinutes: minutes, status: 'scheduled' });
+            return;
+        }
+        onDraftsChange(updateAlarmDraft(drafts, id, { fireAt, offsetMinutes: minutes, status: 'scheduled' }));
+    };
+
+    const handleAbsoluteChange = (id: string, value: string) => {
+        const ms = new Date(value).getTime();
+        if (Number.isNaN(ms)) return;
+        if (persistedTaskId) {
+            updateAlarm(id, { fireAt: ms, offsetMinutes: null, status: 'scheduled' });
+            return;
+        }
+        onDraftsChange(updateAlarmDraft(drafts, id, { fireAt: ms, status: 'scheduled', offsetMinutes: undefined }));
+    };
+
+    const handleToggle = (id: string, isOn: boolean) => {
+        const status = isOn ? 'dismissed' : 'scheduled';
+        if (persistedTaskId) {
+            updateAlarm(id, { status });
+            return;
+        }
+        onDraftsChange(updateAlarmDraft(drafts, id, { status }));
+    };
+
+    const handleDelete = (id: string) => {
+        if (persistedTaskId) {
+            deleteAlarm(id);
+            return;
+        }
+        onDraftsChange(removeAlarmDraft(drafts, id));
+    };
+
+    const showEmpty = visibleAlarms.length === 0 && (isPersisted ? alarmsLoaded : true);
+
     return (
         <div className="rounded-lg border border-gray-200 overflow-hidden">
             <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
                 <AlarmClock size={14} className="text-gray-400" />
                 <span className="text-xs font-medium text-gray-600">{t('title')}</span>
-                {taskAlarms.length > 0 && (
-                    <span className="text-[10px] text-gray-400">({taskAlarms.length})</span>
+                {visibleAlarms.length > 0 && (
+                    <span className="text-[10px] text-gray-400">({visibleAlarms.length})</span>
                 )}
             </div>
 
             <div className="p-3 space-y-2">
-                {/* 設定済みアラーム一覧 */}
-                {taskAlarms.length === 0 && alarmsLoaded && (
+                {showEmpty && (
                     <p className="text-xs text-gray-400">{t('no_alarms')}</p>
                 )}
-                {taskAlarms.map((alarm) => {
+                {visibleAlarms.map((alarm) => {
                     const isOn = alarm.status === 'scheduled';
-                    // ternary 内で narrowing を効かせるためローカルへ束ねる
                     const start = startMillis;
-                    // 開始より後に設定された古いアラームは相対表現に収まらないため日時指定へ
                     const relative = start !== null && displayOffset(alarm, start) >= 0;
                     return (
                         <div key={alarm.id} className="flex items-start gap-2">
@@ -302,33 +352,19 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                                 <ExistingOffsetEditor
                                     minutes={displayOffset(alarm, start)}
                                     startMillis={start}
-                                    onCommit={(minutes) => {
-                                        // 時刻変更したアラームは再度 ON（scheduled）へ戻す
-                                        updateAlarm(alarm.id, {
-                                            fireAt: start - minutes * 60000,
-                                            offsetMinutes: minutes,
-                                            status: 'scheduled',
-                                        });
-                                    }}
+                                    onCommit={(minutes) => handleRelativeCommit(alarm.id, minutes, start)}
                                 />
                             ) : (
                                 <input
                                     type="datetime-local"
                                     value={toDatetimeLocalValue(alarm.fireAt)}
-                                    onChange={(e) => {
-                                        const ms = new Date(e.target.value).getTime();
-                                        if (!Number.isNaN(ms)) {
-                                            updateAlarm(alarm.id, { fireAt: ms, offsetMinutes: null, status: 'scheduled' });
-                                        }
-                                    }}
+                                    onChange={(e) => handleAbsoluteChange(alarm.id, e.target.value)}
                                     className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                 />
                             )}
                             <button
                                 type="button"
-                                onClick={() =>
-                                    updateAlarm(alarm.id, { status: isOn ? 'dismissed' : 'scheduled' })
-                                }
+                                onClick={() => handleToggle(alarm.id, isOn)}
                                 className={clsx(
                                     'px-2.5 py-1.5 text-xs font-semibold rounded-full transition-colors flex-shrink-0',
                                     isOn
@@ -342,7 +378,7 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => deleteAlarm(alarm.id)}
+                                onClick={() => handleDelete(alarm.id)}
                                 className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
                                 aria-label={t('delete')}
                                 title={t('delete')}
@@ -353,7 +389,6 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                     );
                 })}
 
-                {/* 追加 UI。開始時刻があれば「何分前」、無ければ日時指定にフォールバック */}
                 {startMillis !== null ? (
                     <div>
                         <div className="flex items-center gap-2">
@@ -366,7 +401,7 @@ export function TaskAlarmSection({ task }: TaskAlarmSectionProps) {
                                 onEnter={handleAddRelative}
                             />
                             <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0">
-                                {newMinutes !== null ? formatClock(startMillis - newMinutes * 60000) : '--:--'}
+                                {newMinutes !== null ? formatClock(fireAtForOffset(startMillis, newMinutes)) : '--:--'}
                             </span>
                             <button
                                 type="button"
