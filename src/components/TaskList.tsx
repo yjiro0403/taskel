@@ -36,6 +36,7 @@ import {
     writeStoredCurrentDate,
 } from '@/lib/calendarService';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
+import { compareTasksForDisplay, sortTasksForDisplay } from '@/lib/tasks/taskOrder';
 
 export default function TaskList() {
     const { tasks, tasksLoaded, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId } = useStore();
@@ -258,57 +259,16 @@ export default function TaskList() {
         return tasks.filter(t => t.assignedDate === currentDate && !t.date).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }, [tasks, currentDate]);
 
-    const compareTasks = (a: Task, b: Task) => {
-        // 0. 完了タスクは上に表示（done > in_progress > open）
-        const statusRank = (t: Task) => {
-            if (t.status === 'done') return 0;
-            if (t.status === 'in_progress') return 1;
-            return 2;
-        };
-        const rankDiff = statusRank(a) - statusRank(b);
-        if (rankDiff !== 0) return rankDiff;
-
-        // スケジュール有無の判定
-        const hasScheduleA = !!a.scheduledStart && a.scheduledStart.trim() !== '';
-        const hasScheduleB = !!b.scheduledStart && b.scheduledStart.trim() !== '';
-
-        // 1. スケジュール済み同士は時間順
-        if (hasScheduleA && hasScheduleB) {
-            const timeCompare = a.scheduledStart!.localeCompare(b.scheduledStart!);
-            if (timeCompare !== 0) return timeCompare;
-        }
-
-        // 2. スケジュール済み → 未スケジュール の順（時間軸で前に表示）
-        if (hasScheduleA && !hasScheduleB) return -1;
-        if (!hasScheduleA && hasScheduleB) return 1;
-
-        // 3. order 順（ユーザーの手動ソート）
-        return (a.order ?? 0) - (b.order ?? 0);
-    };
-
-    const getSortedTasks = () => {
-        let allTasks: Task[] = [];
-        displaySections.forEach(section => {
-            const sectionTasks = filteredTasks
-                .filter(t => t.sectionId === section.id)
-                .sort(compareTasks);
-            allTasks = [...allTasks, ...sectionTasks];
-        });
-        return allTasks;
-    };
-
-    const globalSchedule = calculateTaskSchedule(getSortedTasks(), currentTime);
-
-    // VISUAL SORTING LOGIC
-    // VISUAL SORTING LOGIC REMOVED: Now unified with compareTasks order-based logic.
+    // 並び順（done > in_progress > open → 予定時刻順 → 予定あり優先 → order）は
+    // lib/tasks/taskOrder に集約。今/次ウィジェットも同じ順序で「次のタスク」を決める。
+    const globalSchedule = calculateTaskSchedule(sortTasksForDisplay(filteredTasks, sections), currentTime);
 
     const getTasksBySection = (sectionId: string) => {
         const sectionTasks = filteredTasks
             .filter((task) => task.sectionId === sectionId);
-        // UNIFIED SORT: Use 'compareTasks' (order-based) instead of 'compareTasksByTime'.
-        // This ensures that the visual order matches the draggable 'order' property.
-        // Scheduled tasks are handled by the tie-breaker in 'compareTasks'.
-        return sectionTasks.sort(compareTasks);
+        // UNIFIED SORT: the visual order matches the draggable 'order' property, with
+        // scheduled tasks handled by the tie-breaker in compareTasksForDisplay.
+        return sectionTasks.sort(compareTasksForDisplay);
     };
 
     // Shared with deep-link focusTask so Edit Item cannot open for viewers.

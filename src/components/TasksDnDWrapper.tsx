@@ -17,6 +17,7 @@ import {
 } from '@dnd-kit/sortable';
 import { useStore } from '@/store/useStore';
 import { generateDisplaySections } from '@/lib/sectionUtils';
+import { compareTasksForDisplay } from '@/lib/tasks/taskOrder';
 import DraggableUnscheduledTask from './RightSidebarDraggableItem';
 import { TaskItem } from './TaskItem';
 import { useState, useMemo } from 'react';
@@ -56,28 +57,8 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
         })
     );
 
-    // 表示順（セクション内）のソート。TaskList.compareTasks と同一ロジック。
-    const sortSectionForDisplay = (list: Task[]): Task[] => {
-        const hasSchedule = (t: Task) => !!t.scheduledStart && t.scheduledStart.trim() !== '';
-        const statusRank = (t: Task) => {
-            if (t.status === 'done') return 0;
-            if (t.status === 'in_progress') return 1;
-            return 2;
-        };
-        return [...list].sort((a, b) => {
-            const rd = statusRank(a) - statusRank(b);
-            if (rd !== 0) return rd;
-            const hasA = hasSchedule(a);
-            const hasB = hasSchedule(b);
-            if (hasA && hasB) {
-                const tc = a.scheduledStart!.localeCompare(b.scheduledStart!);
-                if (tc !== 0) return tc;
-            }
-            if (hasA && !hasB) return -1;
-            if (!hasA && hasB) return 1;
-            return (a.order ?? 0) - (b.order ?? 0);
-        });
-    };
+    // 表示順（セクション内）のソート。TaskList と同じ比較関数（lib/tasks/taskOrder）を使う。
+    const sortSectionForDisplay = (list: Task[]): Task[] => [...list].sort(compareTasksForDisplay);
 
     const handleDragStart = (event: DragStartEvent) => {
         const id = String(event.active.id);
