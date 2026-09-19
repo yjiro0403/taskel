@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- Home-screen widget "Now / Next" (other strings fall back to the default, Japanese, set) -->
+    <string name="widget_now_next_label">Taskel Now / Next</string>
+    <string name="widget_now_next_description">Time left on the running task and a countdown to the next one</string>
+    <string name="widget_now">Now</string>
+    <string name="widget_next">Next</string>
+    <string name="widget_remaining">left</string>
+    <string name="widget_overrun">over</string>
+    <string name="widget_elapsed">elapsed</string>
+    <string name="widget_until">in</string>
+    <string name="widget_due_now">Now!</string>
+    <string name="widget_ends_at">until %1$s</string>
+    <string name="widget_starts_at">starts %1$s</string>
+    <string name="widget_no_time">No time set</string>
+    <string name="widget_nothing_now">Nothing in progress</string>
+    <string name="widget_nothing_next">Nothing else scheduled today</string>
+    <string name="widget_concurrent">+%1$d more running</string>
+    <string name="widget_not_synced">Open Taskel to sync</string>
+    <string name="widget_updated_at">Updated %1$s</string>
+</resources>

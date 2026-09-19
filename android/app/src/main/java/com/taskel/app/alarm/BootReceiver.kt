@@ -18,5 +18,9 @@ class BootReceiver : BroadcastReceiver() {
         }
         val count = AlarmScheduler.rescheduleAll(context)
         Log.i("TaskelBootReceiver", "Rescheduled $count alarms after boot")
+
+        // ホーム画面ウィジェットの再描画予約（AlarmManager）も再起動で消えるため描き直す
+        runCatching { com.taskel.app.widget.NowNextWidgetProvider.refreshAll(context) }
+            .onFailure { Log.w("TaskelBootReceiver", "Widget refresh after boot failed: ${it.message}") }
     }
 }

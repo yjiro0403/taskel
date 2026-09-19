@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ホーム画面ウィジェット「今 / 次」のメタデータ。
+  - 4x2 セルを標準サイズにし、縦横ともにリサイズ可
+  - updatePeriodMillis は保険の定期再描画（最小の 30 分）。主な再描画は
+    Web からの同期と、表示切り替え時刻に予約する AlarmManager で行う
+  - targetCell* / previewLayout / description は Android 12+ 向け（旧版は無視する）
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_now_next"
+    android:previewLayout="@layout/widget_now_next"
+    android:description="@string/widget_now_next_description"
+    android:widgetCategory="home_screen" />

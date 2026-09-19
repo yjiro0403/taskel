@@ -1,0 +1,82 @@
+name: Android APK
+
+# Debug APK をビルドして Actions の成果物（Artifacts）として保存する。
+# 手元に JDK / Android SDK が無くても、Actions の実行ページから APK をダウンロードして
+# 端末へサイドロードできる（手順: docs/android_home_widget.md）。
+#
+# 署名について: 何も設定しなければランナーが毎回新しい debug.keystore を生成するため、
+# 端末側では前の Taskel をアンインストールしてから入れる必要がある。
+# base64 化した debug.keystore を secret ANDROID_DEBUG_KEYSTORE_BASE64 に入れておくと
+# 毎回同じ署名になり、上書きインストールできる（任意）。
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'capacitor.config.ts'
+      - '.github/workflows/android-apk.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'android/**'
+      - 'capacitor.config.ts'
+      - '.github/workflows/android-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ランナーには Android SDK が同梱されているが、compileSdk 36 / build-tools 36 が
+      # 入っているとは限らないので明示的に入れる（docs/alarm-setup.md 5-0 と同じ構成）。
+      - name: Install Android SDK components
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore debug keystore (optional)
+        if: env.DEBUG_KEYSTORE_BASE64 != ''
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > ~/.android/debug.keystore
+
+      # capacitor-cordova-android-plugins 等の生成物を作る（gitignore 済みのため毎回必要）
+      - name: Capacitor sync
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskel-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
