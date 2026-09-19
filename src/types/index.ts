@@ -160,6 +160,8 @@ export interface Project {
     memberIds: string[]; // NEW: List of user IDs with access
     roles?: { [userId: string]: HubRole }; // NEW: Mapping of user IDs to their roles
     status: 'active' | 'completed' | 'archived';
+    /** Expected duration for the whole project, in minutes. Unset when undefined. */
+    expectedMinutes?: number;
     createdAt: number;
     updatedAt: number;
     milestones?: Milestone[];

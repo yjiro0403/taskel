@@ -3,9 +3,10 @@
 import SettingsLayout from '@/components/SettingsLayout';
 import { useLocale, useTranslations } from 'next-intl';
 import { useRouter, usePathname } from '@/i18n/routing';
-import { Globe, JapaneseYen } from 'lucide-react';
+import { CalendarClock, Globe, JapaneseYen } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '@/store/useStore';
+import SettingsToggle from '@/components/SettingsToggle';
 
 const languages = [
     { code: 'ja', label: '日本語', flag: '🇯🇵' },
@@ -15,12 +16,19 @@ const languages = [
 export default function GeneralSettingsPage() {
     const locale = useLocale();
     const tFinance = useTranslations('Finance');
+    const tTimeline = useTranslations('Timeline');
     const router = useRouter();
     const pathname = usePathname();
     const financeEnabled = useStore((state) => state.financeEnabled);
     const financePreferenceLoaded = useStore((state) => state.financePreferenceLoaded);
     const financePreferenceSaving = useStore((state) => state.financePreferenceSaving);
     const setFinanceEnabled = useStore((state) => state.setFinanceEnabled);
+    const timelineEnabled = useStore((state) => state.timelineEnabled);
+    const hideEmptyIntervals = useStore((state) => state.hideEmptyIntervals);
+    const uiPreferencesLoaded = useStore((state) => state.uiPreferencesLoaded);
+    const uiPreferencesSaving = useStore((state) => state.uiPreferencesSaving);
+    const setTimelineEnabled = useStore((state) => state.setTimelineEnabled);
+    const setHideEmptyIntervals = useStore((state) => state.setHideEmptyIntervals);
     const showToast = useStore((state) => state.showToast);
 
     const handleLanguageChange = (newLocale: string) => {
@@ -124,6 +132,44 @@ export default function GeneralSettingsPage() {
                             </div>
                         </button>
                         <p className="text-xs text-gray-400">{tFinance('settingsEntitlementNote')}</p>
+                    </div>
+                </section>
+
+                <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                        <div className="flex items-center gap-3">
+                            <CalendarClock size={20} className="text-gray-600" />
+                            <h3 className="font-semibold text-gray-900">{tTimeline('settingsTitle')}</h3>
+                        </div>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <p className="text-sm text-gray-600">{tTimeline('settingsDescription')}</p>
+                        <SettingsToggle
+                            checked={timelineEnabled}
+                            disabled={!uiPreferencesLoaded || uiPreferencesSaving}
+                            label={tTimeline('settingsToggleLabel')}
+                            hint={timelineEnabled ? tTimeline('settingsToggleHintOn') : tTimeline('settingsToggleHintOff')}
+                            ariaLabel={tTimeline('settingsToggleLabel')}
+                            onToggle={async () => {
+                                const saved = await setTimelineEnabled(!timelineEnabled);
+                                if (!saved) showToast(tTimeline('settingsSaveError'), 'error');
+                            }}
+                        />
+                        <div>
+                            <p className="text-sm font-medium text-gray-900 mb-1">{tTimeline('hideEmptyTitle')}</p>
+                            <p className="text-sm text-gray-600 mb-3">{tTimeline('hideEmptyDescription')}</p>
+                            <SettingsToggle
+                                checked={hideEmptyIntervals}
+                                disabled={!uiPreferencesLoaded || uiPreferencesSaving}
+                                label={tTimeline('hideEmptyTitle')}
+                                hint={hideEmptyIntervals ? tTimeline('hideEmptyOn') : tTimeline('hideEmptyOff')}
+                                ariaLabel={tTimeline('hideEmptyTitle')}
+                                onToggle={async () => {
+                                    const saved = await setHideEmptyIntervals(!hideEmptyIntervals);
+                                    if (!saved) showToast(tTimeline('settingsSaveError'), 'error');
+                                }}
+                            />
+                        </div>
                     </div>
                 </section>
             </div>

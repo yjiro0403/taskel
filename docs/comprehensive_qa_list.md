@@ -164,3 +164,14 @@ This list covers all implemented features found in the codebase as of Jan 21, 20
 | **FIN-10** | Privacy | Shared task | Two project members | 1. User A records finance on a shared task.<br>2. User B opens the same task. | User B does not see A's rows and can add their own. |
 | **FIN-11** | History | Delete / duplicate task | Feature ON, rows exist | 1. Duplicate the task.<br>2. Delete the original. | Duplicate has no finance rows. Breakdown still shows snapshots after delete. |
 | **FIN-12** | Persistence | Partial failure | Feature ON | 1. Cause finance RPC to fail after task save.<br>2. Observe modal. | Modal stays open with entered rows and an inline error. Task is not reported as fully saved. |
+
+## 9. Analytics & timeline
+| ID | Feature | Test Case | Pre-condition | Steps | Expected Result |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **ANL-01** | Project time | All-project list | Multiple projects with logged time | 1. Open Analytics.<br>2. Switch week / month / year. | Each project's logged time is listed. Unset expected hours show as unset. |
+| **ANL-02** | Expected hours | Plan vs actual | Project expected hours set to 60h | 1. Save expected hours on a project row.<br>2. View a project whose actual is 70h. | Over / remaining is visible. |
+| **ANL-03** | Breakdown | Tag / project | Tagged tasks exist | 1. Click a project row.<br>2. Click a tag row. | Tag breakdown / project breakdown open on the same screen. |
+| **ANL-04** | Budget | Week / month / year | Money tracking ON | 1. Set a period budget and a category budget.<br>2. Compare to spend and write a review. | Remaining / over is visible. Review can be edited later. |
+| **TL-01** | Settings | Default off | No preference row | 1. Open Settings → General.<br>2. Open the task list. | Timeline is OFF. Existing section list is shown. |
+| **TL-02** | Display | Side-by-side + unscheduled | Timeline ON, two tasks at the same time, one without a start | 1. Open the task list. | Same-time tasks sit side by side. Unscheduled tasks stay visible at the top without an extra click. |
+| **TL-03** | Interaction | Drag / resize | Timeline ON, editable task | 1. Drag a block vertically.<br>2. Stretch the bottom edge. | Start time and estimated minutes are saved. |
