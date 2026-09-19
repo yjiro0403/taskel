@@ -1,5 +1,16 @@
 # Fixes and Features Log - September 2026
 
+## [2026-09-19] Analytics expansion, timeline view, dual-axis landing
+
+- **Issue:** Users could see time per project only after opening each project. There was no all-project actual-vs-expected list, no tag/meeting drill-down, no week/month/year budgets in analytics, and no calendar-style day view. The public homepage still described Taskel as time-only.
+- **Change:**
+    - `projects.expected_minutes` plus analytics period plans (expected hours, overall yen budget, reflection) and per-category yen budgets. UI preferences persist timeline on/off and whether empty gap hours are hidden (default: timeline off, empty gaps hidden).
+    - Analytics lists every project's logged vs expected time, tag totals with click-to-breakdown, and (when money tracking is on) spend vs budget by category and project for week/month/year.
+    - Optional Google Calendar-style day timeline: drag to move, resize duration, overlapping tasks sit side by side, unscheduled tasks stay visible at the top.
+    - Landing copy frames Taskel as time + money together (time blindness / money blindness). Dummy product frames only — no personal tasks. Bank/card lag is not mentioned on the page.
+- **Apply note:** `npx supabase db push` for `20260919120000_analytics_timeline.sql` after the finance migration.
+- **Impact:** Existing list and finance behavior stay the default. Timeline and budgets appear only after the user turns them on or fills a plan.
+
 ## [2026-09-18] Now / Next widget on the daily task page
 
 - **Issue:** Time blindness. A user misread a 10:01 bus as 10:09 and waited an hour; the list shows times, but nothing answers "what am I doing now, how long is left, what is next and when" at a glance.

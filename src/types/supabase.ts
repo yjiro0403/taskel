@@ -108,6 +108,42 @@ export type Database = {
                 };
                 Relationships: [];
             };
+            analytics_period_plans: {
+                Row: {
+                    created_at: string;
+                    expected_minutes: number | null;
+                    id: string;
+                    overall_budget_yen: number | null;
+                    period_key: string;
+                    period_type: Database['public']['Enums']['analytics_period_type'];
+                    reflection: string | null;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    expected_minutes?: number | null;
+                    id?: string;
+                    overall_budget_yen?: number | null;
+                    period_key: string;
+                    period_type: Database['public']['Enums']['analytics_period_type'];
+                    reflection?: string | null;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    expected_minutes?: number | null;
+                    id?: string;
+                    overall_budget_yen?: number | null;
+                    period_key?: string;
+                    period_type?: Database['public']['Enums']['analytics_period_type'];
+                    reflection?: string | null;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
             finance_categories: {
                 Row: {
                     created_at: string;
@@ -175,6 +211,39 @@ export type Database = {
                     occurred_on?: string;
                     task_id?: string | null;
                     task_title_snapshot?: string;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
+            finance_category_budgets: {
+                Row: {
+                    amount_yen: number;
+                    category_id: string;
+                    created_at: string;
+                    id: string;
+                    period_key: string;
+                    period_type: Database['public']['Enums']['analytics_period_type'];
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    amount_yen: number;
+                    category_id: string;
+                    created_at?: string;
+                    id?: string;
+                    period_key: string;
+                    period_type: Database['public']['Enums']['analytics_period_type'];
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    amount_yen?: number;
+                    category_id?: string;
+                    created_at?: string;
+                    id?: string;
+                    period_key?: string;
+                    period_type?: Database['public']['Enums']['analytics_period_type'];
                     updated_at?: string;
                     user_id?: string;
                 };
@@ -387,6 +456,7 @@ export type Database = {
                 Row: {
                     created_at: string;
                     description: string;
+                    expected_minutes: number | null;
                     id: string;
                     owner_id: string;
                     status: Database['public']['Enums']['project_status'];
@@ -396,6 +466,7 @@ export type Database = {
                 Insert: {
                     created_at?: string;
                     description?: string;
+                    expected_minutes?: number | null;
                     id?: string;
                     owner_id: string;
                     status?: Database['public']['Enums']['project_status'];
@@ -405,6 +476,7 @@ export type Database = {
                 Update: {
                     created_at?: string;
                     description?: string;
+                    expected_minutes?: number | null;
                     id?: string;
                     owner_id?: string;
                     status?: Database['public']['Enums']['project_status'];
@@ -749,6 +821,30 @@ export type Database = {
                 };
                 Relationships: [];
             };
+            user_ui_preferences: {
+                Row: {
+                    created_at: string;
+                    hide_empty_intervals: boolean;
+                    timeline_enabled: boolean;
+                    updated_at: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    hide_empty_intervals?: boolean;
+                    timeline_enabled?: boolean;
+                    updated_at?: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    hide_empty_intervals?: boolean;
+                    timeline_enabled?: boolean;
+                    updated_at?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
             usage_monthly: {
                 Row: {
                     ai_messages_count: number;
@@ -846,6 +942,7 @@ export type Database = {
             };
         };
         Enums: {
+            analytics_period_type: 'week' | 'month' | 'year';
             attachment_file_type: 'image' | 'file';
             finance_entry_type: 'expense' | 'income';
             goal_status: 'pending' | 'in_progress' | 'achieved' | 'missed' | 'cancelled';

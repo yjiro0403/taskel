@@ -19,6 +19,8 @@ import { createBillingSlice } from './slices/billingSlice';
 import { createWorkspaceSlice } from './slices/workspaceSlice';
 import { createAlarmSlice } from './slices/alarmSlice';
 import { createFinanceSlice } from './slices/financeSlice';
+import { createUIPreferenceSlice } from './slices/uiPreferenceSlice';
+import { createAnalyticsSlice } from './slices/analyticsSlice';
 
 export const useStore = create<StoreState>()((...a) => ({
     ...createTaskSlice(...a),
@@ -37,4 +39,6 @@ export const useStore = create<StoreState>()((...a) => ({
     ...createWorkspaceSlice(...a),
     ...createAlarmSlice(...a),
     ...createFinanceSlice(...a),
+    ...createUIPreferenceSlice(...a),
+    ...createAnalyticsSlice(...a),
 }));

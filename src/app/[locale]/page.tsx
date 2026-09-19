@@ -1,10 +1,11 @@
 import { Link } from '@/i18n/routing';
-import { ArrowRight, Play, Clock, BarChart3, Layout, Calendar } from 'lucide-react';
+import { ArrowRight, Play, Clock, BarChart3, Layout, Calendar, Wallet } from 'lucide-react';
 import Image from 'next/image';
 import { redirect } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 
 import { createClient } from '@/lib/supabase/server';
+import { AnalyticsMock, TimelineMock } from '@/components/landing/ProductMockups';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,9 +74,10 @@ export default async function LandingPage({
                         {t('alpha')}
                     </div>
 
-                    <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight leading-tight text-gray-900">
+                    <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight leading-tight text-gray-900">
                         {t.rich('title', {
-                            execution: (chunks) => <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{chunks}</span>
+                            highlight: (chunks) => <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 whitespace-nowrap">{chunks}</span>,
+                            br: () => <br />
                         })}
                     </h1>
 
@@ -96,8 +98,47 @@ export default async function LandingPage({
                 </div>
             </section>
 
+            <section className="pb-24 px-6">
+                <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-8 items-start">
+                    <div>
+                        <TimelineMock />
+                        <p className="text-sm text-gray-500 mt-3 text-center">{t('mock_timeline_caption')}</p>
+                    </div>
+                    <div>
+                        <AnalyticsMock />
+                        <p className="text-sm text-gray-500 mt-3 text-center">{t('mock_analytics_caption')}</p>
+                    </div>
+                </div>
+            </section>
+
+            <section className="py-24 bg-gray-50 border-t border-gray-100">
+                <div className="max-w-4xl mx-auto px-6 space-y-10">
+                    <p className="text-sm font-semibold tracking-wide uppercase text-blue-700">{t('problem_kicker')}</p>
+                    <div className="grid md:grid-cols-2 gap-10">
+                        <div className="space-y-3">
+                            <div className="w-12 h-12 bg-white rounded-xl border border-gray-200 flex items-center justify-center text-blue-600">
+                                <Clock size={24} />
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-900">{t('time_blindness_title')}</h2>
+                            <p className="text-gray-600 leading-relaxed">{t('time_blindness_body')}</p>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="w-12 h-12 bg-white rounded-xl border border-gray-200 flex items-center justify-center text-emerald-600">
+                                <Wallet size={24} />
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-900">{t('money_blindness_title')}</h2>
+                            <p className="text-gray-600 leading-relaxed">{t('money_blindness_body')}</p>
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-2xl border border-gray-200 p-8">
+                        <h2 className="text-2xl font-bold text-gray-900 mb-3">{t('axis_title')}</h2>
+                        <p className="text-gray-600 leading-relaxed">{t('axis_body')}</p>
+                    </div>
+                </div>
+            </section>
+
             {/* Core Values / Features form Draft */}
-            <section className="py-24 bg-gray-50/50 border-t border-gray-100">
+            <section className="py-24 bg-white border-t border-gray-100">
                 <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-3 gap-12">
                     {/* Visualized Timeline */}
                     <div className="group space-y-4">

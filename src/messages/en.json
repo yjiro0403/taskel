@@ -1,21 +1,30 @@
 {
   "HomePage": {
     "alpha": "Alpha Version Live",
-    "title": "Focus on <execution>execution.</execution>",
-    "description": "The smart task partner for professionals.<br></br>Eliminate the gap between planning and execution to maximize your performance.<br></br>A new task management tool that visualizes the flow of time.",
+    "title": "See <highlight>time and money</highlight><br></br>together.",
+    "description": "A task and its cost are the same event.<br></br>Watch the flow of hours and the flow of yen on one axis, and close the gap between plan and actual as it happens.<br></br>An execution partner for people whose time and money both matter.",
     "cta": "Start Using Taskel",
+    "problem_kicker": "Why plans fall apart",
+    "time_blindness_title": "Time blindness",
+    "time_blindness_body": "Time blindness is difficulty sensing the passage of time. ADHD research repeatedly finds time-perception gaps — deadlines feel sudden, estimates run short. You cannot manage time you cannot see.",
+    "money_blindness_title": "Money blindness",
+    "money_blindness_body": "Money blindness is when spending and budget stay invisible. Subscriptions, usage-based tools, and social spending make it harder to feel how much this month has already cost, or how much room is left. Individuals need the same visibility companies expect from a financial plan.",
+    "axis_title": "A timed task and its money record are one event",
+    "axis_body": "A client dinner is both a block of time and a bill. Taskel links yen records to dated tasks, then lets you review hours and spend by project, tag, and period on the same screen.",
+    "mock_timeline_caption": "A day timeline. Parallel tasks sit side by side.",
+    "mock_analytics_caption": "Project actual vs expected hours, plus spend by category.",
     "features": {
       "visualized": {
-        "title": "Visualized Timeline",
-        "description": "<strong>Capture time \"visually\".</strong><br></br>Real-time visualization of the remaining time of the day and total task volume. Eliminate vague anxiety and provide clear visibility."
+        "title": "A timeline you can see",
+        "description": "<strong>Read the day like a clock.</strong><br></br>Tasks sit on a calendar-style day view from morning to evening. Parallel work appears side by side."
       },
       "execution": {
-        "title": "Seamless Execution",
-        "description": "<strong>Uninterrupted thinking, smooth execution.</strong><br></br>Start and end tasks with just one action: the play button. Eliminating complex operations to not hinder your immersion into the flow state."
+        "title": "Plan and actual in one place",
+        "description": "<strong>Expected hours vs logged hours.</strong><br></br>See which projects and tags are taking more than you thought, then review by week, month, or year."
       },
       "logging": {
-        "title": "Reliable Logging",
-        "description": "<strong>Results refine the next plan.</strong><br></br>Automatically log planned vs. actual management. A feedback loop based on data, not intuition, sharpens your sense of time."
+        "title": "Money next to the task",
+        "description": "<strong>Budget and spend at a glance.</strong><br></br>Compare each category — tickets, dining, subscriptions — against its budget, including over and remaining."
       },
       "section_planning": {
         "title": "Section Planning",
@@ -23,14 +32,14 @@
       },
       "one_click_timer": {
         "title": "One-Click Timer",
-        "description": "Intuitive stopwatch function. Clarify the task currently being executed."
+        "description": "Intuitive stopwatch. Make the task you are running obvious."
       },
       "hierarchical_planning": {
         "title": "Hierarchical Planning",
-        "description": "Set goals for yearly, monthly, and weekly periods. Realize unhesitating execution with task design based on higher-level goals."
+        "description": "Set yearly, monthly, and weekly goals. Design today's tasks from the level above."
       }
     },
-    "key_features_title": "Key Features"
+    "key_features_title": "What you can do"
   },
   "Navigation": {
     "login": "Log in",
@@ -197,5 +206,91 @@
     "validationTooMany": "You can add at most {max} money records per task.",
     "needDate": "Set a date to record money on this task.",
     "datedTypeRequired": "Items with money records must remain a dated task or daily goal. Save after removing the records before changing the item type."
+  },
+  "Analytics": {
+    "title": "Analytics",
+    "week": "Week",
+    "month": "Month",
+    "year": "Year",
+    "all": "All time",
+    "allProjects": "All projects",
+    "allTags": "All tags",
+    "prev": "Previous period",
+    "next": "Next period",
+    "kpiTasks": "Tasks",
+    "kpiCompleted": "Completed",
+    "kpiRate": "Completion",
+    "kpiTime": "Logged time",
+    "kpiExpense": "Spend",
+    "kpiIncome": "Income",
+    "kpiBudget": "Budget",
+    "kpiRemaining": "Remaining",
+    "kpiOver": "Over",
+    "unset": "Not set",
+    "projectsTitle": "Time by project",
+    "projectsHint": "Actual vs expected hours for every project. Click a row to see the tag breakdown.",
+    "tagsTitle": "Time by tag",
+    "tagsHint": "Total hours per tag, including meetings. Click a row to see the project breakdown.",
+    "colName": "Name",
+    "colActual": "Actual",
+    "colExpected": "Expected",
+    "colVariance": "Variance",
+    "colTasks": "Tasks",
+    "overBy": "{duration} over",
+    "remainingBy": "{duration} left",
+    "uncategorized": "Uncategorized",
+    "untagged": "Untagged",
+    "breakdownTitle": "Breakdown: {label}",
+    "closeBreakdown": "Close breakdown",
+    "expectedHours": "Expected hours",
+    "expectedHoursHint": "How long you expect this project to take in total",
+    "saveExpected": "Save expected hours",
+    "periodPlanTitle": "Plan and review for this period",
+    "periodExpected": "Expected hours this period",
+    "periodBudget": "Budget this period (JPY)",
+    "periodReflection": "Review",
+    "periodReflectionPlaceholder": "What differed from the plan, and how you will set the next period. Editable anytime.",
+    "savePlan": "Save plan",
+    "planSaved": "Plan saved",
+    "planSaveError": "Could not save the plan",
+    "financeTitle": "Money",
+    "financeHint": "Spend vs budget by category, plus spend rolled up by project.",
+    "category": "Category",
+    "spent": "Spend",
+    "income": "Income",
+    "budget": "Budget",
+    "setBudget": "Set budget",
+    "clearBudget": "Remove budget",
+    "noFinance": "No money records in this period.",
+    "financeDisabled": "Money tracking is off in Settings. Turn it on to see budgets and category spend here.",
+    "trendTitle": "Trend",
+    "metricTime": "Time",
+    "metricTasks": "Tasks",
+    "completedTasks": "Completed tasks",
+    "noCompleted": "No completed tasks.",
+    "totalList": "All tasks",
+    "saveHoursError": "Could not save expected hours"
+  },
+  "Timeline": {
+    "settingsTitle": "Timeline view",
+    "settingsDescription": "Show the task list as a vertical Google Calendar-style timeline. Off by default.",
+    "settingsToggleLabel": "Enable timeline view",
+    "settingsToggleHintOn": "Dated tasks with a start time sit on a time axis. Drag to move, drag the edge to resize.",
+    "settingsToggleHintOff": "The existing section list stays as it is.",
+    "hideEmptyTitle": "Hide empty hours",
+    "hideEmptyDescription": "Skip empty gaps outside your sections on the timeline.",
+    "hideEmptyOn": "Empty gap hours are hidden.",
+    "hideEmptyOff": "The full 24-hour day is shown.",
+    "settingsSaveError": "Could not save display settings. Check your connection.",
+    "unscheduled": "No start time",
+    "unscheduledHint": "Tasks without a start time. Drag onto the timeline to schedule them.",
+    "now": "Now",
+    "resize": "Resize duration",
+    "dropToSchedule": "Drop here to set a start time"
+  },
+  "Projects": {
+    "expectedHours": "Expected hours",
+    "expectedHoursPlaceholder": "e.g. 60",
+    "actualVsExpected": "Actual {actual} / expected {expected}"
   }
 }

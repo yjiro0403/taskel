@@ -34,7 +34,8 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
         reorderTasks,
         currentDate,
         getMergedTasks,
-        projects
+        projects,
+        timelineEnabled,
     } = useStore();
 
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -131,8 +132,14 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
     const activeTask = useMemo(() => {
         if (!activeId) return null;
         const merged = getMergedTasks(currentDate);
-        return findTaskById(activeId, merged);
+        return merged.find((task) => String(task.id) === String(activeId))
+            || tasks.find((task) => String(task.id) === String(activeId))
+            || null;
     }, [activeId, currentDate, tasks, getMergedTasks]);
+
+    if (timelineEnabled) {
+        return <>{children}</>;
+    }
 
     return (
         <DndContext

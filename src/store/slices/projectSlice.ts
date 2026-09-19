@@ -18,6 +18,7 @@ export const createProjectSlice: StateCreator<StoreState, [], [], ProjectSlice> 
             title: project.title,
             description: project.description,
             status: project.status,
+            expected_minutes: project.expectedMinutes ?? null,
         };
 
         const { error: projectError } = await client.from('projects').insert(projectPayload);
@@ -42,6 +43,7 @@ export const createProjectSlice: StateCreator<StoreState, [], [], ProjectSlice> 
             title: updates.title,
             description: updates.description,
             status: updates.status,
+            expected_minutes: updates.expectedMinutes === undefined ? undefined : updates.expectedMinutes ?? null,
         };
 
         const { error } = await createClient().from('projects').update(payload).eq('id', projectId);
