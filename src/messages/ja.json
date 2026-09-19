@@ -81,6 +81,33 @@
       "skipped": "スキップ"
     }
   },
+  "NowNext": {
+    "aria_label": "今のアクションと次のアクション",
+    "now": "今",
+    "next": "次",
+    "nothing_now": "実行中のタスクはありません",
+    "start_hint": "タスクの ▶ を押すとここに表示されます",
+    "nothing_next": "この後の予定はありません",
+    "remaining": "残り <n>{time}</n>",
+    "overrun": "超過 <n>{time}</n>",
+    "elapsed": "経過 <n>{time}</n>",
+    "until": "あと <n>{time}</n>",
+    "due_now": "今すぐ",
+    "ends_at": "{time} まで",
+    "starts_at": "{time} 開始",
+    "no_time": "時刻未設定",
+    "queued_hint": "次に並んでいるタスク",
+    "concurrent": "+{count} 件実行中",
+    "conflict": "次の予定のほうが先に来ます",
+    "collapse": "ウィジェットをたたむ",
+    "expand": "ウィジェットを開く",
+    "jump": "タスクへ移動",
+    "duration_hm": "{hours}時間{minutes}分",
+    "duration_h": "{hours}時間",
+    "duration_m": "{minutes}分",
+    "duration_ms": "{minutes}分{seconds}秒",
+    "duration_s": "{seconds}秒"
+  },
   "TaskLink": {
     "copy": "リンクをコピー",
     "copied": "リンクをコピーしました",

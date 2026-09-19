@@ -9,6 +9,7 @@ import DailyNoteModal from '@/components/DailyNoteModal'; // NEW
 import SelectionHeader from '@/components/SelectionHeader'; // NEW
 import TasksDnDWrapper from '@/components/TasksDnDWrapper'; // NEW
 import TaskDeepLinkHandler from '@/components/TaskDeepLinkHandler';
+import NowNextWidget from '@/components/NowNextWidget';
 import { Plus, Clock, PanelRight, Menu, Search } from 'lucide-react'; // Added Menu
 import { useStore } from '@/store/useStore';
 import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
@@ -126,6 +127,11 @@ export default function Home() {
           <SelectionHeader />
           <main className="flex-1 py-8 min-w-0 transition-all duration-300">
             <div className="max-w-3xl mx-auto px-4">
+              {/* 今 / 次 ウィジェット: 実行中タスクの残り時間と次の予定までのカウントダウン。
+                  sticky でリストをスクロールしても見え続ける（閲覧中の日付に関わらず「今日」を表示） */}
+              <div className="px-4">
+                <NowNextWidget />
+              </div>
               {/* DailyNotePanel removed, using Modal instead */}
               <TaskList />
             </div>

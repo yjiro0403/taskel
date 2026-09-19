@@ -81,6 +81,33 @@
       "skipped": "Skipped"
     }
   },
+  "NowNext": {
+    "aria_label": "Current and next action",
+    "now": "Now",
+    "next": "Next",
+    "nothing_now": "Nothing in progress",
+    "start_hint": "Press ▶ on a task to show it here",
+    "nothing_next": "Nothing else scheduled today",
+    "remaining": "<n>{time}</n> left",
+    "overrun": "<n>{time}</n> over",
+    "elapsed": "<n>{time}</n> elapsed",
+    "until": "in <n>{time}</n>",
+    "due_now": "Now!",
+    "ends_at": "until {time}",
+    "starts_at": "starts {time}",
+    "no_time": "No time set",
+    "queued_hint": "Next task in your list",
+    "concurrent": "+{count} more running",
+    "conflict": "Your next event starts before this ends",
+    "collapse": "Collapse widget",
+    "expand": "Expand widget",
+    "jump": "Go to task",
+    "duration_hm": "{hours}h {minutes}m",
+    "duration_h": "{hours}h",
+    "duration_m": "{minutes} min",
+    "duration_ms": "{minutes}m {seconds}s",
+    "duration_s": "{seconds}s"
+  },
   "TaskLink": {
     "copy": "Copy link",
     "copied": "Link copied",

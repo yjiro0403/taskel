@@ -1,5 +1,16 @@
 # Fixes and Features Log - September 2026
 
+## [2026-09-18] Now / Next widget on the daily task page
+
+- **Issue:** Time blindness. A user misread a 10:01 bus as 10:09 and waited an hour; the list shows times, but nothing answers "what am I doing now, how long is left, what is next and when" at a glance.
+- **Change:**
+    - Added a sticky two-lane panel above the daily list (`src/components/NowNextWidget.tsx`): **Now** shows the running task with remaining / overrun / elapsed time; **Next** shows the next fixed-time task today with its start time and a live countdown (seconds under ten minutes, amber ≤ 15 min, red + pulse ≤ 5 min, "Now!" once the start time arrives). Tapping a title jumps to the task. The panel collapses to one line (`localStorage`).
+    - Pure decision logic in `src/lib/tasks/nowNext.ts` (`computeNowNext`, `hasScheduleConflict`, `describeDuration`) with unit tests; the widget always reflects the system's local today, even while browsing another date, and includes timers still running on other dates.
+    - Extracted the daily list's ordering into `src/lib/tasks/taskOrder.ts` (used by `TaskList`, `TasksDnDWrapper`, and the widget's queue fallback) so "next in list" cannot drift from what the list renders.
+    - i18n: new `NowNext` namespace in `src/messages/{ja,en}.json`.
+- **Spec:** `docs/now_next_widget_spec.md`.
+- **Impact:** No schema or write-path changes. Existing list behavior is unchanged; the widget is read-only and adds one small sticky panel to `/tasks`.
+
 ## [2026-09-15] Optional task-linked money tracking (JPY)
 
 - **Issue:** Users needed a way to record yen expenses and income against dated tasks, without changing existing Taskel behavior when the feature is unused.
