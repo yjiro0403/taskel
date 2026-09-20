@@ -147,6 +147,7 @@ export function mapProject(
         memberIds,
         roles,
         status: row.status,
+        expectedMinutes: row.expected_minutes ?? undefined,
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
     };

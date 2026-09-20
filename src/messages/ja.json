@@ -1,36 +1,45 @@
 {
   "HomePage": {
     "alpha": "Alpha Version Live",
-    "title": "Focus on <execution>execution.</execution>",
-    "description": "The smart task partner for professionals.<br></br>計画と実行のズレをなくし、あなたのパフォーマンスを最大化する。<br></br>時間の流れを可視化する、新しいタスク管理ツール。",
-    "cta": "Start Using Taskel",
+    "title": "お金も時間も、<br></br><highlight>まとめて見える。</highlight>",
+    "description": "タスクとお金は一心同体。<br></br>時間の流れと支出の流れを同じ軸で見て、計画と実績のズレをその場で取り戻す。<br></br>ハイパフォーマーのための、時間とお金の実行パートナー。",
+    "cta": "Taskel を始める",
+    "problem_kicker": "なぜ、計画が崩れるのか",
+    "time_blindness_title": "タイムブラインドネス",
+    "time_blindness_body": "時間の経過を体感しにくい状態です。ADHD 研究では時間知覚の困難が繰り返し報告されており、締め切りが突然やってきたように感じたり、作業時間を短く見積もったりしやすくなります。見える化されていない時間は、管理できません。",
+    "money_blindness_title": "マネーブラインドネス",
+    "money_blindness_body": "支出と予算の計画が見えない状態です。サブスクや従量課金、人付き合いの出費が増えるほど、今月いくら使ったか・あとどれだけ残っているかが感覚では追えなくなります。会社の財務計画と同じことを、個人の実行単位でも必要としています。",
+    "axis_title": "時間のタスクと、お金の記録は同じもの",
+    "axis_body": "「クライアントとの会食」は時間の予定であり、同時に会食費の発生です。Taskel は日付のあるタスクに収支を紐づけ、プロジェクト・タグ・期間ごとに時間とお金を同じ画面で振り返れます。",
+    "mock_timeline_caption": "1日のタイムライン。同時進行のタスクは横に並びます。",
+    "mock_analytics_caption": "プロジェクトの実績時間と予想時間、カテゴリ別の支出を一覧で。",
     "features": {
       "visualized": {
-        "title": "Visualized Timeline",
-        "description": "<strong>時間を「視覚」で捉える。</strong><br></br>1日の残り時間とタスクの総量をリアルタイムに可視化。「なんとなく」の不安を消し去り、明瞭な見通し（Visibility）を提供します。"
+        "title": "時間が見えるタイムライン",
+        "description": "<strong>1日を時計として見る。</strong><br></br>朝から夜まで、タスクがどこに乗っているかをカレンダーのように表示。同時進行も横並びで把握できます。"
       },
       "execution": {
-        "title": "Seamless Execution",
-        "description": "<strong>思考を止めない、スムーズな実行。</strong><br></br>タスクの開始・終了は、再生ボタンを押すだけのワンアクション。複雑な操作を排除し、フロー状態への没入を妨げません。"
+        "title": "計画と実績を同じ場所で",
+        "description": "<strong>予想時間と実績時間。</strong><br></br>プロジェクトやタグごとに「思ったより食っている」が一覧で分かり、週次・月次・年次で振り返れます。"
       },
       "logging": {
-        "title": "Reliable Logging",
-        "description": "<strong>実績が、次の計画を磨く。</strong><br></br>予実管理を自動でログ化。感覚ではなくデータに基づいたフィードバックループが、あなたの時間感覚をより鋭敏にします。"
+        "title": "お金も、タスクの隣で",
+        "description": "<strong>予算と支出を一目で。</strong><br></br>チケット代などの項目ごとに実績と予算を並べ、オーバーも残りもその場で見えます。"
       },
       "section_planning": {
-        "title": "Section Planning",
+        "title": "セクション計画",
         "description": "1日を時間帯（セクション）で分割管理。コンテキストに合わせた無理のない計画立案。"
       },
       "one_click_timer": {
-        "title": "One-Click Timer",
-        "description": "直感的なストップウォッチ機能。現在実行中のタスクを明確化。"
+        "title": "ワンクリック・タイマー",
+        "description": "直感的なストップウォッチ機能。いま実行中のタスクを明確化。"
       },
       "hierarchical_planning": {
-        "title": "Hierarchical Planning",
-        "description": "イヤリー、マンスリー、ウィークリーの各期間でゴールを設定。上位の目標に基づいたタスク設計で、迷いのない実行を実現。"
+        "title": "階層プランニング",
+        "description": "年・月・週のゴールから当日のタスクへ。上位の目標に基づいた実行で迷いを減らします。"
       }
     },
-    "key_features_title": "Key Features"
+    "key_features_title": "できること"
   },
   "Navigation": {
     "login": "Log in",
@@ -197,5 +206,91 @@
     "validationTooMany": "1つのタスクに登録できる収支は最大 {max} 件です。",
     "needDate": "収支を記録するには日付を設定してください。",
     "datedTypeRequired": "収支記録がある項目は、日付のあるタスクまたはデイリー目標として保存してください。先に収支を削除して保存すると種類を変更できます。"
+  },
+  "Analytics": {
+    "title": "分析",
+    "week": "週次",
+    "month": "月次",
+    "year": "年次",
+    "all": "全期間",
+    "allProjects": "すべてのプロジェクト",
+    "allTags": "すべてのタグ",
+    "prev": "前の期間",
+    "next": "次の期間",
+    "kpiTasks": "タスク数",
+    "kpiCompleted": "完了",
+    "kpiRate": "完了率",
+    "kpiTime": "実績時間",
+    "kpiExpense": "支出",
+    "kpiIncome": "収入",
+    "kpiBudget": "予算",
+    "kpiRemaining": "残り",
+    "kpiOver": "オーバー",
+    "unset": "未設定",
+    "projectsTitle": "プロジェクトの時間",
+    "projectsHint": "すべてのプロジェクトの実績時間と予想時間を一覧します。行をクリックするとタグ内訳が開きます。",
+    "tagsTitle": "タグ・ミーティングの時間",
+    "tagsHint": "タグごとの合計時間です。行をクリックするとプロジェクト内訳が開きます。",
+    "colName": "名前",
+    "colActual": "実績",
+    "colExpected": "予想",
+    "colVariance": "差分",
+    "colTasks": "件数",
+    "overBy": "{duration}オーバー",
+    "remainingBy": "残り {duration}",
+    "uncategorized": "未分類",
+    "untagged": "タグなし",
+    "breakdownTitle": "{label} の内訳",
+    "closeBreakdown": "内訳を閉じる",
+    "expectedHours": "予想時間（時間）",
+    "expectedHoursHint": "このプロジェクトに見込む合計時間",
+    "saveExpected": "予想時間を保存",
+    "periodPlanTitle": "この期間の計画と振り返り",
+    "periodExpected": "期間の予想時間（時間）",
+    "periodBudget": "期間の予算（円）",
+    "periodReflection": "振り返り",
+    "periodReflectionPlaceholder": "何が予想と違ったか、来期どう組むかを書いておけます。いつでも編集できます。",
+    "savePlan": "計画を保存",
+    "planSaved": "計画を保存しました",
+    "planSaveError": "計画を保存できませんでした",
+    "financeTitle": "収支",
+    "financeHint": "項目ごとの実績と予算。プロジェクトに紐づく支出もまとめて見られます。",
+    "category": "項目",
+    "spent": "支出",
+    "income": "収入",
+    "budget": "予算",
+    "setBudget": "予算を設定",
+    "clearBudget": "予算を削除",
+    "noFinance": "この期間の収支記録はありません。",
+    "financeDisabled": "収支記録は設定でオフです。オンにすると予算と項目別の支出がここに出ます。",
+    "trendTitle": "推移",
+    "metricTime": "時間",
+    "metricTasks": "件数",
+    "completedTasks": "完了タスク",
+    "noCompleted": "完了タスクはありません。",
+    "totalList": "全タスク一覧",
+    "saveHoursError": "予想時間を保存できませんでした"
+  },
+  "Timeline": {
+    "settingsTitle": "タイムライン表記",
+    "settingsDescription": "タスク一覧を Google カレンダーのような縦タイムラインで表示します。初期状態はオフです。",
+    "settingsToggleLabel": "タイムライン表記を有効にする",
+    "settingsToggleHintOn": "開始時刻のあるタスクが時間軸上に並び、ドラッグで時刻と長さを変えられます。",
+    "settingsToggleHintOff": "従来のセクション一覧のままです。",
+    "hideEmptyTitle": "空の時間帯を隠す",
+    "hideEmptyDescription": "セクション外や中身のない隙間時間をタイムラインに出さないようにします。",
+    "hideEmptyOn": "空の隙間時間は非表示です。",
+    "hideEmptyOff": "0時から24時まで表示します。",
+    "settingsSaveError": "表示設定を保存できませんでした。通信環境を確認してください。",
+    "unscheduled": "時刻未設定",
+    "unscheduledHint": "開始時刻のないタスクです。タイムラインへドラッグすると時刻が付きます。",
+    "now": "いま",
+    "resize": "長さを変更",
+    "dropToSchedule": "ここにドロップして開始時刻を設定"
+  },
+  "Projects": {
+    "expectedHours": "予想時間（時間）",
+    "expectedHoursPlaceholder": "例: 60",
+    "actualVsExpected": "実績 {actual} / 予想 {expected}"
   }
 }

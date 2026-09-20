@@ -63,6 +63,7 @@ SQL エディタで個別適用する場合も、必ず番号・タイムスタ�
   （複数タイマー並行実行）
 - **`20260714010036_repair_routine_sections_and_optimize_task_loading.sql`**: ルーチンのセクション再配置とタスク読み込み用索引
 - **`20260915120000_finance_tracking.sql`**: ユーザー私有の収支テーブル（`finance_preferences` / `finance_categories` / `finance_entries`）、RLS、原子的 replace RPC、期間集計 RPC。共有 `tasks` 行には埋め込まない。適用後も設定トグルはデフォルト OFF。
+- **`20260919120000_analytics_timeline.sql`**: `projects.expected_minutes`、`user_ui_preferences`（タイムライン ON/OFF・空時間非表示）、`analytics_period_plans`（週/月/年の予想時間・全体予算・振り返り）、`finance_category_budgets`（期間×カテゴリの円予算）。タイムライン設定はデフォルト OFF。収支予算は既存の finance カテゴリに紐づく。
 
 適用後に確認（finance）:
 ```sql
@@ -77,6 +78,24 @@ from pg_proc
 join pg_namespace n on n.oid = pg_proc.pronamespace
 where n.nspname = 'public'
   and proname in ('replace_task_finance_entries', 'summarize_finance_range', 'list_finance_entries_in_range');
+```
+
+適用後に確認（analytics / timeline）:
+```sql
+select column_name, data_type, is_nullable
+from information_schema.columns
+where table_schema = 'public' and table_name = 'projects' and column_name = 'expected_minutes';
+
+select c.relname, c.relrowsecurity
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relname in ('user_ui_preferences', 'analytics_period_plans', 'finance_category_budgets');
+
+select t.typname
+from pg_type t
+join pg_namespace n on n.oid = t.typnamespace
+where n.nspname = 'public' and t.typname = 'analytics_period_type';
 ```
 
 適用後に確認:
