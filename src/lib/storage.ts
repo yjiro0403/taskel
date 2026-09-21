@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client';
 import { Attachment } from '@/types';
+import { attachmentStoragePath } from './storagePath';
 
 const MAX_WIDTH = 1200;
 const MAX_HEIGHT = 1200;
@@ -71,7 +72,7 @@ export const uploadTaskAttachment = async (file: File, userId: string): Promise<
     }
 
     const fileId = crypto.randomUUID();
-    const path = `users/${userId}/attachments/${fileId}_${fileName}`;
+    const path = attachmentStoragePath(userId, fileId, fileName);
     const supabase = createClient();
 
     const { error } = await supabase.storage.from('attachments').upload(path, uploadData, {

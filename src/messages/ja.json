@@ -114,6 +114,7 @@
     "expand": "ウィジェットを開く",
     "jump": "タスクへ移動",
     "jump_named": "{title} へ移動",
+    "complete_named": "{title} を完了",
     "duration_hm": "{hours}時間{minutes}分",
     "duration_h": "{hours}時間",
     "duration_m": "{minutes}分",

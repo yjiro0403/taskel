@@ -114,6 +114,7 @@
     "expand": "Expand widget",
     "jump": "Go to task",
     "jump_named": "Go to {title}",
+    "complete_named": "Complete {title}",
     "duration_hm": "{hours}h {minutes}m",
     "duration_h": "{hours}h",
     "duration_m": "{minutes} min",

@@ -3,7 +3,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Timer } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Square, Timer } from 'lucide-react';
 
 import { useNowNext } from '@/hooks/useNowNext';
 import {
@@ -106,6 +106,21 @@ function LaneLabel({ icon: Icon, text, className, pulse }: LaneLabelProps) {
     );
 }
 
+function completeRunningTask(
+    task: Task,
+    updateTask: (taskId: string, updates: Partial<Task>) => unknown
+) {
+    if (task.status !== 'in_progress' || typeof task.startedAt !== 'number') return;
+    const now = Date.now();
+    const elapsedMinutes = Math.max(0, Math.round((now - task.startedAt) / 60000));
+    void updateTask(task.id, {
+        status: 'done',
+        startedAt: undefined,
+        actualMinutes: (task.actualMinutes || 0) + elapsedMinutes,
+        completedAt: now,
+    });
+}
+
 function locationLabel(task: Task, viewedDate: string, t: Translate): string | null {
     if (!task.date || task.date.trim() === '') return t('unscheduled');
     if (task.date === viewedDate) return null;
@@ -145,9 +160,10 @@ interface NowLaneProps {
     t: Translate;
     formatDuration: (parts: DurationParts) => string;
     onJump: (task: Task) => void;
+    onComplete: (task: Task) => void;
 }
 
-function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump }: NowLaneProps) {
+function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onComplete }: NowLaneProps) {
     if (!current) {
         return (
             <div className="p-4 min-w-0">
@@ -177,13 +193,26 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump }: N
                     </span>
                 )}
             </div>
-            <TitleButton
-                task={current.task}
-                label={jumpLabel}
-                viewedDate={viewedDate}
-                t={t}
-                onJump={onJump}
-            />
+            <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                    <TitleButton
+                        task={current.task}
+                        label={jumpLabel}
+                        viewedDate={viewedDate}
+                        t={t}
+                        onJump={onJump}
+                    />
+                </div>
+                <button
+                    type="button"
+                    onClick={() => onComplete(current.task)}
+                    title={t('complete_named', { title: current.task.title })}
+                    aria-label={t('complete_named', { title: current.task.title })}
+                    className="mt-1.5 p-1.5 rounded text-blue-600 hover:bg-blue-50 cursor-pointer flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                    <Square size={18} fill="currentColor" />
+                </button>
+            </div>
             <button
                 type="button"
                 onClick={() => onJump(current.task)}
@@ -218,13 +247,13 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump }: N
                         {current.concurrentTasks.map((task) => {
                             const where = locationLabel(task, viewedDate, t);
                             return (
-                                <li key={task.id}>
+                                <li key={task.id} className="flex items-start gap-1">
                                     <button
                                         type="button"
                                         onClick={() => onJump(task)}
                                         title={t('jump_named', { title: task.title })}
                                         aria-label={t('jump_named', { title: task.title })}
-                                        className="w-full text-left text-sm font-medium text-gray-800 hover:text-blue-700 cursor-pointer rounded px-0.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                        className="min-w-0 flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-700 cursor-pointer rounded px-0.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                     >
                                         <span className="line-clamp-1">{task.title}</span>
                                         {where && (
@@ -232,6 +261,15 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump }: N
                                                 {where}
                                             </span>
                                         )}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onComplete(task)}
+                                        title={t('complete_named', { title: task.title })}
+                                        aria-label={t('complete_named', { title: task.title })}
+                                        className="p-1 rounded text-blue-600 hover:bg-blue-50 cursor-pointer flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                    >
+                                        <Square size={14} fill="currentColor" />
                                     </button>
                                 </li>
                             );
@@ -318,6 +356,7 @@ export default function NowNextWidget() {
     const t = useTranslations('NowNext');
     const { snapshot } = useNowNext();
     const focusTask = useStore((state) => state.focusTask);
+    const updateTask = useStore((state) => state.updateTask);
     const viewedDate = useStore((state) => state.currentDate);
     const [collapsed, setCollapsed] = useState(readCollapsed);
     const formatDuration = useDurationFormatter(t);
@@ -337,6 +376,9 @@ export default function NowNextWidget() {
     const conflict = hasScheduleConflict(snapshot);
     const jumpTo = (task: Task) => {
         focusTask(task.id, { date: task.date || null });
+    };
+    const completeTask = (task: Task) => {
+        completeRunningTask(task, updateTask);
     };
 
     const summaryFor = (): ReactNode => {
@@ -402,6 +444,7 @@ export default function NowNextWidget() {
                                 t={t}
                                 formatDuration={formatDuration}
                                 onJump={jumpTo}
+                                onComplete={completeTask}
                             />
                             <NextLane
                                 next={next}
