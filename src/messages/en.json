@@ -58,6 +58,13 @@
     "analytics": "Analytics",
     "settings": "Settings"
   },
+  "CalendarSync": {
+    "sync": "Sync Google Calendar",
+    "syncing": "Syncing Google Calendar…",
+    "this_day": "This day",
+    "this_week": "This week",
+    "this_month": "This month"
+  },
   "TaskList": {
     "current": "Current",
     "finish_at": "Finish at",

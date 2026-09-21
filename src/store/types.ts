@@ -182,10 +182,12 @@ export interface UISlice {
     resetUISlice: () => void;
 }
 
+export type CalendarSyncTarget = string | { start: string; end: string };
+
 export interface CalendarSlice {
     syncGoogleCalendar: (
         accessToken: string,
-        targetDateStr?: string
+        target?: CalendarSyncTarget
     ) => Promise<CalendarSyncResult>;
 }
 

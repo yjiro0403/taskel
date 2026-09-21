@@ -95,6 +95,122 @@ export function resolveCalendarSyncDate(
     return dateStr;
 }
 
+/** Half-open local date range [start, end). end is the first day not included. */
+export type CalendarSyncRange = {
+    start: string;
+    end: string;
+};
+
+export function addLocalDays(dateStr: string, days: number): string {
+    const { start } = getLocalDayRange(dateStr);
+    return formatLocalDate(new Date(start.getFullYear(), start.getMonth(), start.getDate() + days));
+}
+
+export function daySyncRange(dateStr: string): CalendarSyncRange {
+    return { start: dateStr, end: addLocalDays(dateStr, 1) };
+}
+
+/** ISO-style week starting Monday, matching PlanningView. */
+export function weekSyncRangeContaining(dateStr: string): CalendarSyncRange {
+    const { start } = getLocalDayRange(dateStr);
+    const weekday = start.getDay(); // 0 = Sunday
+    const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+    const monday = new Date(start.getFullYear(), start.getMonth(), start.getDate() + mondayOffset);
+    const startDate = formatLocalDate(monday);
+    return { start: startDate, end: addLocalDays(startDate, 7) };
+}
+
+export function monthSyncRangeContaining(dateStr: string): CalendarSyncRange {
+    const day = getLocalDayRange(dateStr).start;
+    const year = day.getFullYear();
+    const month = day.getMonth() + 1;
+    const start = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const end = `${String(nextYear).padStart(4, '0')}-${String(nextMonth).padStart(2, '0')}-01`;
+    return { start, end };
+}
+
+export function isSingleDayRange(range: CalendarSyncRange): boolean {
+    return range.end === addLocalDays(range.start, 1);
+}
+
+export function resolveCalendarSyncRange(
+    target: string | CalendarSyncRange | undefined,
+    uiCurrentDate: string | undefined
+): CalendarSyncRange {
+    if (target && typeof target === 'object') {
+        if (
+            !DATE_ONLY_RE.test(target.start) ||
+            !DATE_ONLY_RE.test(target.end) ||
+            target.start >= target.end
+        ) {
+            throw new Error(`No valid UI-selected range for calendar sync: ${target.start}..${target.end}`);
+        }
+        return { start: target.start, end: target.end };
+    }
+    return daySyncRange(resolveCalendarSyncDate(target, uiCurrentDate));
+}
+
+export function serializePendingCalendarSync(range: CalendarSyncRange): string {
+    return JSON.stringify(range);
+}
+
+/** Accepts legacy `yyyy-MM-dd` (one day) and `{ start, end }` JSON. */
+export function parsePendingCalendarSync(raw: string | null | undefined): CalendarSyncRange | null {
+    if (!raw) return null;
+    if (DATE_ONLY_RE.test(raw)) {
+        return daySyncRange(raw);
+    }
+    try {
+        const parsed = JSON.parse(raw) as { start?: unknown; end?: unknown };
+        if (typeof parsed.start === 'string' && typeof parsed.end === 'string') {
+            return resolveCalendarSyncRange(parsed as CalendarSyncRange, undefined);
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+function buildEventsListParams(timeMin: string, timeMax: string, pageToken?: string): URLSearchParams {
+    const params = new URLSearchParams({
+        timeMin,
+        timeMax,
+        singleEvents: 'true',
+        orderBy: 'startTime',
+        maxResults: '2500',
+    });
+    if (pageToken) {
+        params.set('pageToken', pageToken);
+    }
+    return params;
+}
+
+/**
+ * Build the Google Calendar events list request for a half-open local date range [start, end).
+ */
+export function buildGoogleCalendarRangeRequest(startDate: string, endDate: string): {
+    start: string;
+    end: string;
+    timeMin: string;
+    timeMax: string;
+    urlPathWithQuery: string;
+} {
+    const range = resolveCalendarSyncRange({ start: startDate, end: endDate }, undefined);
+    const timeMin = getLocalDayRange(range.start).start.toISOString();
+    const timeMax = getLocalDayRange(range.end).start.toISOString();
+    const params = buildEventsListParams(timeMin, timeMax);
+
+    return {
+        start: range.start,
+        end: range.end,
+        timeMin,
+        timeMax,
+        urlPathWithQuery: `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+    };
+}
+
 /**
  * Build the Google Calendar events list request for a UI-selected local day.
  * Integration seam: callers and tests can assert timeMin/timeMax without mocking the store.
@@ -106,21 +222,12 @@ export function buildGoogleCalendarDayRequest(dateStr: string): {
     urlPathWithQuery: string;
 } {
     const resolved = resolveCalendarSyncDate(dateStr, dateStr);
-    const { start, end } = getLocalDayRange(resolved);
-    const timeMin = start.toISOString();
-    const timeMax = end.toISOString();
-    const params = new URLSearchParams({
-        timeMin,
-        timeMax,
-        singleEvents: 'true',
-        orderBy: 'startTime',
-    });
-
+    const request = buildGoogleCalendarRangeRequest(resolved, addLocalDays(resolved, 1));
     return {
         dateStr: resolved,
-        timeMin,
-        timeMax,
-        urlPathWithQuery: `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+        timeMin: request.timeMin,
+        timeMax: request.timeMax,
+        urlPathWithQuery: request.urlPathWithQuery,
     };
 }
 
@@ -229,25 +336,78 @@ export function isGoogleCalendarSyncDataReady(
     return initialDataStatus === 'ready' && tasksLoaded && sectionCount > 0;
 }
 
+const CALENDAR_LIST_MAX_PAGES = 20;
+
+async function fetchCalendarEventPages(
+    accessToken: string,
+    timeMin: string,
+    timeMax: string
+): Promise<{ events: CalendarEvent[]; defaultReminders: CalendarReminderOverride[] }> {
+    const events: CalendarEvent[] = [];
+    let defaultReminders: CalendarReminderOverride[] = [];
+    let pageToken: string | undefined;
+    let pages = 0;
+
+    do {
+        const params = buildEventsListParams(timeMin, timeMax, pageToken);
+        const response = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+            {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                },
+            }
+        );
+        assertCalendarResponseAuthorized(response);
+        const data = await response.json();
+        if (Array.isArray(data.defaultReminders)) {
+            defaultReminders = data.defaultReminders;
+        }
+        if (Array.isArray(data.items)) {
+            events.push(...data.items);
+        }
+        pageToken = typeof data.nextPageToken === 'string' && data.nextPageToken
+            ? data.nextPageToken
+            : undefined;
+        pages += 1;
+    } while (pageToken && pages < CALENDAR_LIST_MAX_PAGES);
+
+    return { events, defaultReminders };
+}
+
 export async function fetchCalendarEvents(accessToken: string, timeMin: Date, timeMax: Date): Promise<CalendarEvent[]> {
-    const params = new URLSearchParams({
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        singleEvents: 'true',
-        orderBy: 'startTime',
-    });
+    const { events } = await fetchCalendarEventPages(
+        accessToken,
+        timeMin.toISOString(),
+        timeMax.toISOString()
+    );
+    return events;
+}
 
-    const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-    });
-
-    assertCalendarResponseAuthorized(response);
-
-    const data = await response.json();
-    return data.items || [];
+/** Fetch events for a half-open local date range [start, end). */
+export async function fetchCalendarEventsForRange(
+    accessToken: string,
+    startDate: string,
+    endDate: string
+): Promise<{
+    start: string;
+    end: string;
+    events: CalendarEvent[];
+    defaultReminders: CalendarReminderOverride[];
+}> {
+    const request = buildGoogleCalendarRangeRequest(startDate, endDate);
+    const { events, defaultReminders } = await fetchCalendarEventPages(
+        accessToken,
+        request.timeMin,
+        request.timeMax
+    );
+    return {
+        start: request.start,
+        end: request.end,
+        events,
+        defaultReminders,
+    };
 }
 
 /** Fetch events for a UI-selected yyyy-MM-dd using local-day bounds (not system today). */
@@ -261,22 +421,15 @@ export async function fetchCalendarEventsForDate(
     defaultReminders: CalendarReminderOverride[];
 }> {
     const dateStr = resolveCalendarSyncDate(targetDateStr, uiCurrentDate);
-    const request = buildGoogleCalendarDayRequest(dateStr);
-    const response = await fetch(request.urlPathWithQuery, {
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-    });
-
-    assertCalendarResponseAuthorized(response);
-
-    const data = await response.json();
+    const ranged = await fetchCalendarEventsForRange(
+        accessToken,
+        dateStr,
+        addLocalDays(dateStr, 1)
+    );
     return {
         dateStr,
-        events: data.items || [],
-        // useDefault のイベント用。events.list は最上位でカレンダー既定の通知を返す。
-        defaultReminders: data.defaultReminders || [],
+        events: ranged.events,
+        defaultReminders: ranged.defaultReminders,
     };
 }
 

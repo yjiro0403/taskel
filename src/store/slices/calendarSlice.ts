@@ -6,14 +6,16 @@ import { format } from 'date-fns';
 
 // Google Calendar同期スライス
 export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice> = (set, get) => ({
-    syncGoogleCalendar: async (accessToken: string, targetDateStr?: string) => {
+    syncGoogleCalendar: async (accessToken: string, targetDateStr?: string | { start: string; end: string }) => {
         const { user, currentDate } = get();
         if (!user) return 'cancelled';
         const syncingUserId = user.uid;
 
         // 循環依存回避のためdynamic import
         const {
-            fetchCalendarEventsForDate,
+            fetchCalendarEventsForRange,
+            isSingleDayRange,
+            resolveCalendarSyncRange,
             resolveEventReminderMinutes,
             GoogleCalendarAuthorizationError,
         } = await import('../../lib/calendarService');
@@ -21,10 +23,11 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
         try {
             // Explicit arg (TaskList / OAuth pending) wins; else UI store currentDate.
             // Never falls back to system "today" — empty/invalid throws.
-            const { dateStr, events, defaultReminders } = await fetchCalendarEventsForDate(
+            const range = resolveCalendarSyncRange(targetDateStr, currentDate);
+            const { events, defaultReminders } = await fetchCalendarEventsForRange(
                 accessToken,
-                targetDateStr,
-                currentDate
+                range.start,
+                range.end
             );
 
             // OAuth return can overlap the initial Supabase data load. Always use
@@ -43,9 +46,10 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                 setCurrentDate,
             } = latestState;
 
-            // Keep UI + sessionStorage aligned with the date actually synced (OAuth reload safety).
-            if (dateStr !== latestState.currentDate) {
-                setCurrentDate(dateStr);
+            // Single-day sync keeps the daily list on that day (OAuth reload safety).
+            // Week/month imports leave the viewed date alone.
+            if (isSingleDayRange(range) && range.start !== latestState.currentDate) {
+                setCurrentDate(range.start);
             }
 
             const tasksToAdd: Task[] = [];

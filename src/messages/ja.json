@@ -58,6 +58,13 @@
     "analytics": "分析",
     "settings": "設定"
   },
+  "CalendarSync": {
+    "sync": "Googleカレンダーを同期",
+    "syncing": "Googleカレンダーを同期中…",
+    "this_day": "この日",
+    "this_week": "この週",
+    "this_month": "この月"
+  },
   "TaskList": {
     "current": "現在時刻",
     "finish_at": "終了予定",
