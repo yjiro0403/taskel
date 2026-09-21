@@ -10,6 +10,13 @@ import { ChevronLeft, ChevronRight, Menu } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { FinancePeriodSummary } from '@/components/finance/FinancePeriodSummary';
 import { isoWeekRangeFromDate, monthRangeFromDate, yearRangeFromDate } from '@/lib/finance/dateRange';
+import {
+    formatLocalDate,
+    monthSyncRangeContaining,
+    weekSyncRangeContaining,
+} from '@/lib/calendarService';
+import { useGoogleCalendarSync } from '@/hooks/useGoogleCalendarSync';
+import { CalendarSyncMenu } from './CalendarSyncMenu';
 
 type Tab = 'weekly' | 'monthly' | 'yearly';
 
@@ -17,6 +24,8 @@ export default function PlanningView() {
     const { toggleLeftSidebar } = useStore();
     const [activeTab, setActiveTab] = useState<Tab>('weekly');
     const [currentDate, setCurrentDate] = useState(new Date());
+    const { isSyncing, syncRange } = useGoogleCalendarSync();
+    const anchorDate = formatLocalDate(currentDate);
 
     const handlePrev = () => {
         if (activeTab === 'weekly') setCurrentDate(d => subWeeks(d, 1));
@@ -102,6 +111,11 @@ export default function PlanningView() {
                         {getHeaderLabel()}
                     </h1>
                     <FinancePeriodSummary start={financeRange.start} end={financeRange.end} />
+                    <CalendarSyncMenu
+                        isSyncing={isSyncing}
+                        onSyncWeek={() => void syncRange(weekSyncRangeContaining(anchorDate))}
+                        onSyncMonth={() => void syncRange(monthSyncRangeContaining(anchorDate))}
+                    />
                 </div>
 
 
@@ -138,6 +152,11 @@ export default function PlanningView() {
                             {getHeaderLabel()}
                         </h1>
                         <FinancePeriodSummary start={financeRange.start} end={financeRange.end} />
+                        <CalendarSyncMenu
+                            isSyncing={isSyncing}
+                            onSyncWeek={() => void syncRange(weekSyncRangeContaining(anchorDate))}
+                            onSyncMonth={() => void syncRange(monthSyncRangeContaining(anchorDate))}
+                        />
                         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                             <button onClick={handlePrev} className="p-1 hover:bg-white rounded-md transition-shadow shadow-sm">
                                 <ChevronLeft size={20} className="text-gray-600" />

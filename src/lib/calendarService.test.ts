@@ -2,8 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { CalendarEvent } from './calendarService';
 import {
+  addLocalDays,
   buildGoogleCalendarDayRequest,
+  buildGoogleCalendarRangeRequest,
   fetchCalendarEventsForDate,
+  fetchCalendarEventsForRange,
+  monthSyncRangeContaining,
+  parsePendingCalendarSync,
   resolveEventReminderMinutes,
   formatLocalDate,
   getLocalDayRange,
@@ -13,6 +18,9 @@ import {
   peekStoredCurrentDate,
   readGoogleCalendarProviderToken,
   resolveCalendarSyncDate,
+  resolveCalendarSyncRange,
+  serializePendingCalendarSync,
+  weekSyncRangeContaining,
   clearGoogleCalendarProviderToken,
   storeGoogleCalendarProviderToken,
 } from './calendarService';
@@ -158,6 +166,73 @@ describe('isGoogleCalendarSyncDataReady', () => {
   });
 });
 
+describe('week and month sync ranges', () => {
+  it('week containing Wednesday 2026-09-16 is Mon 14 – exclusive next Mon 21', () => {
+    expect(weekSyncRangeContaining('2026-09-16')).toEqual({
+      start: '2026-09-14',
+      end: '2026-09-21',
+    });
+  });
+
+  it('week containing Sunday still starts on the previous Monday', () => {
+    expect(weekSyncRangeContaining('2026-09-20')).toEqual({
+      start: '2026-09-14',
+      end: '2026-09-21',
+    });
+  });
+
+  it('month range is the first of this month to the first of next month', () => {
+    expect(monthSyncRangeContaining('2026-09-16')).toEqual({
+      start: '2026-09-01',
+      end: '2026-10-01',
+    });
+    expect(monthSyncRangeContaining('2026-12-31')).toEqual({
+      start: '2026-12-01',
+      end: '2027-01-01',
+    });
+  });
+
+  it('addLocalDays stays on the local calendar', () => {
+    expect(addLocalDays('2026-09-30', 1)).toBe('2026-10-01');
+  });
+});
+
+describe('resolveCalendarSyncRange', () => {
+  it('treats a date string as a single local day', () => {
+    expect(resolveCalendarSyncRange('2026-09-16', '2026-09-01')).toEqual({
+      start: '2026-09-16',
+      end: '2026-09-17',
+    });
+  });
+
+  it('accepts an explicit half-open range', () => {
+    expect(
+      resolveCalendarSyncRange({ start: '2026-09-14', end: '2026-09-21' }, '2026-09-01')
+    ).toEqual({ start: '2026-09-14', end: '2026-09-21' });
+  });
+
+  it('rejects inverted ranges', () => {
+    expect(() =>
+      resolveCalendarSyncRange({ start: '2026-09-21', end: '2026-09-14' }, undefined)
+    ).toThrow(/No valid UI-selected range/);
+  });
+});
+
+describe('pending calendar sync payload', () => {
+  it('round-trips a range and still reads a legacy date-only value', () => {
+    expect(parsePendingCalendarSync(serializePendingCalendarSync({
+      start: '2026-09-14',
+      end: '2026-09-21',
+    }))).toEqual({ start: '2026-09-14', end: '2026-09-21' });
+    expect(parsePendingCalendarSync('2026-09-16')).toEqual({
+      start: '2026-09-16',
+      end: '2026-09-17',
+    });
+    expect(parsePendingCalendarSync(null)).toBeNull();
+    expect(parsePendingCalendarSync('not-json')).toBeNull();
+  });
+});
+
 describe('resolveCalendarSyncDate', () => {
   it('prefers explicit target over UI currentDate and never invents system today', () => {
     expect(resolveCalendarSyncDate('2026-07-18', '2026-07-14')).toBe('2026-07-18');
@@ -248,6 +323,47 @@ describe('Google Calendar API range integration (chosen local day)', () => {
     const url = new URL(calledUrl);
     expect(url.searchParams.get('timeMin')).toBe(expected.timeMin);
     expect(url.searchParams.get('timeMax')).toBe(expected.timeMax);
+  });
+
+  it('buildGoogleCalendarRangeRequest maps a week to local Monday–next Monday', () => {
+    const request = buildGoogleCalendarRangeRequest('2026-09-14', '2026-09-21');
+    const weekStart = getLocalDayRange('2026-09-14').start;
+    const weekEnd = getLocalDayRange('2026-09-21').start;
+
+    expect(request.timeMin).toBe(weekStart.toISOString());
+    expect(request.timeMax).toBe(weekEnd.toISOString());
+    expect(formatLocalDate(new Date(request.timeMin))).toBe('2026-09-14');
+    expect(formatLocalDate(new Date(request.timeMax))).toBe('2026-09-21');
+  });
+
+  it('fetchCalendarEventsForRange follows nextPageToken', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [{ id: 'evt-1', summary: 'Monday' }],
+          nextPageToken: 'page-2',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [{ id: 'evt-2', summary: 'Tuesday' }],
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { events } = await fetchCalendarEventsForRange(
+      'tok',
+      '2026-09-14',
+      '2026-09-21'
+    );
+
+    expect(events.map((event) => event.id)).toEqual(['evt-1', 'evt-2']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondUrl = new URL(fetchMock.mock.calls[1][0] as string);
+    expect(secondUrl.searchParams.get('pageToken')).toBe('page-2');
   });
 
   it.each([401, 403])(
