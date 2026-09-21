@@ -106,21 +106,34 @@ function LaneLabel({ icon: Icon, text, className, pulse }: LaneLabelProps) {
     );
 }
 
+function locationLabel(task: Task, viewedDate: string, t: Translate): string | null {
+    if (!task.date || task.date.trim() === '') return t('unscheduled');
+    if (task.date === viewedDate) return null;
+    return task.date;
+}
+
 interface TitleButtonProps {
     task: Task;
     label: string;
+    viewedDate: string;
+    t: Translate;
     onJump: (task: Task) => void;
 }
 
-function TitleButton({ task, label, onJump }: TitleButtonProps) {
+function TitleButton({ task, label, viewedDate, t, onJump }: TitleButtonProps) {
+    const where = locationLabel(task, viewedDate, t);
     return (
         <button
             type="button"
             onClick={() => onJump(task)}
             title={label}
-            className="mt-1 w-full text-left text-lg font-bold text-gray-900 leading-snug line-clamp-2 hover:text-blue-700 cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            aria-label={label}
+            className="mt-1 w-full text-left text-lg font-bold text-gray-900 leading-snug hover:text-blue-700 cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         >
-            {task.title}
+            <span className="line-clamp-2">{task.title}</span>
+            {where && (
+                <span className="mt-0.5 block text-[11px] font-medium text-gray-500 tabular-nums">{where}</span>
+            )}
         </button>
     );
 }
@@ -128,12 +141,13 @@ function TitleButton({ task, label, onJump }: TitleButtonProps) {
 interface NowLaneProps {
     current: CurrentAction | null;
     conflict: boolean;
+    viewedDate: string;
     t: Translate;
     formatDuration: (parts: DurationParts) => string;
     onJump: (task: Task) => void;
 }
 
-function NowLane({ current, conflict, t, formatDuration, onJump }: NowLaneProps) {
+function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump }: NowLaneProps) {
     if (!current) {
         return (
             <div className="p-4 min-w-0">
@@ -151,10 +165,10 @@ function NowLane({ current, conflict, t, formatDuration, onJump }: NowLaneProps)
             : overrun
               ? { key: 'overrun' as const, parts: describeDuration(current.remainingMs, { roundUp: false }), className: 'text-red-600' }
               : { key: 'remaining' as const, parts: describeDuration(current.remainingMs, { roundUp: true }), className: 'text-blue-700' };
+    const jumpLabel = t('jump_named', { title: current.task.title });
 
     return (
         <div className="p-4 min-w-0">
-            {/* pr-8 keeps the concurrent badge clear of the collapse button on single-column layouts */}
             <div className="flex items-center justify-between gap-2 pr-8 sm:pr-0">
                 <LaneLabel icon={Timer} text={t('now')} className="text-blue-700" />
                 {current.concurrentCount > 0 && (
@@ -163,25 +177,67 @@ function NowLane({ current, conflict, t, formatDuration, onJump }: NowLaneProps)
                     </span>
                 )}
             </div>
-            <TitleButton task={current.task} label={t('jump')} onJump={onJump} />
-            <div className="mt-1.5 flex items-baseline gap-x-3 gap-y-1 flex-wrap">
-                <span className={clsx('text-sm font-medium', reading.className)}>
-                    {t.rich(reading.key, {
-                        time: formatDuration(reading.parts),
-                        n: (chunks) => <BigNumber className={reading.className}>{chunks}</BigNumber>,
-                    })}
-                </span>
-                {current.endAt !== null && (
-                    <span className="text-sm font-mono font-semibold text-gray-600">
-                        {t('ends_at', { time: formatTime(new Date(current.endAt)) })}
+            <TitleButton
+                task={current.task}
+                label={jumpLabel}
+                viewedDate={viewedDate}
+                t={t}
+                onJump={onJump}
+            />
+            <button
+                type="button"
+                onClick={() => onJump(current.task)}
+                title={jumpLabel}
+                aria-label={jumpLabel}
+                className="mt-1.5 w-full text-left cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+                <span className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+                    <span className={clsx('text-sm font-medium', reading.className)}>
+                        {t.rich(reading.key, {
+                            time: formatDuration(reading.parts),
+                            n: (chunks) => <BigNumber className={reading.className}>{chunks}</BigNumber>,
+                        })}
                     </span>
-                )}
-            </div>
+                    {current.endAt !== null && (
+                        <span className="text-sm font-mono font-semibold text-gray-600">
+                            {t('ends_at', { time: formatTime(new Date(current.endAt)) })}
+                        </span>
+                    )}
+                </span>
+            </button>
             {conflict && (
                 <p className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
                     <AlertTriangle size={12} />
                     {t('conflict')}
                 </p>
+            )}
+            {current.concurrentTasks.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-blue-100">
+                    <p className="text-[11px] font-semibold text-blue-700">{t('concurrent_heading')}</p>
+                    <ul className="mt-1 space-y-0.5">
+                        {current.concurrentTasks.map((task) => {
+                            const where = locationLabel(task, viewedDate, t);
+                            return (
+                                <li key={task.id}>
+                                    <button
+                                        type="button"
+                                        onClick={() => onJump(task)}
+                                        title={t('jump_named', { title: task.title })}
+                                        aria-label={t('jump_named', { title: task.title })}
+                                        className="w-full text-left text-sm font-medium text-gray-800 hover:text-blue-700 cursor-pointer rounded px-0.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                    >
+                                        <span className="line-clamp-1">{task.title}</span>
+                                        {where && (
+                                            <span className="block text-[11px] font-medium text-gray-500 tabular-nums">
+                                                {where}
+                                            </span>
+                                        )}
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </div>
             )}
         </div>
     );
@@ -190,12 +246,13 @@ function NowLane({ current, conflict, t, formatDuration, onJump }: NowLaneProps)
 interface NextLaneProps {
     next: NextAction | null;
     tone: Tone;
+    viewedDate: string;
     t: Translate;
     formatDuration: (parts: DurationParts) => string;
     onJump: (task: Task) => void;
 }
 
-function NextLane({ next, tone, t, formatDuration, onJump }: NextLaneProps) {
+function NextLane({ next, tone, viewedDate, t, formatDuration, onJump }: NextLaneProps) {
     if (!next) {
         return (
             <div className="p-4 min-w-0">
@@ -219,7 +276,13 @@ function NextLane({ next, tone, t, formatDuration, onJump }: NextLaneProps) {
                 />
                 {next.kind === 'queued' && <span className="text-[11px] text-gray-600">{t('queued_hint')}</span>}
             </div>
-            <TitleButton task={next.task} label={t('jump')} onJump={onJump} />
+            <TitleButton
+                task={next.task}
+                label={t('jump_named', { title: next.task.title })}
+                viewedDate={viewedDate}
+                t={t}
+                onJump={onJump}
+            />
             {next.kind === 'fixed' ? (
                 <div className="mt-1.5 flex items-baseline gap-x-3 gap-y-1 flex-wrap">
                     <span className={clsx('text-xl font-bold font-mono tabular-nums', toneText)}>
@@ -255,6 +318,7 @@ export default function NowNextWidget() {
     const t = useTranslations('NowNext');
     const { snapshot } = useNowNext();
     const focusTask = useStore((state) => state.focusTask);
+    const viewedDate = useStore((state) => state.currentDate);
     const [collapsed, setCollapsed] = useState(readCollapsed);
     const formatDuration = useDurationFormatter(t);
 
@@ -331,8 +395,22 @@ export default function NowNextWidget() {
                 ) : (
                     <>
                         <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
-                            <NowLane current={current} conflict={conflict} t={t} formatDuration={formatDuration} onJump={jumpTo} />
-                            <NextLane next={next} tone={tone} t={t} formatDuration={formatDuration} onJump={jumpTo} />
+                            <NowLane
+                                current={current}
+                                conflict={conflict}
+                                viewedDate={viewedDate}
+                                t={t}
+                                formatDuration={formatDuration}
+                                onJump={jumpTo}
+                            />
+                            <NextLane
+                                next={next}
+                                tone={tone}
+                                viewedDate={viewedDate}
+                                t={t}
+                                formatDuration={formatDuration}
+                                onJump={jumpTo}
+                            />
                         </div>
                         <button
                             type="button"
