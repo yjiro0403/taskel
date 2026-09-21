@@ -62,6 +62,7 @@ describe('computeNowNext – current action', () => {
         expect(current?.endAt).toBe(NOW + 18 * MIN);
         expect(current?.remainingMs).toBe(18 * MIN);
         expect(current?.concurrentCount).toBe(0);
+        expect(current?.concurrentTasks).toEqual([]);
     });
 
     it('subtracts minutes logged in earlier paused runs from the estimate', () => {
@@ -100,6 +101,7 @@ describe('computeNowNext – current action', () => {
         const { current } = snapshot([older, newer, third]);
         expect(current?.task.id).toBe(newer.id);
         expect(current?.concurrentCount).toBe(2);
+        expect(current?.concurrentTasks.map((task) => task.id)).toEqual([older.id, third.id]);
     });
 
     it('counts a timer started on another date (still running) as current', () => {

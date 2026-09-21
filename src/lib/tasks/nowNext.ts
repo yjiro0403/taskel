@@ -39,6 +39,8 @@ export interface CurrentAction {
     remainingMs: number | null;
     /** Other tasks running at the same time (multi-active timers). */
     concurrentCount: number;
+    /** The other running tasks, oldest start first. Length equals concurrentCount. */
+    concurrentTasks: Task[];
 }
 
 export type NextAction =
@@ -105,6 +107,9 @@ function pickCurrent(tasks: Task[], now: number): CurrentAction | null {
 
     // The most recently started timer is what the user is actually doing right now.
     const primary = running.reduce((latest, task) => (task.startedAt > latest.startedAt ? task : latest));
+    const concurrentTasks = running
+        .filter((task) => task.id !== primary.id)
+        .sort((a, b) => a.startedAt - b.startedAt);
 
     const startAt = primary.startedAt;
     const elapsedMs = Math.max(0, now - startAt);
@@ -122,7 +127,8 @@ function pickCurrent(tasks: Task[], now: number): CurrentAction | null {
         elapsedMs,
         endAt,
         remainingMs: endAt === null ? null : endAt - now,
-        concurrentCount: running.length - 1,
+        concurrentCount: concurrentTasks.length,
+        concurrentTasks,
     };
 }
 
