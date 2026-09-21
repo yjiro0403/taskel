@@ -24,8 +24,11 @@ import {
 } from '@/lib/timeline/time';
 import { useStore } from '@/store/useStore';
 
-const PIXELS_PER_MINUTE = 1.2;
-const GUTTER = 56;
+const DEFAULT_PIXELS_PER_MINUTE = 1.2;
+const DEFAULT_GUTTER = 56;
+const DEFAULT_MAX_HEIGHT = 900;
+
+export type TimelineVisibleRange = { startMin: number; endMin: number };
 
 interface DayTimelineProps {
     tasks: Task[];
@@ -37,6 +40,19 @@ interface DayTimelineProps {
     onEditTask: (task: Task) => void;
     onPlay: (task: Task) => void;
     onStop: (task: Task) => void;
+    /** When set, skip per-day range computation so week columns share one axis. */
+    visibleRangeOverride?: TimelineVisibleRange;
+    showHourLabels?: boolean;
+    showUnscheduled?: boolean;
+    unscheduledPlacement?: 'top' | 'bottom';
+    pixelsPerMinute?: number;
+    maxHeight?: number;
+    gutter?: number;
+    className?: string;
+    /** When false, the grid is the full axis height and the parent owns scrolling. */
+    scrollable?: boolean;
+    /** Strip card chrome so the timeline can sit inside a week column. */
+    plainChrome?: boolean;
 }
 
 type DragState =
@@ -55,6 +71,16 @@ export default function DayTimeline({
     onEditTask,
     onPlay,
     onStop,
+    visibleRangeOverride,
+    showHourLabels = true,
+    showUnscheduled = true,
+    unscheduledPlacement = 'top',
+    pixelsPerMinute = DEFAULT_PIXELS_PER_MINUTE,
+    maxHeight = DEFAULT_MAX_HEIGHT,
+    gutter,
+    className,
+    scrollable = true,
+    plainChrome = false,
 }: DayTimelineProps) {
     const t = useTranslations('Timeline');
     const updateTask = useStore((state) => state.updateTask);
@@ -72,13 +98,15 @@ export default function DayTimeline({
         .map((task) => hhmmToMinutes(task.scheduledStart))
         .filter((value): value is number => value != null);
 
-    const visible = computeVisibleRange({
+    const computedVisible = computeVisibleRange({
         sections,
         scheduledStarts,
         hideEmptyIntervals,
     });
+    const visible = visibleRangeOverride ?? computedVisible;
+    const labelGutter = gutter ?? (showHourLabels ? DEFAULT_GUTTER : 8);
     const rangeMinutes = Math.max(60, visible.endMin - visible.startMin);
-    const gridHeight = rangeMinutes * PIXELS_PER_MINUTE;
+    const gridHeight = rangeMinutes * pixelsPerMinute;
 
     const intervals = scheduled
         .map((task) => {
@@ -96,7 +124,7 @@ export default function DayTimeline({
         const rect = gridRef.current?.getBoundingClientRect();
         if (!rect) return visible.startMin;
         const y = clientY - rect.top + (gridRef.current?.scrollTop ?? 0);
-        return snapMinutes(visible.startMin + y / PIXELS_PER_MINUTE);
+        return snapMinutes(visible.startMin + y / pixelsPerMinute);
     };
 
     useEffect(() => {
@@ -115,7 +143,7 @@ export default function DayTimeline({
                 movedRef.current = true;
                 return;
             }
-            const delta = (event.clientY - drag.originY) / PIXELS_PER_MINUTE;
+            const delta = (event.clientY - drag.originY) / pixelsPerMinute;
             if (Math.abs(event.clientY - drag.originY) > 4) movedRef.current = true;
             if (drag.kind === 'move') {
                 const startMin = clampMinutes(
@@ -173,7 +201,7 @@ export default function DayTimeline({
         };
         // preview is read on pointerup; including it would rebind every pixel.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [drag, sections, tasks, updateTask, visible.endMin, visible.startMin]);
+    }, [drag, sections, tasks, updateTask, visible.endMin, visible.startMin, pixelsPerMinute]);
 
     const hourMarks: number[] = [];
     for (let minute = Math.floor(visible.startMin / 60) * 60; minute <= visible.endMin; minute += 60) {
@@ -184,15 +212,20 @@ export default function DayTimeline({
     const nowMin = currentTime.getHours() * 60 + currentTime.getMinutes();
     const showNow = isToday && nowMin >= visible.startMin && nowMin <= visible.endMin;
 
-    return (
-        <div className="space-y-3">
-            <section className="bg-white border border-gray-200 rounded-xl p-3">
-                <h3 className="text-sm font-semibold text-gray-900">{t('unscheduled')}</h3>
-                <p className="text-xs text-gray-600 mt-0.5 mb-2">{t('unscheduledHint')}</p>
+    const unscheduledSection = showUnscheduled ? (
+            <section className={clsx(
+                'p-2',
+                plainChrome ? 'bg-transparent border-t border-gray-100' : 'bg-white border border-gray-200',
+                !plainChrome && (unscheduledPlacement === 'top' ? 'rounded-xl' : 'rounded-b-xl border-t-0')
+            )}>
+                <h3 className="text-[11px] font-semibold text-gray-900">{t('unscheduled')}</h3>
+                {unscheduledPlacement === 'top' && (
+                    <p className="text-xs text-gray-600 mt-0.5 mb-2">{t('unscheduledHint')}</p>
+                )}
                 {unscheduled.length === 0 ? (
-                    <p className="text-sm text-gray-500">—</p>
+                    <p className="text-xs text-gray-400">—</p>
                 ) : (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5 mt-1">
                         {unscheduled.map((task) => (
                             <button
                                 key={task.id}
@@ -207,7 +240,7 @@ export default function DayTimeline({
                                 onClick={() => {
                                     if (!movedRef.current) onEditTask(task);
                                 }}
-                                className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 cursor-grab active:cursor-grabbing"
+                                className="px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-xs text-gray-900 cursor-grab active:cursor-grabbing"
                             >
                                 {task.title}
                             </button>
@@ -215,32 +248,46 @@ export default function DayTimeline({
                     </div>
                 )}
             </section>
+    ) : null;
+
+    return (
+        <div className={clsx(unscheduledPlacement === 'top' && showUnscheduled ? 'space-y-3' : 'space-y-0', className)}>
+            {unscheduledPlacement === 'top' && unscheduledSection}
 
             <div
                 ref={gridRef}
-                className="relative bg-white border border-gray-200 rounded-xl overflow-y-auto"
-                style={{ height: Math.min(gridHeight + 16, 900) }}
+                className={clsx(
+                    'relative',
+                    plainChrome ? 'bg-transparent' : 'bg-white border border-gray-200',
+                    scrollable ? 'overflow-y-auto' : 'overflow-hidden',
+                    !plainChrome && (unscheduledPlacement === 'bottom' ? 'rounded-t-xl' : 'rounded-xl')
+                )}
+                style={{ height: scrollable ? Math.min(gridHeight + 16, maxHeight) : gridHeight }}
             >
-                <div className="relative" style={{ height: gridHeight, marginLeft: GUTTER }}>
+                <div className="relative" style={{ height: gridHeight, marginLeft: labelGutter }}>
                     {hourMarks.map((minute) => (
                         <div
                             key={minute}
                             className="absolute left-0 right-0 border-t border-gray-100"
-                            style={{ top: (minute - visible.startMin) * PIXELS_PER_MINUTE }}
+                            style={{ top: (minute - visible.startMin) * pixelsPerMinute }}
                         >
-                            <span className="absolute -left-14 -top-2 text-xs text-gray-500 font-mono w-12 text-right">
-                                {minutesToHHMM(minute)}
-                            </span>
+                            {showHourLabels && (
+                                <span className="absolute -left-14 -top-2 text-xs text-gray-500 font-mono w-12 text-right">
+                                    {minutesToHHMM(minute)}
+                                </span>
+                            )}
                         </div>
                     ))}
 
                     {showNow && (
                         <div
                             className="absolute left-0 right-0 z-20 pointer-events-none"
-                            style={{ top: (nowMin - visible.startMin) * PIXELS_PER_MINUTE }}
+                            style={{ top: (nowMin - visible.startMin) * pixelsPerMinute }}
                         >
                             <div className="h-0.5 bg-red-500" />
-                            <span className="absolute -left-14 -top-2 text-[10px] font-semibold text-red-600">{t('now')}</span>
+                            {showHourLabels && (
+                                <span className="absolute -left-14 -top-2 text-[10px] font-semibold text-red-600">{t('now')}</span>
+                            )}
                         </div>
                     )}
 
@@ -250,8 +297,8 @@ export default function DayTimeline({
                         const assignment = columns[task.id] ?? { col: 0, colCount: 1 };
                         const widthPct = 100 / assignment.colCount;
                         const leftPct = widthPct * assignment.col;
-                        const top = (interval.startMin - visible.startMin) * PIXELS_PER_MINUTE;
-                        const height = Math.max(28, (interval.endMin - interval.startMin) * PIXELS_PER_MINUTE);
+                        const top = (interval.startMin - visible.startMin) * pixelsPerMinute;
+                        const height = Math.max(24, (interval.endMin - interval.startMin) * pixelsPerMinute);
                         const editable = canEditTask(task);
 
                         return (
@@ -300,6 +347,7 @@ export default function DayTimeline({
                                         <button
                                             type="button"
                                             className="text-xs text-blue-700 hover:underline cursor-pointer flex-shrink-0"
+                                            onPointerDown={(event) => event.stopPropagation()}
                                             onClick={(event) => {
                                                 event.stopPropagation();
                                                 if (task.status === 'in_progress') onStop(task);
@@ -338,8 +386,8 @@ export default function DayTimeline({
                         <div
                             className="absolute rounded-lg border border-dashed border-blue-400 bg-blue-50/70 pointer-events-none px-2 py-1"
                             style={{
-                                top: (preview[drag.taskId].startMin - visible.startMin) * PIXELS_PER_MINUTE,
-                                height: preview[drag.taskId].duration * PIXELS_PER_MINUTE,
+                                top: (preview[drag.taskId].startMin - visible.startMin) * pixelsPerMinute,
+                                height: preview[drag.taskId].duration * pixelsPerMinute,
                                 left: 4,
                                 right: 8,
                             }}
@@ -349,6 +397,7 @@ export default function DayTimeline({
                     )}
                 </div>
             </div>
+            {unscheduledPlacement === 'bottom' && unscheduledSection}
         </div>
     );
 }
