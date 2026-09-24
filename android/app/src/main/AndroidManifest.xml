@@ -38,6 +38,20 @@
             </intent-filter>
         </receiver>
 
+        <!-- ホーム画面ウィジェット「今 / 次」。ランチャーからの更新ブロードキャストを
+             受け取るため exported=true が必須。データは Web が TaskelWidget プラグイン経由で渡す -->
+        <receiver
+            android:name=".widget.NowNextWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_now_next_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/now_next_widget_info" />
+        </receiver>
+
         <!-- FCM 受信（サーバーからのアラーム差分プッシュ）。
              google-services.json 未配置ビルドでは FirebaseApp が初期化されず起動しない -->
         <service

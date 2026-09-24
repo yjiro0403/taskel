@@ -91,6 +91,92 @@ NowNextWidget ── describeDuration() + next-intl でフォーマット ──
 - **今日固定**: ウィジェットは「今」を答えるものなので、閲覧日付（`currentDate`）ではなくシステム日付を使う。
 - **端末ローカルの折りたたみ**: 端末ごとの見え方の好みなので DB 同期しない。
 
-## 6. 今後の拡張候補（未実装）
-- Android ホーム画面ウィジェット: `TaskelAlarm` プラグインと同じ要領で `{ current, next }` のスナップショットをネイティブに渡し、`AppWidgetProvider` + `RemoteViews` の `Chronometer` でカウントダウンする。本リポジトリでは Android SDK が使えず検証できないため未着手。
-- ウィジェット上からの「完了 / 次を開始」ボタン。
+## 6. Android ホーム画面ウィジェット
+
+アプリ内パネルと同じ「今 / 次」を、Android のホーム画面ウィジェット（`AppWidgetProvider`）として提供する。
+利用手順は [android_home_widget.md](android_home_widget.md) を参照。
+
+### 6.1 アーキテクチャ
+
+```
+useStore ──(購読)──▶ NativeWidgetBridge ──▶ buildWidgetPayload()  ──▶ TaskelWidget.updateNowNext()
+ (Web / WebView)      内容が変わった時だけ     （純粋関数・テスト対象）         │ Capacitor プラグイン
+                                                                              ▼
+                                                                   WidgetStore（SharedPreferences）
+                                                                              │ 描画時に読む
+                                                                              ▼
+                        AlarmManager ◀── 切り替え時刻を予約 ── NowNextWidgetProvider ──▶ RemoteViews
+                        （再描画 1 件）                         （描画時点の now で解釈）    Chronometer が毎秒カウント
+```
+
+| ファイル | 役割 |
+|---|---|
+| `src/lib/tasks/widgetPayload.ts` | ペイロード生成（`buildWidgetPayload`）と変更検知キー（`widgetPayloadKey`） |
+| `src/lib/tasks/widgetPayload.test.ts` | 上記の単体テスト |
+| `src/lib/native/capacitorPlugin.ts` | プラグイン参照の共通取得（`taskelAlarm.ts` から切り出し） |
+| `src/lib/native/taskelWidget.ts` | `TaskelWidget` プラグインのブリッジ（`updateNowNext` / `clear`） |
+| `src/components/NativeWidgetBridge.tsx` | ストア購読 → 差分があれば送信。復帰時再送・ログアウトで消去。layout で 1 度だけマウント |
+| `android/.../widget/TaskelWidgetPlugin.kt` | ペイロード受信 → 保存 → 再描画 |
+| `android/.../widget/WidgetStore.kt` | SharedPreferences への JSON 保存 |
+| `android/.../widget/NowNextSnapshot.kt` | ペイロードの解釈（描画時点の now で「次」を決める） |
+| `android/.../widget/NowNextWidgetProvider.kt` | RemoteViews 描画・Chronometer 設定・切り替え時刻の再描画予約 |
+| `android/.../res/layout/widget_now_next.xml` | レイアウト（RemoteViews 対応 View のみ） |
+| `android/.../res/xml/now_next_widget_info.xml` | ウィジェットのメタデータ（4x2、30 分の保険更新） |
+| `.github/workflows/android-apk.yml` | debug APK を Actions の成果物として作る |
+
+### 6.2 ペイロード（Web → ネイティブ）
+
+時刻はすべて epoch ms。端末側がロケールに合わせて時計表記に直す。
+
+```json
+{
+  "generatedAt": 1789000000000,
+  "today": "2026-09-19",
+  "current": { "title": "メールの返信", "startAt": 1789000000000, "endAt": 1789001080000, "concurrentCount": 0 },
+  "upcoming": [
+    { "title": "バスに乗る", "startAt": 1789000180000, "endAt": 1789000240000 },
+    { "title": "昼食",       "startAt": 1789007200000, "endAt": 1789009900000 }
+  ],
+  "queued": { "title": "洗濯物を取り込む" }
+}
+```
+
+- `current`: アプリ内パネルと同じ判定（`computeNowNext`）。`endAt: null` は見積もりなし。
+- `upcoming`: **今日の未完了の時刻付きタスクを全部**（`listUpcomingFixed`、最大 10 件）。アプリ内パネルは先頭 1 件しか使わないが、ウィジェットはアプリを閉じたまま「次」を繰り上げる必要があるため一覧で渡す。
+- `queued`: 時刻付きが尽きたときのフォールバック。アプリ内パネルと違い、時刻付きが残っていても常に同梱する（端末側で必要になる時点ではアプリが居ないため）。
+
+### 6.3 端末側の解釈と再描画
+
+ネイティブは Supabase に触れないので、**保存済みペイロードを描画時点の `now` で解釈する**。
+
+| 状態 | 判定 | 表示 |
+|---|---|---|
+| 今: 残り | `current.endAt > now` | 青。Chronometer を `endAt` へのカウントダウンに |
+| 今: 超過 | `current.endAt <= now` | 赤。Chronometer を `endAt` からのカウントアップに |
+| 今: 経過 | `current.endAt == null` | Chronometer を `startAt` からのカウントアップに |
+| 次 | `upcoming` のうち `endAt > now` の最初 | `HH:mm 開始` + `startAt` へのカウントダウン。5 分以内で赤、15 分以内で琥珀 |
+| 次: 今すぐ | 上記で `startAt <= now` | 「今すぐ」 |
+| 次: 順番待ち | `upcoming` が尽きて `queued` あり | タイトル + 「時刻未設定」 |
+| 未同期 | 保存なし | 「Taskel を開くと同期されます」 |
+
+再描画のタイミング:
+1. Web からの `updateNowNext` / `clear`
+2. 表示が切り替わる時刻（`current.endAt`、各 `upcoming` の `startAt` / `endAt` のうち最も近い未来）に AlarmManager で 1 件予約（`RTC`、exact 権限があれば `setExactAndAllowWhileIdle`）
+3. `updatePeriodMillis`（30 分）の保険
+4. 端末再起動後（`BootReceiver`）
+
+Chronometer は RemoteViews 側で毎秒進むため、秒単位の更新にアプリもアラームも要らない。
+
+### 6.4 設計判断
+- **ペイロードは「答え」ではなく「今日の材料」**: `{今, 次}` だけ送ると、次の予定が過ぎた瞬間からウィジェットが嘘をつく。今日の残り一覧を渡せば、端末側の単純なフィルタで一日中正しい「次」を出せる。
+- **送信は差分があるときだけ**: 毎秒の時計を送らない。`widgetPayloadKey` で `generatedAt` を除いた内容を比較する。
+- **ネイティブに判定ロジックを複製しない**: 「今」の判定や見積もりの引き算は Web 側（テスト済み）で済ませ、端末側は `endAt > now` の比較だけにする。
+- **exact alarm は必須にしない**: 権限が無ければ inexact にフォールバックし、最悪でも 30 分以内の保険更新で追いつく。
+
+### 6.5 制限
+- アプリを閉じている間の Web / 別端末での変更は、次にアプリを開くまで反映されない（右下の「更新 HH:mm」で古さが分かる）。
+- 本リポジトリの開発環境（Claude Code サンドボックス）からは `dl.google.com` に到達できず Android ビルドを検証できないため、ビルド検証は GitHub Actions（`android-apk.yml`）で行う。
+
+## 7. 今後の拡張候補（未実装）
+- ウィジェット上からの「完了 / 次を開始」ボタン（アプリを開かずにタイマー操作）。
+- FCM 経由でウィジェット用ペイロードを配信し、Web / 別端末の変更をアプリを開かずに反映する。
