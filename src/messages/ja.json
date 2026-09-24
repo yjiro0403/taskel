@@ -290,7 +290,9 @@
     "unscheduledHint": "開始時刻のないタスクです。タイムラインへドラッグすると時刻が付きます。",
     "now": "いま",
     "resize": "長さを変更",
-    "dropToSchedule": "ここにドロップして開始時刻を設定"
+    "dropToSchedule": "ここにドロップして開始時刻を設定",
+    "dropToMove": "ここにドロップしてこの日へ移動",
+    "dropToUnschedule": "ここにドロップして開始時刻を外す"
   },
   "Projects": {
     "expectedHours": "予想時間（時間）",

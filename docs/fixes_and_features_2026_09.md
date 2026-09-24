@@ -1,5 +1,15 @@
 # Fixes and Features Log - September 2026
 
+## [2026-09-24] Weekly timeline: title-first blocks and cross-day drag & drop
+
+- **Issue:** In the weekly planning timeline each block printed `HH:mm–HH:mm` on its first line, so short tasks (≤ 30 min) never showed their title even though the hour axis on the left already gives the time. Blocks and no-start-time chips could only be dragged inside their own day; moving Wednesday's task to Thursday required opening the editor.
+- **Change:**
+    - `DayTimeline` renders the title first and lets it wrap to as many lines as the block height allows (`-webkit-line-clamp`, full title as tooltip). New props `compact` / `showTimeRange`: the week view hides the range and uses the smaller text; the daily view keeps the range as a small label to the right of the title.
+    - Week view drag & drop across days: a block dragged onto another day's grid lands at the hovered time (5-minute snap, grab offset preserved); a chip from "No start time" dropped on another day's grid gets that day and time; a chip dropped on another day's "No start time" area only changes the date; a block dropped on a "No start time" area (own day or another) moves there and clears its start time. The source stays faded in place, the target column shows a dashed preview / highlighted area with a hint.
+    - Implementation keeps the existing pointer drag: `WeekTimelineDragProvider` (shared drag state per week), `resolveWeekDropHit` (`elementFromPoint` + `data-timeline-*` attributes), and pure helpers `snapDropStart` / `buildTimelineDropUpdate` in `src/lib/timeline/weekDrag.ts` with unit tests. Without the provider (daily list) the new branches are never taken.
+    - i18n: `Timeline.dropToMove`, `Timeline.dropToUnschedule`.
+- **Spec:** `docs/weekly_timeline_dnd_spec.md`.
+- **Impact:** No schema or store changes; date moves go through the existing `updateTask` path (routine detach / virtual materialization included). Daily timeline behavior is unchanged apart from the title-first order.
 ## [2026-09-19] Android home-screen widget for Now / Next
 
 - **Issue:** The Now / Next panel shipped on 2026-09-18 lives inside the app. The original request was a *home-screen* widget: the running task's remaining time and the countdown to the next fixed-time task, visible without opening Taskel.

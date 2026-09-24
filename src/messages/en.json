@@ -290,7 +290,9 @@
     "unscheduledHint": "Tasks without a start time. Drag onto the timeline to schedule them.",
     "now": "Now",
     "resize": "Resize duration",
-    "dropToSchedule": "Drop here to set a start time"
+    "dropToSchedule": "Drop here to set a start time",
+    "dropToMove": "Drop here to move to this day",
+    "dropToUnschedule": "Drop here to clear the start time"
   },
   "Projects": {
     "expectedHours": "Expected hours",
