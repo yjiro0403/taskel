@@ -8,6 +8,7 @@ import { useDroppable } from '@dnd-kit/core';
 
 import AddTaskModal from '@/components/AddTaskModal';
 import DayTimeline from '@/components/timeline/DayTimeline';
+import { WeekTimelineDragProvider } from '@/components/timeline/WeekTimelineDragContext';
 import { getSectionForTime } from '@/lib/sectionUtils';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { computeVisibleRange, hhmmToMinutes } from '@/lib/timeline/time';
@@ -56,6 +57,7 @@ function WeekDayColumn({
     return (
         <div
             ref={setNodeRef}
+            data-timeline-column={dateStr}
             className={clsx(
                 'flex flex-col min-w-[160px] flex-1 border-r border-gray-100 last:border-r-0',
                 isOver && 'bg-blue-50/40',
@@ -108,6 +110,8 @@ function WeekDayColumn({
                 gutter={showHourLabels ? 44 : 6}
                 scrollable={false}
                 plainChrome
+                compact
+                showTimeRange={false}
             />
         </div>
     );
@@ -168,6 +172,7 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
     return (
         <>
             <div className="flex-1 min-h-0 overflow-auto">
+                <WeekTimelineDragProvider>
                 <div className="flex min-w-[980px] min-h-full border border-gray-200 rounded-xl overflow-hidden bg-white">
                     {days.map((day, index) => {
                         const dateStr = format(day, 'yyyy-MM-dd');
@@ -188,6 +193,7 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
                         );
                     })}
                 </div>
+                </WeekTimelineDragProvider>
             </div>
 
             <AddTaskModal
