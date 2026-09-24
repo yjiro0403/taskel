@@ -9,6 +9,8 @@ import type { BillingSlice } from './slices/billingSlice';
 import type { WorkspaceSlice } from './slices/workspaceSlice';
 import type { AlarmSlice } from './slices/alarmSlice';
 import type { FinanceSlice } from './slices/financeSlice';
+import type { UIPreferenceSlice } from './slices/uiPreferenceSlice';
+import type { AnalyticsSlice } from './slices/analyticsSlice';
 
 // --- 各スライスの型定義 ---
 
@@ -210,4 +212,6 @@ export type StoreState =
     BillingSlice &
     WorkspaceSlice &
     AlarmSlice &
-    FinanceSlice;
+    FinanceSlice &
+    UIPreferenceSlice &
+    AnalyticsSlice;

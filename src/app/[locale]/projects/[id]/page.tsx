@@ -3,6 +3,8 @@
 import { useStore } from '@/store/useStore';
 import { useRouter } from 'next/navigation';
 import { use, useState, useMemo } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { formatDurationMinutes, hoursInputToMinutes, minutesToHoursInput } from '@/lib/analytics/format';
 import { ArrowLeft, Plus, Trash2, Edit2, Square, CheckSquare, Users, Link as LinkIcon, Copy, Loader2, Check, X, Calendar, BarChart2, Filter, LayoutList, Kanban, CheckCircle2, Clock } from 'lucide-react';
 import { Task, HubRole, Milestone } from '@/types';
 import clsx from 'clsx';
@@ -24,11 +26,14 @@ export default function ProjectDetailsPage({ params }: PageProps) {
     const { id: projectId } = use(params);
     const router = useRouter();
     const { user, projects, tasks, updateProject, deleteProject, updateTask, deleteTask } = useStore();
+    const tProjects = useTranslations('Projects');
+    const locale = useLocale();
 
     const [isEditingDesc, setIsEditingDesc] = useState(false);
     const [editDesc, setEditDesc] = useState('');
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editTitle, setEditTitle] = useState('');
+    const [expectedHoursDraft, setExpectedHoursDraft] = useState<string | null>(null);
 
     // Task Modal State
     const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
@@ -180,6 +185,7 @@ export default function ProjectDetailsPage({ params }: PageProps) {
     const totalTasks = projectTasks.length;
     const completedTasks = projectTasks.filter(t => t.status === 'done').length;
     const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const actualMinutes = projectTasks.reduce((sum, task) => sum + Number(task.actualMinutes || 0), 0);
 
     return (
         <>
@@ -290,7 +296,7 @@ export default function ProjectDetailsPage({ params }: PageProps) {
                             </div>
                         )}
 
-                        <div className="mt-6 pt-6 border-t border-gray-100 grid grid-cols-3 gap-4 text-center">
+                        <div className="mt-6 pt-6 border-t border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                             <div>
                                 <div className="text-2xl font-bold text-gray-900">{totalTasks}</div>
                                 <div className="text-xs text-gray-500 uppercase tracking-wider">Total Tasks</div>
@@ -302,6 +308,40 @@ export default function ProjectDetailsPage({ params }: PageProps) {
                             <div>
                                 <div className="text-2xl font-bold text-blue-600">{progress}%</div>
                                 <div className="text-xs text-gray-500 uppercase tracking-wider">Progress</div>
+                            </div>
+                            <div>
+                                <div className="text-lg font-bold text-gray-900">
+                                    {tProjects('actualVsExpected', {
+                                        actual: formatDurationMinutes(actualMinutes, locale),
+                                        expected: project.expectedMinutes != null
+                                            ? formatDurationMinutes(project.expectedMinutes, locale)
+                                            : '—',
+                                    })}
+                                </div>
+                                <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">{tProjects('expectedHours')}</div>
+                                {canEditProject && (
+                                    <div className="mt-2 flex items-center justify-center gap-1">
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            aria-label={tProjects('expectedHours')}
+                                            value={expectedHoursDraft ?? minutesToHoursInput(project.expectedMinutes)}
+                                            onChange={(event) => setExpectedHoursDraft(event.target.value)}
+                                            className="w-20 border border-gray-300 rounded px-2 py-1 text-sm bg-white text-gray-900"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="text-xs text-blue-700 hover:underline cursor-pointer"
+                                            onClick={() => {
+                                                const minutes = hoursInputToMinutes(expectedHoursDraft ?? minutesToHoursInput(project.expectedMinutes));
+                                                void updateProject(projectId, { expectedMinutes: minutes ?? undefined });
+                                                setExpectedHoursDraft(null);
+                                            }}
+                                        >
+                                            Save
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

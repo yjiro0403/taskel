@@ -19,7 +19,7 @@ import { useTranslations } from 'next-intl';
 export default function Home() {
   const t = useTranslations('TaskList');
   const tSearch = useTranslations('Search');
-  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal, openSearchModal } = useStore();
+  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal, openSearchModal, timelineEnabled } = useStore();
   const [finishTime, setFinishTime] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -126,7 +126,7 @@ export default function Home() {
         <div className="flex relative">
           <SelectionHeader />
           <main className="flex-1 py-8 min-w-0 transition-all duration-300">
-            <div className="max-w-3xl mx-auto px-4">
+            <div className={`mx-auto px-4 ${timelineEnabled ? 'max-w-5xl' : 'max-w-3xl'}`}>
               {/* 今 / 次 ウィジェット: 実行中タスクの残り時間と次の予定までのカウントダウン。
                   sticky でリストをスクロールしても見え続ける（閲覧中の日付に関わらず「今日」を表示） */}
               <div className="px-4">

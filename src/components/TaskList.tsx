@@ -18,6 +18,7 @@ import { SortableTaskItem } from './SortableTaskItem';
 import { TaskContextProvider } from '@/contexts/TaskContext';
 import { useTour } from '@/hooks/useTour';
 import { BottomDropZone } from './BottomDropZone';
+import DayTimeline from './timeline/DayTimeline';
 
 // DnD Imports
 // DnD Imports removed (lifted to wrapper), but useDroppable is needed for SectionContainer
@@ -39,7 +40,7 @@ import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { compareTasksForDisplay, sortTasksForDisplay } from '@/lib/tasks/taskOrder';
 
 export default function TaskList() {
-    const { tasks, tasksLoaded, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId } = useStore();
+    const { tasks, tasksLoaded, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -355,7 +356,7 @@ export default function TaskList() {
 
     return (
         <TaskContextProvider value={taskContextValue}>
-            <div id="tour-task-list" className="flex flex-col gap-6 max-w-4xl mx-auto p-4">
+            <div id="tour-task-list" className={clsx("flex flex-col gap-6 mx-auto p-4", timelineEnabled ? "max-w-5xl" : "max-w-4xl")}>
                 <div className="flex justify-between items-center">
                     <DateNavigation />
                     <div className="flex gap-2">
@@ -385,7 +386,19 @@ export default function TaskList() {
                 {/* Daily Goals */}
                 <DailyGoalList date={currentDate} goals={dailyGoals} />
 
-                {displaySections.map((section, idx) => {
+                {timelineEnabled ? (
+                    <DayTimeline
+                        tasks={filteredTasks.filter((task) => task.status !== 'skipped')}
+                        sections={sections}
+                        currentTime={currentTime}
+                        currentDate={currentDate}
+                        hideEmptyIntervals={hideEmptyIntervals}
+                        canEditTask={canEditTask}
+                        onEditTask={handleEditTask}
+                        onPlay={handlePlay}
+                        onStop={handleStop}
+                    />
+                ) : displaySections.map((section, idx) => {
                     const taskSectionEndTime = getSectionEndTime(section.id);
                     const isInterval = isIntervalSection(section.id);
 

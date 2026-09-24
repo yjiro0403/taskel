@@ -10,6 +10,7 @@ export const projectSchema = z.object({
   memberIds: z.array(idSchema).min(1),
   roles: z.record(idSchema, hubRoleSchema).optional(),
   status: z.enum(['active', 'completed', 'archived']),
+  expectedMinutes: z.number().int().nonnegative().max(10_000_000).optional(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
   milestones: z

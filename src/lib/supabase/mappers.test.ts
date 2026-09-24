@@ -159,6 +159,7 @@ describe('supabase mappers', () => {
       title: 'Migration',
       description: 'Ship it',
       status: 'active',
+      expected_minutes: 3600,
       created_at: '2026-04-10T00:00:00.000Z',
       updated_at: '2026-04-11T00:00:00.000Z',
     };
@@ -180,6 +181,7 @@ describe('supabase mappers', () => {
     expect(mapProject(projectRow, memberRows)).toMatchObject({
       userId: 'owner-1',
       memberIds: ['owner-1', 'member-1'],
+      expectedMinutes: 3600,
       roles: {
         'owner-1': 'owner',
         'member-1': 'member',

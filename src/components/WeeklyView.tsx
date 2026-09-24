@@ -5,12 +5,11 @@ import { useStore } from '@/store/useStore';
 import { Task } from '@/types';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, getISOWeek, getISOWeekYear } from 'date-fns';
 import WeeklyGoalList from './WeeklyGoalList';
-import WeeklyDayColumn from './WeeklyDayColumn';
 import WeeklyNotePanel from './WeeklyNotePanel';
+import WeekTimeline from './WeekTimeline';
 import {
     DndContext,
     closestCenter,
-    pointerWithin,
     KeyboardSensor,
     PointerSensor,
     useSensor,
@@ -138,22 +137,12 @@ export default function WeeklyView({ currentDate = new Date() }: WeeklyViewProps
                 {/* Content */}
                 <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
                     {/* Main Area: Goals + Days */}
-                    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 gap-6">
-                        {/* Goals Section */}
-                        <div className="shrink-0">
+                    <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-4 gap-4">
+                        <div className="shrink-0 max-h-40 overflow-y-auto">
                             <WeeklyGoalList weekId={weekId} goals={weeklyGoals} />
                         </div>
 
-                        {/* Days Grid */}
-                        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4 min-w-0 lg:min-w-[800px] min-h-[300px]">
-                            {days.map(day => (
-                                <WeeklyDayColumn
-                                    key={day.toISOString()}
-                                    date={day}
-                                    tasks={dayTasksMap.get(format(day, 'yyyy-MM-dd')) || []}
-                                />
-                            ))}
-                        </div>
+                        <WeekTimeline days={days} dayTasksMap={dayTasksMap} />
                     </div>
 
                     {/* Right Panel: Notes */}

@@ -11,14 +11,19 @@ import { useRouter } from 'next/navigation';
 import LeftSidebar from '@/components/LeftSidebar';
 
 import PageHeader from '@/components/PageHeader';
+import { hoursInputToMinutes, formatDurationMinutes } from '@/lib/analytics/format';
+import { useLocale, useTranslations } from 'next-intl';
 
 export default function ProjectsPage() {
     const { projects, addProject, deleteProject, updateProject } = useStore();
     const router = useRouter();
+    const tProjects = useTranslations('Projects');
+    const locale = useLocale();
 
     const [isCreating, setIsCreating] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newDesc, setNewDesc] = useState('');
+    const [newExpectedHours, setNewExpectedHours] = useState('');
     const [filter, setFilter] = useState<'active' | 'completed' | 'archived'>('active');
 
     const handleCreate = async (e: React.FormEvent) => {
@@ -31,6 +36,7 @@ export default function ProjectsPage() {
             title: newTitle,
             description: newDesc,
             status: 'active',
+            expectedMinutes: hoursInputToMinutes(newExpectedHours) ?? undefined,
             createdAt: Date.now(),
             updatedAt: Date.now()
         });
@@ -38,6 +44,7 @@ export default function ProjectsPage() {
         setIsCreating(false);
         setNewTitle('');
         setNewDesc('');
+        setNewExpectedHours('');
     };
 
     const handleStatusChange = async (project: Project, status: Project['status']) => {
@@ -124,6 +131,17 @@ export default function ProjectsPage() {
                                             placeholder="# Goals\n- Item 1"
                                         />
                                     </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">{tProjects('expectedHours')}</label>
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={newExpectedHours}
+                                            onChange={e => setNewExpectedHours(e.target.value)}
+                                            className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                                            placeholder={tProjects('expectedHoursPlaceholder')}
+                                        />
+                                    </div>
                                     <div className="flex justify-end gap-2 pt-2">
                                         <button
                                             type="button"
@@ -158,9 +176,16 @@ export default function ProjectsPage() {
                                     <p className="text-gray-500 text-sm line-clamp-3 mb-4 h-12">
                                         {project.description || "No description"}
                                     </p>
-                                    <div className="text-xs text-gray-400 flex gap-2">
+                                    <div className="text-xs text-gray-500 flex gap-2">
                                         <Clock size={14} />
-                                        <span>Updated {new Date(project.updatedAt).toLocaleDateString()}</span>
+                                        <span>
+                                            {project.expectedMinutes != null
+                                                ? tProjects('actualVsExpected', {
+                                                    actual: '—',
+                                                    expected: formatDurationMinutes(project.expectedMinutes, locale),
+                                                })
+                                                : `Updated ${new Date(project.updatedAt).toLocaleDateString()}`}
+                                        </span>
                                     </div>
                                 </div>
 
