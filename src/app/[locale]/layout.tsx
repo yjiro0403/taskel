@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import { NativeAlarmBridge } from "@/components/NativeAlarmBridge";
+import { NativeWidgetBridge } from "@/components/NativeWidgetBridge";
 import Toaster from "@/components/Toaster";
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
@@ -55,6 +56,8 @@ export default async function RootLayout({
             <Toaster />
             {/* Capacitor(Android) 環境でのみ動くアラーム同期ブリッジ。Web では何もしない */}
             <NativeAlarmBridge />
+            {/* 同じく Android 環境のみ: ホーム画面ウィジェット（今 / 次）への同期 */}
+            <NativeWidgetBridge />
           </AuthProvider>
         </NextIntlClientProvider>
       </body>

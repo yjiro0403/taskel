@@ -132,30 +132,51 @@ function pickCurrent(tasks: Task[], now: number): CurrentAction | null {
     };
 }
 
-function pickNext(tasks: Task[], sections: Section[], now: number, today: string): NextAction | null {
-    // 1. The earliest fixed-time task whose window has not fully passed.
-    //    A window that already contains `now` is still "next" (shown as due now):
-    //    it is the thing the user should be switching to.
-    const fixed = tasks
+export interface UpcomingFixed {
+    task: Task;
+    startAt: number;
+    endAt: number;
+}
+
+/**
+ * Today's open fixed-time tasks whose window has not fully passed, earliest first.
+ * A window that already contains `now` is still included (shown as due now): it is
+ * the thing the user should be switching to. The home-screen widget ships this whole
+ * list so the native side can advance "next" on its own while the app is closed.
+ */
+export function listUpcomingFixed(tasks: Task[], now: number, today: string): UpcomingFixed[] {
+    return tasks
         .filter((task) => task.status === 'open')
         .flatMap((task) => {
             const window = scheduledWindow(task, today);
             return window && window.endAt > now ? [{ task, ...window }] : [];
         })
         .sort((a, b) => a.startAt - b.startAt || (a.task.order ?? 0) - (b.task.order ?? 0));
+}
 
+/**
+ * The next open task in the order the daily list renders, ignoring fixed-time tasks
+ * (upcoming ones are handled by listUpcomingFixed; past ones are history).
+ */
+export function pickQueued(tasks: Task[], sections: Section[], today: string): Task | null {
+    return (
+        sortTasksForDisplay(
+            tasks.filter((task) => task.date === today),
+            sections
+        ).find((task) => task.status === 'open' && !hasScheduledStart(task)) ?? null
+    );
+}
+
+function pickNext(tasks: Task[], sections: Section[], now: number, today: string): NextAction | null {
+    // 1. The earliest fixed-time task whose window has not fully passed.
+    const fixed = listUpcomingFixed(tasks, now, today);
     if (fixed.length > 0) {
         const { task, startAt } = fixed[0];
         return { kind: 'fixed', task, startAt, untilMs: startAt - now };
     }
 
-    // 2. Nothing fixed is left today: fall back to the next open task in the order
-    //    the daily list renders (unscheduled only; past fixed-time tasks are history).
-    const queued = sortTasksForDisplay(
-        tasks.filter((task) => task.date === today),
-        sections
-    ).find((task) => task.status === 'open' && !hasScheduledStart(task));
-
+    // 2. Nothing fixed is left today: fall back to the queue.
+    const queued = pickQueued(tasks, sections, today);
     return queued ? { kind: 'queued', task: queued } : null;
 }
 

@@ -75,6 +75,10 @@ FCM 送信側（Next.js）も `FIREBASE_SERVICE_ACCOUNT` 未設定なら静か�
 
 ## 5. APK ビルド
 
+> ローカルにツールチェーンを入れずに済ませたい場合は、GitHub Actions の
+> **Android APK** ワークフロー（`.github/workflows/android-apk.yml`）が debug APK を
+> 成果物として作ります。手順は [docs/android_home_widget.md](android_home_widget.md) の 1 章を参照。
+
 ### 5-0. 前提ツールチェーン（初回のみ・macOS / Homebrew）
 
 このリポジトリは **AGP 8.13 / compileSdk 36 / Kotlin jvmTarget 21** の構成なので、

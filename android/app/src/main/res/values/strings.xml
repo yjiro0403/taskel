@@ -7,4 +7,23 @@
     <string name="alarm_stop">停止</string>
     <string name="alarm_snooze">スヌーズ</string>
     <string name="alarm_default_label">アラーム</string>
+
+    <!-- ホーム画面ウィジェット「今 / 次」 -->
+    <string name="widget_now_next_label">Taskel 今 / 次</string>
+    <string name="widget_now_next_description">実行中タスクの残り時間と、次の予定までのカウントダウン</string>
+    <string name="widget_now">今</string>
+    <string name="widget_next">次</string>
+    <string name="widget_remaining">残り</string>
+    <string name="widget_overrun">超過</string>
+    <string name="widget_elapsed">経過</string>
+    <string name="widget_until">あと</string>
+    <string name="widget_due_now">今すぐ</string>
+    <string name="widget_ends_at">%1$s まで</string>
+    <string name="widget_starts_at">%1$s 開始</string>
+    <string name="widget_no_time">時刻未設定</string>
+    <string name="widget_nothing_now">実行中のタスクはありません</string>
+    <string name="widget_nothing_next">この後の予定はありません</string>
+    <string name="widget_concurrent">+%1$d 件実行中</string>
+    <string name="widget_not_synced">Taskel を開くと同期されます</string>
+    <string name="widget_updated_at">更新 %1$s</string>
 </resources>

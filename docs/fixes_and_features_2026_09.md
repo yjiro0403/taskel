@@ -1,5 +1,16 @@
 # Fixes and Features Log - September 2026
 
+## [2026-09-19] Android home-screen widget for Now / Next
+
+- **Issue:** The Now / Next panel shipped on 2026-09-18 lives inside the app. The original request was a *home-screen* widget: the running task's remaining time and the countdown to the next fixed-time task, visible without opening Taskel.
+- **Change:**
+    - Added an Android `AppWidgetProvider` (`android/.../widget/NowNextWidgetProvider.kt`) with a 4x2 RemoteViews layout. Countdowns use `Chronometer`, so seconds tick on the launcher with no app or alarm involvement; the provider re-renders itself at the next display transition (planned end, next start, window end) via one AlarmManager request, plus a 30-minute `updatePeriodMillis` fallback and a boot refresh.
+    - Added the `TaskelWidget` Capacitor plugin (`updateNowNext` / `clear`) and `WidgetStore` (SharedPreferences JSON). The native side never reads Supabase; it interprets the last payload at render time.
+    - Web pushes a payload from `src/lib/tasks/widgetPayload.ts` (running task, *all* of today's remaining fixed-time tasks, queue fallback) through `NativeWidgetBridge`, only when the content changes, on foreground return, and clears it on logout. Plugin lookup shared with alarms via `src/lib/native/capacitorPlugin.ts`.
+    - Added `.github/workflows/android-apk.yml`, which builds a debug APK on Actions (manual, `android/**` PRs, main pushes) and uploads it as an artifact, so an APK can be obtained without a local Android toolchain. Optional secret `ANDROID_DEBUG_KEYSTORE_BASE64` keeps the signature stable.
+    - Docs: `docs/android_home_widget.md` (setup / behavior / limits), spec section 6 in `docs/now_next_widget_spec.md`, QA rows WIDGET-01..05.
+- **Impact:** No schema change; no change to web behavior in browsers. In the Android app, a new widget is available from the launcher's widget picker. Requires a new APK (native code); the in-app panel keeps working as before.
+
 ## [2026-09-19] Analytics expansion, timeline view, dual-axis landing
 
 - **Issue:** Users could see time per project only after opening each project. There was no all-project actual-vs-expected list, no tag/meeting drill-down, no week/month/year budgets in analytics, and no calendar-style day view. The public homepage still described Taskel as time-only.
