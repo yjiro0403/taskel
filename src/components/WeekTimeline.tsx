@@ -11,8 +11,8 @@ import DayTimeline from '@/components/timeline/DayTimeline';
 import { WeekTimelineDragProvider } from '@/components/timeline/WeekTimelineDragContext';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
-import { computeVisibleRange, hhmmToMinutes } from '@/lib/timeline/time';
-import { isUnscheduledTask } from '@/lib/timeline/layout';
+import { computeVisibleRange } from '@/lib/timeline/time';
+import { scheduledTaskInterval } from '@/lib/timeline/layout';
 import { useStore } from '@/store/useStore';
 import type { Task } from '@/types';
 
@@ -145,9 +145,9 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
         const scheduledStarts: number[] = [];
         for (const tasks of dayTasksMap.values()) {
             for (const task of tasks) {
-                if (isUnscheduledTask(task) || task.status === 'skipped') continue;
-                const start = hhmmToMinutes(task.scheduledStart);
-                if (start != null) scheduledStarts.push(start);
+                if (task.status === 'skipped') continue;
+                const interval = scheduledTaskInterval(task);
+                if (interval) scheduledStarts.push(interval.startMin);
             }
         }
         return computeVisibleRange({ sections, scheduledStarts, hideEmptyIntervals });
@@ -159,12 +159,12 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
     // real start (and gives an unscheduled task a time), ■ ends it where it stopped.
     const handlePlay = async (task: Task) => {
         if (task.status === 'in_progress') return;
-        await updateTask(task.id, buildTimelinePlayUpdate(task, new Date(), sections));
+        await updateTask(task.id, buildTimelinePlayUpdate(task, new Date(), sections), { occurrenceDate: task.date });
     };
 
     const handleStop = (task: Task) => {
         const update = buildTimelineStopUpdate(task, new Date());
-        if (update) void updateTask(task.id, update);
+        if (update) void updateTask(task.id, update, { occurrenceDate: task.date });
     };
 
     const handleDuplicate = (task: Task) => {

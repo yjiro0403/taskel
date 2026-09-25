@@ -10,6 +10,8 @@
     - The "No start time" area is grouped by section (`lib/timeline/unscheduledGroups.ts`); while dragging, every section is a drop slot and a drop sets `sectionId`. Chips get ▶ / ■. The daily page now has the same unscheduled-area drop targets as the week (local drag coordinator).
     - Blocks get a Google Calendar link (when `externalLink` is set) and a duplicate button (hover on desktop, always on touch).
     - `lib/timeline/actuals.ts`: on the timeline, ▶ moves the block to the real start time (and gives an unscheduled task one), ■ records the elapsed time so the block ends at the stop time and aligns the start of a single-run task with its real start. The list view's ▶ / ■ are unchanged.
+    - `updateTask(id, updates, { occurrenceDate })`: the timeline names the day a routine occurrence is shown on, so ▶ / ■ / drags on virtual routine tasks work in the week view too (they were silently ignored for days other than the selected one).
+    - `lib/timeline/layout.ts`: blocks are drawn from recorded times whatever started the timer. A running task (started on its day) spans its real start to "now" (at least its planned length); a finished task with logged minutes spans `completedAt − actualMinutes` to `completedAt`, the same reading as the list view; planned time is the fallback. Moving such a block moves `startedAt` / `completedAt` with it (`buildTimelineSlotUpdate`); they cannot be dropped on the "No start time" area.
 - **Spec:** `docs/timeline_interactions_spec.md`.
 - **Impact:** No schema changes. Behaviour of the section list view is unchanged apart from the widget tap target. New i18n keys under `Timeline`.
 

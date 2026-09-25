@@ -33,7 +33,12 @@ export interface TaskSlice {
     setCurrentDate: (date: string) => void;
     hydrateCurrentDateFromStorage: () => void;
     addTask: (task: Task) => Promise<PersistTaskResult>;
-    updateTask: (taskId: string, updates: Partial<Task>) => Promise<PersistTaskResult>;
+    /**
+     * `occurrenceDate`: the day a routine's virtual occurrence is shown on. The week
+     * view edits days other than `currentDate`, where the occurrence would otherwise
+     * not be found.
+     */
+    updateTask: (taskId: string, updates: Partial<Task>, options?: { occurrenceDate?: string }) => Promise<PersistTaskResult>;
     duplicateTask: (taskId: string) => Promise<void>;
     deleteTask: (taskId: string) => void;
     bulkUpdateTasks: (taskIds: string[], updates: Partial<Task>) => void;

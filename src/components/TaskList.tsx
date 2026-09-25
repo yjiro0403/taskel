@@ -314,7 +314,7 @@ export default function TaskList() {
         if (timelineEnabled) {
             // Timeline: the block follows the real start (an early start moves it, a task
             // without a time gets one), so planned and actual time stay linked.
-            await updateTask(task.id, buildTimelinePlayUpdate(task, now, sections));
+            await updateTask(task.id, buildTimelinePlayUpdate(task, now, sections), { occurrenceDate: task.date });
             return;
         }
 
@@ -333,7 +333,7 @@ export default function TaskList() {
         if (timelineEnabled) {
             // Timeline: the block ends where the timer stopped.
             const update = buildTimelineStopUpdate(task, new Date());
-            if (update) updateTask(task.id, update);
+            if (update) updateTask(task.id, update, { occurrenceDate: task.date });
             return;
         }
 
