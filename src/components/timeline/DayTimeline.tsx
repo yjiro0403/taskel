@@ -7,13 +7,14 @@ import { format } from 'date-fns';
 import { Copy, ExternalLink, Play, Plus, Square } from 'lucide-react';
 
 import type { Section, Task } from '@/types';
-import { getPersistedSectionForTime } from '@/lib/sectionUtils';
 import {
+    actualTaskInterval,
     assignOverlapColumns,
     isUnscheduledTask,
     scheduledTaskInterval,
     taskDurationMinutes,
 } from '@/lib/timeline/layout';
+import { buildTimelineSlotUpdate } from '@/lib/timeline/actuals';
 import {
     CREATE_SLOT_MINUTES,
     MIN_BLOCK_MINUTES,
@@ -21,7 +22,6 @@ import {
     clampMinutes,
     computeVisibleRange,
     floorMinutes,
-    hhmmToMinutes,
     minutesToHHMM,
     snapMinutes,
 } from '@/lib/timeline/time';
@@ -150,11 +150,17 @@ export default function DayTimeline({
     const emptyPressRef = useRef<{ x: number; y: number } | null>(null);
     previewRef.current = preview;
 
+    const isToday = currentDate === format(currentTime, 'yyyy-MM-dd');
+    const nowMin = currentTime.getHours() * 60 + currentTime.getMinutes();
+    // Blocks follow recorded times: a running task from its real start (growing to
+    // now), a finished one by its logged minutes. The planned time is the fallback.
+    const intervalOptions = { nowMin: isToday ? nowMin : null };
+
     const unscheduled = tasks.filter(isUnscheduledTask);
     const scheduled = tasks.filter((task) => !isUnscheduledTask(task));
 
     const scheduledStarts = scheduled
-        .map((task) => hhmmToMinutes(task.scheduledStart))
+        .map((task) => scheduledTaskInterval(task, intervalOptions)?.startMin)
         .filter((value): value is number => value != null);
 
     const computedVisible = computeVisibleRange({
@@ -174,11 +180,19 @@ export default function DayTimeline({
             if (previewSlot) {
                 return { id: task.id, startMin: previewSlot.startMin, endMin: previewSlot.startMin + previewSlot.duration };
             }
-            return scheduledTaskInterval(task);
+            return scheduledTaskInterval(task, intervalOptions);
         })
         .filter((item): item is NonNullable<typeof item> => item != null);
 
-    const columns = useMemo(() => assignOverlapColumns(intervals), [intervals]);
+    // Short blocks are padded to a clickable height; lay the columns out with that
+    // padded length so a one-minute block does not sit on top of the next one.
+    const minVisualMinutes = BLOCK_MIN_HEIGHT / pixelsPerMinute;
+    const layoutIntervals = intervals.map((item) => ({
+        ...item,
+        endMin: Math.max(item.endMin, item.startMin + minVisualMinutes),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const columns = useMemo(() => assignOverlapColumns(layoutIntervals), [intervals, pixelsPerMinute]);
 
     const rawMinutesFromClientY = (clientY: number) => {
         const rect = gridRef.current?.getBoundingClientRect();
@@ -269,6 +283,11 @@ export default function DayTimeline({
                 return false;
             }
             const task = tasks.find((item) => item.id === drag.taskId);
+            if (hit.kind === 'unscheduled' && task && actualTaskInterval(task)) {
+                // Recorded times cannot be cleared by a drop; the block keeps its local preview.
+                setSharedDrag(null);
+                return false;
+            }
             if (hit.kind === 'unscheduled' && hit.date === currentDate && source === 'unscheduled') {
                 const sectionChange = Boolean(hit.sectionId && task && hit.sectionId !== task.sectionId);
                 if (!sectionChange) {
@@ -342,14 +361,10 @@ export default function DayTimeline({
             applyMove(event.clientX, event.clientY);
         };
 
-        const persist = async (taskId: string, startMin: number, duration: number) => {
-            const scheduledStart = minutesToHHMM(startMin);
-            const sectionId = getPersistedSectionForTime(sections, scheduledStart);
-            await updateTask(taskId, {
-                scheduledStart,
-                estimatedMinutes: duration,
-                ...(sectionId ? { sectionId } : {}),
-            });
+        const persist = async (taskId: string, startMin: number, duration?: number) => {
+            const task = tasks.find((item) => item.id === taskId);
+            if (!task) return;
+            await updateTask(taskId, buildTimelineSlotUpdate(task, { startMin, duration }, sections), { occurrenceDate: task.date });
         };
 
         const finish = async (y: number) => {
@@ -367,7 +382,8 @@ export default function DayTimeline({
                         target: shared.target,
                         duration: shared.duration,
                         sections,
-                    })
+                    }),
+                    { occurrenceDate: shared.fromDate }
                 );
                 return;
             }
@@ -391,7 +407,7 @@ export default function DayTimeline({
             }
             setPreview({});
             if (!slot || !movedRef.current) return;
-            await persist(current.taskId, slot.startMin, slot.duration);
+            await persist(current.taskId, slot.startMin, current.kind === 'resize' ? slot.duration : undefined);
         };
 
         const onUp = (event: PointerEvent) => {
@@ -460,8 +476,6 @@ export default function DayTimeline({
         if (minute >= visible.startMin) hourMarks.push(minute);
     }
 
-    const isToday = currentDate === format(currentTime, 'yyyy-MM-dd');
-    const nowMin = currentTime.getHours() * 60 + currentTime.getMinutes();
     const showNow = isToday && nowMin >= visible.startMin && nowMin <= visible.endMin;
 
     // A drag (from another week column, or from this one) that would land here.

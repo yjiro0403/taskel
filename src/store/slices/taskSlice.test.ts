@@ -120,3 +120,68 @@ describe('taskSlice persistence ids and retries', () => {
         });
     });
 });
+
+describe('timeline play through the real updateTask path', () => {
+    afterEach(() => {
+        vi.clearAllMocks();
+        mockedCreate.mockReset();
+        mockedReplace.mockReset();
+        mockedDelete.mockReset();
+    });
+
+    it('persists the real start time together with the running status for a stored task', async () => {
+        const { buildTimelinePlayUpdate } = await import('../../lib/timeline/actuals');
+        const { updateTaskRecord } = await import('../../lib/supabase/repositories/taskRepository');
+        vi.mocked(updateTaskRecord).mockResolvedValue(undefined);
+        const planned = task({ scheduledStart: '17:00' });
+        const { state, slice } = createHarness({ tasks: [planned] } as Partial<StoreState>);
+
+        const now = new Date(2026, 8, 15, 15, 25);
+        await slice.updateTask('task-1', buildTimelinePlayUpdate(planned, now, []));
+
+        expect(state.tasks[0]).toEqual(expect.objectContaining({ status: 'in_progress', scheduledStart: '15:25', startedAt: now.getTime() }));
+        expect(vi.mocked(updateTaskRecord)).toHaveBeenCalledWith(
+            'task-1',
+            expect.objectContaining({ status: 'in_progress', scheduledStart: '15:25', startedAt: now.getTime() }),
+            'user-1'
+        );
+    });
+
+    it('materializes a routine occurrence with the real start time when it is started from the timeline', async () => {
+        const { buildTimelinePlayUpdate } = await import('../../lib/timeline/actuals');
+        const { createVirtualRoutineTaskId } = await import('../../lib/tasks/virtualTask');
+        mockedReplace.mockResolvedValue(undefined);
+        const routine = {
+            id: 'routine-1',
+            userId: 'user-1',
+            title: '案件の返信',
+            frequency: 'daily',
+            startDate: '2026-09-01',
+            nextRun: '2026-09-01',
+            startTime: '17:00',
+            sectionId: 'section-1',
+            estimatedMinutes: 15,
+            active: true,
+        };
+        // The week view starts occurrences on days other than the selected one.
+        const { state, slice } = createHarness({ tasks: [], routines: [routine], currentDate: '2026-09-20' } as unknown as Partial<StoreState>);
+        const virtualId = createVirtualRoutineTaskId('routine-1', '2026-09-15');
+        const virtualTask = slice.getMergedTasks('2026-09-15').find((entry) => entry.id === virtualId);
+        expect(virtualTask?.isVirtual).toBe(true);
+        expect(virtualTask?.scheduledStart).toBe('17:00');
+
+        const now = new Date(2026, 8, 15, 15, 25);
+        const result = await slice.updateTask(virtualId, buildTimelinePlayUpdate(virtualTask!, now, []), { occurrenceDate: '2026-09-15' });
+        expect(result).toEqual({ ok: true, persistedId: virtualId });
+
+        expect(mockedReplace).toHaveBeenCalledWith(
+            expect.objectContaining({ id: virtualId, status: 'in_progress', scheduledStart: '15:25', startedAt: now.getTime() }),
+            'user-1'
+        );
+        const merged = slice.getMergedTasks('2026-09-15').filter((entry) => entry.title === '案件の返信');
+        expect(merged).toHaveLength(1);
+        // The local copy keeps isVirtual until the stored row replaces it; what matters is the real start time.
+        expect(merged[0]).toEqual(expect.objectContaining({ id: virtualId, scheduledStart: '15:25', status: 'in_progress', startedAt: now.getTime() }));
+        expect(state.tasks.some((entry) => entry.id === virtualId)).toBe(true);
+    });
+});

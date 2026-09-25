@@ -92,8 +92,11 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         }
     },
 
-    updateTask: async (taskId, updates) => {
+    updateTask: async (taskId, updates, options) => {
         const { user, tasks, getMergedTasks, currentDate } = get();
+        // A routine's virtual occurrence only exists in getMergedTasks(day); the week
+        // view edits days other than the selected one, so callers may name the day.
+        const occurrenceDate = options?.occurrenceDate ?? currentDate;
         if (!user) {
             set((state) => ({
                 tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
@@ -115,7 +118,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             const currentTask = tasks.find((task) => task.id === taskId);
             const virtualTask = currentTask
                 ? undefined
-                : getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
+                : getMergedTasks(occurrenceDate).find((task) => task.id === taskId && task.isVirtual);
             const occurrence = currentTask ?? virtualTask;
 
             // ルーチンタスクの「日付移動」検知（データ破壊防止）。
@@ -288,8 +291,9 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         await addTask(newTask);
     },
 
-    deleteTask: async (taskId) => {
+    deleteTask: async (taskId, options) => {
         const { user, tasks, getMergedTasks, currentDate } = get();
+        const occurrenceDate = options?.occurrenceDate ?? currentDate;
         if (!user) {
             set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
             return;
@@ -300,7 +304,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
 
         try {
-            const virtualTask = getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
+            const virtualTask = getMergedTasks(occurrenceDate).find((task) => task.id === taskId && task.isVirtual);
             if (virtualTask) {
 
                 await replaceTaskRecord({

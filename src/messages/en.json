@@ -121,6 +121,13 @@
     "duration_ms": "{minutes}m {seconds}s",
     "duration_s": "{seconds}s"
   },
+  "TaskModal": {
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "deleteConfirm": "Delete \"{title}\"?",
+    "skipOccurrence": "Skip this occurrence",
+    "skipOccurrenceConfirm": "Skip this occurrence of \"{title}\"? The routine itself stays."
+  },
   "TaskLink": {
     "copy": "Copy link",
     "copied": "Link copied",

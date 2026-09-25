@@ -121,6 +121,13 @@
     "duration_ms": "{minutes}分{seconds}秒",
     "duration_s": "{seconds}秒"
   },
+  "TaskModal": {
+    "delete": "削除",
+    "deleting": "削除中…",
+    "deleteConfirm": "「{title}」を削除しますか？",
+    "skipOccurrence": "今回分を削除",
+    "skipOccurrenceConfirm": "「{title}」の今回分を削除（スキップ）しますか？ルーチン自体は残ります。"
+  },
   "TaskLink": {
     "copy": "リンクをコピー",
     "copied": "リンクをコピーしました",

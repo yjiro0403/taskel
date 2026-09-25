@@ -1,5 +1,7 @@
+import { format } from 'date-fns';
+
 import type { Task } from '../../types';
-import { MIN_BLOCK_MINUTES, hhmmToMinutes } from './time';
+import { MINUTES_PER_DAY, MIN_BLOCK_MINUTES, hhmmToMinutes } from './time';
 
 export interface TimelineInterval {
     id: string;
@@ -12,6 +14,11 @@ export interface TimelineColumnAssignment {
     colCount: number;
 }
 
+export interface TimelineIntervalOptions {
+    /** The current minute of the day, when the task's date is today: a running block grows to it. */
+    nowMin?: number | null;
+}
+
 export function taskDurationMinutes(task: Task): number {
     if (task.status === 'done') {
         const actual = Number(task.actualMinutes || 0);
@@ -22,11 +29,52 @@ export function taskDurationMinutes(task: Task): number {
     return MIN_BLOCK_MINUTES;
 }
 
-export function isUnscheduledTask(task: Task): boolean {
-    return !task.scheduledStart || task.scheduledStart.trim() === '';
+/** Minutes of the day for a timestamp that falls on `date`, else null. */
+export function minutesOnDate(timestamp: number | undefined, date: string): number | null {
+    if (!timestamp) return null;
+    const at = new Date(timestamp);
+    if (format(at, 'yyyy-MM-dd') !== date) return null;
+    return at.getHours() * 60 + at.getMinutes();
 }
 
-export function scheduledTaskInterval(task: Task): TimelineInterval | null {
+/**
+ * The block a task's recorded times define, whatever its planned time says.
+ *
+ * - Running (started on its own day): from the real start, at least the planned
+ *   length, and growing to "now" while it keeps running.
+ * - Done with logged minutes (finished on its own day): the logged minutes
+ *   ending exactly at the completion time, the same reading the list view
+ *   prints. No minimum length here: the label must show the real stop time,
+ *   the renderer alone pads short blocks to a clickable height.
+ *
+ * Planned-only tasks return null so the caller falls back to scheduledStart.
+ */
+export function actualTaskInterval(task: Task, options: TimelineIntervalOptions = {}): TimelineInterval | null {
+    if (task.status === 'in_progress') {
+        const startMin = minutesOnDate(task.startedAt, task.date);
+        if (startMin == null) return null;
+        const planned = startMin + taskDurationMinutes(task);
+        const end = options.nowMin != null ? Math.max(planned, options.nowMin) : planned;
+        return {
+            id: task.id,
+            startMin,
+            endMin: Math.min(MINUTES_PER_DAY, Math.max(end, startMin + MIN_BLOCK_MINUTES)),
+        };
+    }
+    if (task.status === 'done') {
+        const actual = Math.round(Number(task.actualMinutes || 0));
+        const endMin = minutesOnDate(task.completedAt, task.date);
+        if (endMin == null || actual <= 0) return null;
+        const startMin = Math.max(0, endMin - actual);
+        return { id: task.id, startMin, endMin };
+    }
+    return null;
+}
+
+/** Where a task sits on the axis: its recorded times first, its planned time otherwise. */
+export function scheduledTaskInterval(task: Task, options: TimelineIntervalOptions = {}): TimelineInterval | null {
+    const actual = actualTaskInterval(task, options);
+    if (actual) return actual;
     const startMin = hhmmToMinutes(task.scheduledStart);
     if (startMin == null) return null;
     return {
@@ -34,6 +82,11 @@ export function scheduledTaskInterval(task: Task): TimelineInterval | null {
         startMin,
         endMin: startMin + taskDurationMinutes(task),
     };
+}
+
+/** No planned time and no recorded time on its day: the task lives in the "no start time" area. */
+export function isUnscheduledTask(task: Task): boolean {
+    return scheduledTaskInterval(task) == null;
 }
 
 /**

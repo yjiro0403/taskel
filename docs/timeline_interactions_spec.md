@@ -59,14 +59,51 @@
 - ⧉ はマウスではホバー時、タッチ端末では常時表示。`duplicateTask`（通常表示と同じ）。
 - いずれも `pointerdown` / `click` を止め、ドラッグや編集を誤って始めない。
 
-### 2.6 実稼働との連動（`lib/timeline/actuals.ts`）
+### 2.6 実稼働との連動（`lib/timeline/actuals.ts`, `lib/timeline/layout.ts`）
+
+#### 描画は「記録された時刻」を優先する（`scheduledTaskInterval`）
+どの UI（通常表示・今/次ウィジェット・Android ウィジェット・古いタブ）でタイマーを操作しても、タイムラインは実時刻で描く。
+
+| 状態 | ブロックの位置 |
+| :--- | :--- |
+| `in_progress` で `startedAt` がその日 | 開始 = `startedAt`。終了 = max(開始 + 予定分, いま)（今日のときは経過とともに伸びる） |
+| `done` で `completedAt` がその日かつ `actualMinutes > 0` | `completedAt − actualMinutes` 〜 `completedAt`（通常表示の「Act」と同じ読み）。**終端は完了時刻そのもの**で、15 分の最小長は適用しない |
+| それ以外 | `scheduledStart` 〜 + 長さ（従来どおり）。`scheduledStart` も無ければ時刻未設定チップ |
+
+- 時刻未設定でも「開始済み」なら（`startedAt` がその日）グリッドに出る。
+- 記録時刻で描かれているブロックを時刻未設定エリアへ落とすことはできない（記録は消さない）。
+- 短いブロックは描画上 24px（日次 20 分 / 週次 30 分相当）に底上げするが、ラベルの時刻は実時刻のまま。
+  重なり判定（横並びの列割り当て）はこの底上げ後の長さで行い、1 分のブロックが次のブロックに被らないようにする。
+- `actual_minutes` は整数列のため、30 秒未満で ■ を押すと 0 分に丸まって「予定の長さ」に戻ってしまっていた。
+  タイムラインの ■ はタイマー実行を**最低 1 分**として記録する（`buildTimelineStopUpdate`）。
+
+#### ▶ / ■ の更新内容
 | 操作 | 更新内容 |
 | :--- | :--- |
 | ▶（ブロック / チップ） | `status: in_progress`, `startedAt: now`, `scheduledStart: HH:mm(now)`, 時刻に対応する実セクション |
 | ■ | `status: done`, `startedAt: undefined`, `actualMinutes += 経過分`, `completedAt: now`。<br>初回の実行（それまで `actualMinutes` が 0）で、開始がタスクの日付内なら `scheduledStart` を実際の開始時刻に揃える |
 
-- 完了ブロックは `actualMinutes` の長さで描画されるため、■ を押した時刻がブロックの終端になる。
+#### ドラッグでの編集（`buildTimelineSlotUpdate`）
+| ブロック | 移動 | リサイズ |
+| :--- | :--- | :--- |
+| 予定のみ | `scheduledStart`（長さは変えない） | `estimatedMinutes` |
+| 実行中 | `startedAt` を同じ日の新しい時刻へ（`scheduledStart` も追従） | `estimatedMinutes` |
+| 完了 | `completedAt` を「新しい開始 + 記録分」へ（`scheduledStart` も追従） | `actualMinutes` と `completedAt` |
+
+- 別日への移動は予定時刻だけを動かす（移動先では記録時刻がその日でないため予定で描かれる）。
 - 通常表示（セクション一覧）の再生 / 停止は従来どおり（予定時刻を動かさない）。切り替えは `TaskList` の `timelineEnabled`。
+
+#### ルーチン由来（仮想）タスクの更新（`updateTask` の `occurrenceDate`）
+- 仮想タスクは `getMergedTasks(日付)` の中にしか存在しないため、`updateTask` は従来「日次ビューで選択中の日付」からしか探せず、
+  週ビューで別の日の仮想タスクを ▶ / ■ / ドラッグしても `Task not found` で何も起きなかった。
+- `updateTask(id, updates, { occurrenceDate })` を追加し、タイムラインからは `task.date` を渡す。実体化（`replaceTaskRecord`）には
+  `scheduledStart` / `startedAt` などの更新がそのまま乗る（`taskSlice.test.ts` で確認）。
+
+### 2.7 削除（編集モーダル）
+- これまで削除は通常表示の選択バー（○ で選択 → 一括削除）にしかなく、タイムライン表記からは削除できなかった。
+- `AddTaskModal` の編集時に「削除」ボタンを追加（`window.confirm` 付き）。タイムラインではブロック / チップをクリック（タップ）→ 削除。
+- ルーチン由来のタスクは「今回分を削除」＝ `status: 'skipped'`（仮想なら skipped として実体化）。行を消すと仮想の今回分が再生成されるため。
+  `deleteTask` / `updateTask` には `occurrenceDate` を渡す（週ビューで別の日を編集している場合のため）。
 
 ## 3. データ構造
 - `types/index.ts` / DB の変更なし。`Task.scheduledStart` / `sectionId` / `date` / `status` / `startedAt` / `actualMinutes` / `completedAt` の更新のみ。
