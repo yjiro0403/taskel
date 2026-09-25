@@ -84,6 +84,13 @@ describe('buildTimelineStopUpdate', () => {
         expect('scheduledStart' in (update ?? {})).toBe(false);
     });
 
+    it('counts at least one minute for a run stopped within seconds', () => {
+        const running = task({ status: 'in_progress', scheduledStart: '07:03', startedAt: at(7, 3, 5).getTime() });
+        const update = buildTimelineStopUpdate(running, at(7, 3, 25));
+        expect(update?.actualMinutes).toBe(1);
+        expect(update?.completedAt).toBe(at(7, 3, 25).getTime());
+    });
+
     it('returns null for a task that is not running', () => {
         expect(buildTimelineStopUpdate(task(), at(12, 0))).toBeNull();
         expect(buildTimelineStopUpdate(task({ status: 'in_progress' }), at(12, 0))).toBeNull();

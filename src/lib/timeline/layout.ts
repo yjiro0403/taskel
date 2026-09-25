@@ -43,7 +43,9 @@ export function minutesOnDate(timestamp: number | undefined, date: string): numb
  * - Running (started on its own day): from the real start, at least the planned
  *   length, and growing to "now" while it keeps running.
  * - Done with logged minutes (finished on its own day): the logged minutes
- *   ending at the completion time, the same reading the list view prints.
+ *   ending exactly at the completion time, the same reading the list view
+ *   prints. No minimum length here: the label must show the real stop time,
+ *   the renderer alone pads short blocks to a clickable height.
  *
  * Planned-only tasks return null so the caller falls back to scheduledStart.
  */
@@ -64,7 +66,7 @@ export function actualTaskInterval(task: Task, options: TimelineIntervalOptions 
         const endMin = minutesOnDate(task.completedAt, task.date);
         if (endMin == null || actual <= 0) return null;
         const startMin = Math.max(0, endMin - actual);
-        return { id: task.id, startMin, endMin: Math.max(endMin, startMin + MIN_BLOCK_MINUTES) };
+        return { id: task.id, startMin, endMin };
     }
     return null;
 }

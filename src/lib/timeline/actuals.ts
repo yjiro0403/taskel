@@ -34,7 +34,8 @@ export function buildTimelinePlayUpdate(task: Task, now: Date, sections: Section
  * Timeline stop: the block ends where the timer stopped.
  *
  * A done block spans its start plus actualMinutes, so recording the elapsed
- * time is what makes "stop at 11:30" end at 11:30. When this was the task's
+ * time is what makes "stop at 11:30" end at 11:30 (a run shorter than half a
+ * minute still counts one minute, see below). When this was the task's
  * only run and it started on the task's own day, the start is also aligned
  * with the real start (the task may have been started from the list view,
  * which keeps the planned time). Returns null when the task is not running.
@@ -42,7 +43,10 @@ export function buildTimelinePlayUpdate(task: Task, now: Date, sections: Section
 export function buildTimelineStopUpdate(task: Task, now: Date): Partial<Task> | null {
     if (task.status !== 'in_progress' || !task.startedAt) return null;
 
-    const elapsedMinutes = Math.max(0, Math.round((now.getTime() - task.startedAt) / 60000));
+    // actual_minutes is an integer column: a run stopped within the first half
+    // minute would round to 0 and the block would fall back to its planned length.
+    // A timed run counts at least one minute so it ends where it was stopped.
+    const elapsedMinutes = Math.max(1, Math.round((now.getTime() - task.startedAt) / 60000));
     const previousActual = Number(task.actualMinutes || 0);
     const update: Partial<Task> = {
         status: 'done',

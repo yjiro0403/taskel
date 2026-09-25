@@ -63,6 +63,9 @@ describe('actual-time intervals', () => {
     it('draws a finished task by its logged minutes ending at the completion time', () => {
         const done = task({ id: 'done', status: 'done', scheduledStart: '17:00', actualMinutes: 30, completedAt: at(15, 55) });
         expect(scheduledTaskInterval(done)).toEqual({ id: 'done', startMin: 15 * 60 + 25, endMin: 15 * 60 + 55 });
+        // A one-minute run ends at the real stop time, not 15 minutes later.
+        const quick = task({ id: 'quick', status: 'done', scheduledStart: '07:03', estimatedMinutes: 30, actualMinutes: 1, completedAt: at(7, 4) });
+        expect(scheduledTaskInterval(quick)).toEqual({ id: 'quick', startMin: 7 * 60 + 3, endMin: 7 * 60 + 4 });
     });
 
     it('falls back to the planned time when the recorded times are not on the task day or missing', () => {

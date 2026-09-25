@@ -291,8 +291,9 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         await addTask(newTask);
     },
 
-    deleteTask: async (taskId) => {
+    deleteTask: async (taskId, options) => {
         const { user, tasks, getMergedTasks, currentDate } = get();
+        const occurrenceDate = options?.occurrenceDate ?? currentDate;
         if (!user) {
             set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
             return;
@@ -303,7 +304,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
         set((state) => ({ tasks: state.tasks.filter((task) => task.id !== taskId) }));
 
         try {
-            const virtualTask = getMergedTasks(currentDate).find((task) => task.id === taskId && task.isVirtual);
+            const virtualTask = getMergedTasks(occurrenceDate).find((task) => task.id === taskId && task.isVirtual);
             if (virtualTask) {
 
                 await replaceTaskRecord({

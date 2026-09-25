@@ -184,7 +184,15 @@ export default function DayTimeline({
         })
         .filter((item): item is NonNullable<typeof item> => item != null);
 
-    const columns = useMemo(() => assignOverlapColumns(intervals), [intervals]);
+    // Short blocks are padded to a clickable height; lay the columns out with that
+    // padded length so a one-minute block does not sit on top of the next one.
+    const minVisualMinutes = BLOCK_MIN_HEIGHT / pixelsPerMinute;
+    const layoutIntervals = intervals.map((item) => ({
+        ...item,
+        endMin: Math.max(item.endMin, item.startMin + minVisualMinutes),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const columns = useMemo(() => assignOverlapColumns(layoutIntervals), [intervals, pixelsPerMinute]);
 
     const rawMinutesFromClientY = (clientY: number) => {
         const rect = gridRef.current?.getBoundingClientRect();

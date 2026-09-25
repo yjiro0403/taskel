@@ -40,7 +40,7 @@ export interface TaskSlice {
      */
     updateTask: (taskId: string, updates: Partial<Task>, options?: { occurrenceDate?: string }) => Promise<PersistTaskResult>;
     duplicateTask: (taskId: string) => Promise<void>;
-    deleteTask: (taskId: string) => void;
+    deleteTask: (taskId: string, options?: { occurrenceDate?: string }) => Promise<void>;
     bulkUpdateTasks: (taskIds: string[], updates: Partial<Task>) => void;
     bulkDeleteTasks: (taskIds: string[]) => Promise<void>;
     bulkAddTasks: (tasks: Task[]) => Promise<void>;

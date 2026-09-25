@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useTranslations } from 'next-intl';
 import { useStore } from '@/store/useStore';
 import { Task, Attachment, ChecklistItem } from '@/types';
-import { X, MessageSquare, Link2, Check } from 'lucide-react';
+import { X, MessageSquare, Link2, Check, Trash2 } from 'lucide-react';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
 import { TaskForm } from '@/components/TaskForm';
@@ -63,10 +63,35 @@ export default function AddTaskModal({
     existingTask,
     onTaskCreatedWithAI,
 }: AddTaskModalProps) {
-    const { sections, addTask, updateTask, currentDate, tasks, tags: tagsList, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, financeEnabled, financeCategories, loadFinanceCategories, loadFinanceEntriesForTask, replaceTaskFinanceEntries, user, addAlarm, updateAlarm } = useStore();
+    const { sections, addTask, updateTask, deleteTask, currentDate, tasks, tags: tagsList, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, financeEnabled, financeCategories, loadFinanceCategories, loadFinanceEntriesForTask, replaceTaskFinanceEntries, user, addAlarm, updateAlarm } = useStore();
     const tLink = useTranslations('TaskLink');
     const tFinance = useTranslations('Finance');
     const tAlarm = useTranslations('Alarm');
+    const tModal = useTranslations('TaskModal');
+
+    /**
+     * Delete the task being edited. A routine occurrence is skipped instead
+     * (deleting its row would only let the virtual occurrence reappear).
+     */
+    const handleDelete = async () => {
+        if (!targetTask || isSaving || isDeleting) return;
+        const message = targetTask.routineId
+            ? tModal('skipOccurrenceConfirm', { title: targetTask.title })
+            : tModal('deleteConfirm', { title: targetTask.title });
+        if (!window.confirm(message)) return;
+        setIsDeleting(true);
+        try {
+            if (targetTask.routineId) {
+                const result = await updateTask(targetTask.id, { status: 'skipped' }, { occurrenceDate: targetTask.date || undefined });
+                if (!result.ok) return;
+            } else {
+                await deleteTask(targetTask.id, { occurrenceDate: targetTask.date || undefined });
+            }
+            onClose();
+        } finally {
+            setIsDeleting(false);
+        }
+    };
     const { copyTaskLink } = useCopyTaskLink();
     const [linkCopied, setLinkCopied] = useState(false);
 
@@ -100,6 +125,7 @@ export default function AddTaskModal({
     // Validation State
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [persistedTaskId, setPersistedTaskId] = useState<string | null>(targetTask?.id ?? null);
     const persistedTaskIdRef = useRef<string | null>(targetTask?.id ?? null);
     const draftTaskIdRef = useRef<string | null>(targetTask?.id ?? null);
@@ -856,22 +882,40 @@ export default function AddTaskModal({
                         {error && (
                             <p role="alert" className="text-red-500 text-sm mb-2 font-medium">{error}</p>
                         )}
-                        <div className="flex justify-end">
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                disabled={isSaving}
-                                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                disabled={isUploading || isSaving || financeLoading || financeLoadError}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
-                            >
-                                {isSaving ? tFinance('saving') : targetTask ? 'Update Task' : 'Add Task'}
-                            </button>
+                        <div className="flex w-full items-center justify-between gap-2">
+                            <div>
+                                {/* 削除はここから（通常表示の選択バー以外の唯一の経路。タイムライン表記でも使える）。
+                                    ルーチン由来のタスクは「今回分をスキップ」にし、ルーチン自体は残す。 */}
+                                {targetTask && (
+                                    <button
+                                        type="button"
+                                        data-testid="task-modal-delete"
+                                        onClick={handleDelete}
+                                        disabled={isSaving || isDeleting}
+                                        className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                    >
+                                        <Trash2 size={16} />
+                                        {isDeleting ? tModal('deleting') : targetTask.routineId ? tModal('skipOccurrence') : tModal('delete')}
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    disabled={isSaving || isDeleting}
+                                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isUploading || isSaving || isDeleting || financeLoading || financeLoadError}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
+                                >
+                                    {isSaving ? tFinance('saving') : targetTask ? 'Update Task' : 'Add Task'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </form>
