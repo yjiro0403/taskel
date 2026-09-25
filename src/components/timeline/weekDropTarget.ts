@@ -5,6 +5,7 @@
  */
 export const TIMELINE_GRID_ATTR = 'data-timeline-grid';
 export const TIMELINE_UNSCHEDULED_ATTR = 'data-timeline-unscheduled';
+export const TIMELINE_UNSCHEDULED_SECTION_ATTR = 'data-timeline-unscheduled-section';
 export const TIMELINE_COLUMN_ATTR = 'data-timeline-column';
 
 export type WeekDropHit =
@@ -16,7 +17,12 @@ export type WeekDropHit =
           axisStartMin: number;
           axisEndMin: number;
       }
-    | { kind: 'unscheduled'; date: string };
+    | {
+          kind: 'unscheduled';
+          date: string;
+          /** The section group under the pointer; null between groups. */
+          sectionId: string | null;
+      };
 
 function readNumber(value: string | undefined): number | null {
     if (value == null || value === '') return null;
@@ -35,7 +41,11 @@ export function resolveWeekDropHit(
 
     const unscheduledEl = hit.closest<HTMLElement>(`[${TIMELINE_UNSCHEDULED_ATTR}]`);
     const unscheduledDate = unscheduledEl?.getAttribute(TIMELINE_UNSCHEDULED_ATTR);
-    if (unscheduledDate) return { kind: 'unscheduled', date: unscheduledDate };
+    if (unscheduledDate) {
+        const groupEl = hit.closest<HTMLElement>(`[${TIMELINE_UNSCHEDULED_SECTION_ATTR}]`);
+        const sectionId = groupEl?.getAttribute(TIMELINE_UNSCHEDULED_SECTION_ATTR) || null;
+        return { kind: 'unscheduled', date: unscheduledDate, sectionId };
+    }
 
     let gridEl = hit.closest<HTMLElement>(`[${TIMELINE_GRID_ATTR}]`);
     if (!gridEl && options.columnFallback) {

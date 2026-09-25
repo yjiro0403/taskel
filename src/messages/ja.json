@@ -292,7 +292,15 @@
     "resize": "長さを変更",
     "dropToSchedule": "ここにドロップして開始時刻を設定",
     "dropToMove": "ここにドロップしてこの日へ移動",
-    "dropToUnschedule": "ここにドロップして開始時刻を外す"
+    "dropToUnschedule": "ここにドロップして開始時刻を外す",
+    "createAt": "{time} に予定を追加",
+    "duplicate": "タスクを複製",
+    "openInCalendar": "Google カレンダーで開く",
+    "start": "開始",
+    "startNow": "いま開始",
+    "stop": "停止",
+    "unscheduledOther": "セクション未設定",
+    "holdToDrag": "長押しでドラッグ"
   },
   "Projects": {
     "expectedHours": "予想時間（時間）",

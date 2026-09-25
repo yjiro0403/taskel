@@ -25,11 +25,7 @@ export interface WeekTimelineDragContextValue {
 
 const WeekTimelineDragContext = createContext<WeekTimelineDragContextValue | null>(null);
 
-/**
- * Lets the DayTimeline columns of one week hand a pointer drag to each other.
- * Without this provider (the daily list) a drag never leaves its own column.
- */
-export function WeekTimelineDragProvider({ children }: { children: ReactNode }) {
+function useDragCoordinatorState(): WeekTimelineDragContextValue {
     const [drag, setDragState] = useState<WeekTimelineDrag | null>(null);
     const dragRef = useRef<WeekTimelineDrag | null>(null);
 
@@ -47,11 +43,27 @@ export function WeekTimelineDragProvider({ children }: { children: ReactNode }) 
         [setDrag]
     );
 
-    const value = useMemo(() => ({ drag, dragRef, setDrag, clearDrag }), [drag, setDrag, clearDrag]);
+    return useMemo(() => ({ drag, dragRef, setDrag, clearDrag }), [drag, setDrag, clearDrag]);
+}
 
+/**
+ * Lets the DayTimeline columns of one week hand a pointer drag to each other.
+ */
+export function WeekTimelineDragProvider({ children }: { children: ReactNode }) {
+    const value = useDragCoordinatorState();
     return <WeekTimelineDragContext.Provider value={value}>{children}</WeekTimelineDragContext.Provider>;
 }
 
 export function useWeekTimelineDrag(): WeekTimelineDragContextValue | null {
     return useContext(WeekTimelineDragContext);
+}
+
+/**
+ * The week's shared coordinator when inside a provider, else a private one so a
+ * single DayTimeline (the daily list) still gets the unscheduled-area targets.
+ */
+export function useTimelineDragCoordinator(): WeekTimelineDragContextValue {
+    const shared = useContext(WeekTimelineDragContext);
+    const local = useDragCoordinatorState();
+    return shared ?? local;
 }

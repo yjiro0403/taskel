@@ -6,6 +6,8 @@ export const DEFAULT_VISIBLE_START_MIN = 6 * 60;
 export const DEFAULT_VISIBLE_END_MIN = 22 * 60;
 export const SNAP_MINUTES = 5;
 export const MIN_BLOCK_MINUTES = 15;
+/** A click on empty grid space creates a task on this grid. */
+export const CREATE_SLOT_MINUTES = 15;
 
 const HHMM_RE = /^(\d{1,2}):(\d{2})/;
 
@@ -32,6 +34,11 @@ export function minutesToHHMM(total: number): string {
 export function snapMinutes(value: number, step = SNAP_MINUTES): number {
     if (step <= 0) return Math.round(value);
     return Math.round(value / step) * step;
+}
+
+export function floorMinutes(value: number, step = CREATE_SLOT_MINUTES): number {
+    if (step <= 0) return Math.floor(value);
+    return Math.floor(value / step) * step;
 }
 
 export function clampMinutes(value: number, start: number, end: number): number {

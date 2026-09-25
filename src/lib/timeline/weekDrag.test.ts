@@ -103,6 +103,25 @@ describe('buildTimelineDropUpdate', () => {
         });
         expect(update).toEqual({ date: '2026-09-25' });
     });
+
+    it('moves a task into the section group it was dropped on', () => {
+        expect(
+            buildTimelineDropUpdate({
+                source: 'unscheduled',
+                target: { kind: 'unscheduled', date: '2026-09-24', sectionId: 'night' },
+                duration: 15,
+                sections,
+            })
+        ).toEqual({ date: '2026-09-24', sectionId: 'night' });
+        expect(
+            buildTimelineDropUpdate({
+                source: 'scheduled',
+                target: { kind: 'unscheduled', date: '2026-09-24', sectionId: 'morning' },
+                duration: 30,
+                sections,
+            })
+        ).toEqual({ date: '2026-09-24', scheduledStart: undefined, sectionId: 'morning' });
+    });
 });
 
 describe('drag equality', () => {
@@ -118,6 +137,8 @@ describe('drag equality', () => {
     it('treats the same target as unchanged so pointer moves do not re-render the week', () => {
         expect(isSameWeekTimelineDrag(base, { ...base, title: 'Write report' })).toBe(true);
         expect(isSameDropTarget({ kind: 'unscheduled', date: 'd' }, { kind: 'unscheduled', date: 'd' })).toBe(true);
+        expect(isSameDropTarget({ kind: 'unscheduled', date: 'd', sectionId: null }, { kind: 'unscheduled', date: 'd' })).toBe(true);
+        expect(isSameDropTarget({ kind: 'unscheduled', date: 'd', sectionId: 'a' }, { kind: 'unscheduled', date: 'd', sectionId: 'b' })).toBe(false);
     });
 
     it('detects a new slot, day, kind or task', () => {

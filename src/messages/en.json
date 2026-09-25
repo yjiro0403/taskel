@@ -292,7 +292,15 @@
     "resize": "Resize duration",
     "dropToSchedule": "Drop here to set a start time",
     "dropToMove": "Drop here to move to this day",
-    "dropToUnschedule": "Drop here to clear the start time"
+    "dropToUnschedule": "Drop here to clear the start time",
+    "createAt": "Add at {time}",
+    "duplicate": "Duplicate task",
+    "openInCalendar": "Open in Google Calendar",
+    "start": "Start",
+    "startNow": "Start now",
+    "stop": "Stop",
+    "unscheduledOther": "No section",
+    "holdToDrag": "Hold to drag"
   },
   "Projects": {
     "expectedHours": "Expected hours",

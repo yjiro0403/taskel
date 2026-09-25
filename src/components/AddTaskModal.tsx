@@ -37,6 +37,7 @@ interface AddTaskModalProps {
     initialProjectId?: string;
     initialMilestoneId?: string; // NEW
     initialDate?: string; // "YYYY-MM-DD"
+    initialScheduledStart?: string; // "HH:mm" for a new task created from an empty timeline slot
     initialAssignedWeek?: string; // "YYYY-Www"
     initialAssignedMonth?: string; // "YYYY-MM"
     initialAssignedYear?: string; // "YYYY"
@@ -53,6 +54,7 @@ export default function AddTaskModal({
     initialProjectId,
     initialMilestoneId,
     initialDate,
+    initialScheduledStart,
     initialAssignedWeek,
     initialAssignedMonth,
     initialAssignedYear,
@@ -233,17 +235,18 @@ export default function AddTaskModal({
             setActiveType(nextActiveType);
 
             let initialSectionId = targetTask?.sectionId || defaultSectionId || sections[0]?.id || '';
-            const initialScheduledStart = targetTask?.scheduledStart || '';
+            // Editing keeps the task's own time; a new task may start from a clicked timeline slot.
+            const startingScheduledStart = targetTask ? targetTask.scheduledStart || '' : initialScheduledStart || '';
 
-            if (initialScheduledStart && initialScheduledStart.length === 5) {
-                const correctSection = getSectionForTime(sections, initialScheduledStart);
+            if (startingScheduledStart && startingScheduledStart.length === 5) {
+                const correctSection = getSectionForTime(sections, startingScheduledStart);
                 if (correctSection !== initialSectionId) {
                     initialSectionId = correctSection;
                 }
             }
 
             setSectionId(initialSectionId);
-            setScheduledStart(initialScheduledStart);
+            setScheduledStart(startingScheduledStart);
 
             // Context Fields
             setDate(targetTask ? (targetTask.date || '') : (initialDate !== undefined ? initialDate : currentDate));
@@ -268,7 +271,7 @@ export default function AddTaskModal({
             financeSourceTaskIdRef.current = null;
             setPersistedTaskId(targetTask?.id ?? null);
         }
-    }, [isOpen, targetTask, defaultSectionId, initialProjectId, initialMilestoneId, initialDate, initialAssignedWeek, initialAssignedMonth, initialAssignedYear, initialAssignedDate, sections, currentDate]);
+    }, [isOpen, targetTask, defaultSectionId, initialProjectId, initialMilestoneId, initialDate, initialScheduledStart, initialAssignedWeek, initialAssignedMonth, initialAssignedYear, initialAssignedDate, sections, currentDate]);
 
     useEffect(() => {
         if (!isOpen || !financeEnabled) {
