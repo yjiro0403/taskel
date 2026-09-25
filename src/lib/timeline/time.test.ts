@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Section } from '../../types';
-import { computeVisibleRange, hhmmToMinutes, minutesToHHMM, snapMinutes } from './time';
+import { computeVisibleRange, floorMinutes, hhmmToMinutes, minutesToHHMM, snapMinutes } from './time';
 
 const morning: Section = {
     id: 's-morning',
@@ -57,5 +57,13 @@ describe('timeline time helpers', () => {
             scheduledStarts: [],
             hideEmptyIntervals: false,
         })).toEqual({ startMin: 0, endMin: 1440 });
+    });
+});
+
+describe('floorMinutes', () => {
+    it('floors to the create-slot grid', () => {
+        expect(floorMinutes(9 * 60 + 14)).toBe(9 * 60);
+        expect(floorMinutes(9 * 60 + 15)).toBe(9 * 60 + 15);
+        expect(floorMinutes(9 * 60 + 44, 30)).toBe(9 * 60 + 30);
     });
 });

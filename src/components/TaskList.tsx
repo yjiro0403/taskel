@@ -38,15 +38,19 @@ import {
 } from '@/lib/calendarService';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { compareTasksForDisplay, sortTasksForDisplay } from '@/lib/tasks/taskOrder';
+import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
 
 export default function TaskList() {
-    const { tasks, tasksLoaded, sections, routines, updateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore();
+    const { tasks, tasksLoaded, sections, routines, updateTask, duplicateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
+    /** A click on empty timeline space: the create form opens with this date and time. */
+    const [createSlot, setCreateSlot] = useState<{ date: string; time: string } | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
     const pendingCalendarSyncInFlight = useRef<string | null>(null);
+    const restoredPendingSyncDate = useRef<string | null>(null);
 
     // FTUE: 初回ユーザー向けオンボーディングツアー
     const { startTour } = useTour();
@@ -132,8 +136,14 @@ export default function TaskList() {
 
         // Restore UI-selected date after OAuth full reload (store may have re-inited).
         // Do not depend on currentDate here — setCurrentDate would re-trigger an infinite loop.
-        if (pendingDate !== useStore.getState().currentDate) {
-            setCurrentDate(pendingDate);
+        // Only once per pending sync: this effect also re-runs whenever the user object is
+        // replaced (token refresh, tab focus), and re-applying the date each time snapped
+        // the list back to the sync date while the user was browsing other days.
+        if (restoredPendingSyncDate.current !== pendingDate) {
+            restoredPendingSyncDate.current = pendingDate;
+            if (pendingDate !== useStore.getState().currentDate) {
+                setCurrentDate(pendingDate);
+            }
         }
 
         if (
@@ -156,7 +166,14 @@ export default function TaskList() {
                 sessionProviderToken,
                 user.uid
             );
-            if (!accessToken || cancelled) return;
+            if (cancelled) return;
+            if (!accessToken) {
+                // Data is ready but no Google token came back with this session: the OAuth
+                // round-trip did not complete. Drop the marker so it cannot keep forcing
+                // the date on later loads; the user can press Sync again.
+                localStorage.removeItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
+                return;
+            }
 
             pendingCalendarSyncInFlight.current = pendingDate;
             localStorage.removeItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
@@ -194,6 +211,17 @@ export default function TaskList() {
     const handleCloseModal = () => {
         setIsModalOpen(false);
         setEditingTask(null);
+        setCreateSlot(null);
+    };
+
+    const handleCreateAt = (date: string, time: string) => {
+        setEditingTask(null);
+        setCreateSlot({ date, time });
+        setIsModalOpen(true);
+    };
+
+    const handleDuplicate = (task: Task) => {
+        void duplicateTask(task.id);
     };
 
     // Permanent task links (`?task=`) and focusTask({ openEdit: true }) queue a pending id;
@@ -282,6 +310,14 @@ export default function TaskList() {
         // Multi-active: other in_progress tasks keep running. Each task owns its own
         // startedAt / actualMinutes timer independently.
         const now = new Date();
+
+        if (timelineEnabled) {
+            // Timeline: the block follows the real start (an early start moves it, a task
+            // without a time gets one), so planned and actual time stay linked.
+            await updateTask(task.id, buildTimelinePlayUpdate(task, now, sections));
+            return;
+        }
+
         const currentSectionId = getSectionForTime(sections, now);
 
         await updateTask(task.id, {
@@ -293,6 +329,13 @@ export default function TaskList() {
 
     const handleStop = (task: Task) => {
         if (task.status !== 'in_progress' || !task.startedAt) return;
+
+        if (timelineEnabled) {
+            // Timeline: the block ends where the timer stopped.
+            const update = buildTimelineStopUpdate(task, new Date());
+            if (update) updateTask(task.id, update);
+            return;
+        }
 
         const now = Date.now();
         const elapsedMinutes = Math.round((now - task.startedAt) / 60000);
@@ -397,6 +440,8 @@ export default function TaskList() {
                         onEditTask={handleEditTask}
                         onPlay={handlePlay}
                         onStop={handleStop}
+                        onCreateAt={handleCreateAt}
+                        onDuplicate={handleDuplicate}
                     />
                 ) : displaySections.map((section, idx) => {
                     const taskSectionEndTime = getSectionEndTime(section.id);
@@ -435,6 +480,8 @@ export default function TaskList() {
                     isOpen={isModalOpen}
                     onClose={handleCloseModal}
                     taskToEdit={editingTask}
+                    initialDate={createSlot?.date}
+                    initialScheduledStart={createSlot?.time}
                     onTaskCreatedWithAI={handleTaskCreatedWithAI}
                 />
                 <TagModal

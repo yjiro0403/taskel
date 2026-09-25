@@ -9,8 +9,8 @@ import { useDroppable } from '@dnd-kit/core';
 import AddTaskModal from '@/components/AddTaskModal';
 import DayTimeline from '@/components/timeline/DayTimeline';
 import { WeekTimelineDragProvider } from '@/components/timeline/WeekTimelineDragContext';
-import { getSectionForTime } from '@/lib/sectionUtils';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
+import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
 import { computeVisibleRange, hhmmToMinutes } from '@/lib/timeline/time';
 import { isUnscheduledTask } from '@/lib/timeline/layout';
 import { useStore } from '@/store/useStore';
@@ -33,6 +33,8 @@ function WeekDayColumn({
     onEditTask,
     onPlay,
     onStop,
+    onCreateAt,
+    onDuplicate,
     canEditTask,
     onAdd,
 }: {
@@ -44,6 +46,8 @@ function WeekDayColumn({
     onEditTask: (task: Task) => void;
     onPlay: (task: Task) => void;
     onStop: (task: Task) => void;
+    onCreateAt: (date: string, scheduledStart: string) => void;
+    onDuplicate: (task: Task) => void;
     canEditTask: (task: Task) => boolean;
     onAdd: () => void;
 }) {
@@ -102,6 +106,8 @@ function WeekDayColumn({
                 onEditTask={onEditTask}
                 onPlay={onPlay}
                 onStop={onStop}
+                onCreateAt={onCreateAt}
+                onDuplicate={onDuplicate}
                 visibleRangeOverride={visibleRange}
                 showHourLabels={showHourLabels}
                 unscheduledPlacement="bottom"
@@ -121,12 +127,14 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
     const sections = useStore((state) => state.sections);
     const hideEmptyIntervals = useStore((state) => state.hideEmptyIntervals);
     const updateTask = useStore((state) => state.updateTask);
+    const duplicateTask = useStore((state) => state.duplicateTask);
     const user = useStore((state) => state.user);
     const projects = useStore((state) => state.projects);
     const currentTime = useStore((state) => state.currentTime);
     const setCurrentTime = useStore((state) => state.setCurrentTime);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
-    const [addDate, setAddDate] = useState<string | null>(null);
+    /** The + button opens the form for a day; a click on empty grid space also fills the time. */
+    const [addSlot, setAddSlot] = useState<{ date: string; time?: string } | null>(null);
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 60_000);
@@ -147,26 +155,20 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
 
     const canEditTask = (task: Task) => canEditTaskPermission(task, user?.uid, projects);
 
+    // Planned and actual time stay linked on the timeline: ▶ moves the block to the
+    // real start (and gives an unscheduled task a time), ■ ends it where it stopped.
     const handlePlay = async (task: Task) => {
         if (task.status === 'in_progress') return;
-        const now = new Date();
-        await updateTask(task.id, {
-            status: 'in_progress',
-            startedAt: now.getTime(),
-            sectionId: getSectionForTime(sections, now),
-        });
+        await updateTask(task.id, buildTimelinePlayUpdate(task, new Date(), sections));
     };
 
     const handleStop = (task: Task) => {
-        if (task.status !== 'in_progress' || !task.startedAt) return;
-        const now = Date.now();
-        const elapsedMinutes = Math.max(0, Math.round((now - task.startedAt) / 60000));
-        updateTask(task.id, {
-            status: 'done',
-            startedAt: undefined,
-            actualMinutes: (task.actualMinutes || 0) + elapsedMinutes,
-            completedAt: now,
-        });
+        const update = buildTimelineStopUpdate(task, new Date());
+        if (update) void updateTask(task.id, update);
+    };
+
+    const handleDuplicate = (task: Task) => {
+        void duplicateTask(task.id);
     };
 
     return (
@@ -187,8 +189,10 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
                                 onEditTask={setEditingTask}
                                 onPlay={handlePlay}
                                 onStop={handleStop}
+                                onCreateAt={(date, time) => setAddSlot({ date, time })}
+                                onDuplicate={handleDuplicate}
                                 canEditTask={canEditTask}
-                                onAdd={() => setAddDate(dateStr)}
+                                onAdd={() => setAddSlot({ date: dateStr })}
                             />
                         );
                     })}
@@ -202,9 +206,10 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
                 existingTask={editingTask}
             />
             <AddTaskModal
-                isOpen={!!addDate}
-                onClose={() => setAddDate(null)}
-                initialDate={addDate ?? undefined}
+                isOpen={!!addSlot}
+                onClose={() => setAddSlot(null)}
+                initialDate={addSlot?.date}
+                initialScheduledStart={addSlot?.time}
             />
         </>
     );

@@ -143,7 +143,7 @@ function TitleButton({ task, label, viewedDate, t, onJump }: TitleButtonProps) {
             onClick={() => onJump(task)}
             title={label}
             aria-label={label}
-            className="mt-1 w-full text-left text-lg font-bold text-gray-900 leading-snug hover:text-blue-700 cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="mt-1 inline-block max-w-full text-left text-lg font-bold text-gray-900 leading-snug hover:text-blue-700 cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         >
             <span className="line-clamp-2">{task.title}</span>
             {where && (
@@ -218,7 +218,7 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onC
                 onClick={() => onJump(current.task)}
                 title={jumpLabel}
                 aria-label={jumpLabel}
-                className="mt-1.5 w-full text-left cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="mt-1.5 inline-block max-w-full text-left cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
                 <span className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
                     <span className={clsx('text-sm font-medium', reading.className)}>
@@ -247,13 +247,13 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onC
                         {current.concurrentTasks.map((task) => {
                             const where = locationLabel(task, viewedDate, t);
                             return (
-                                <li key={task.id} className="flex items-start gap-1">
+                                <li key={task.id} className="flex items-start justify-between gap-1">
                                     <button
                                         type="button"
                                         onClick={() => onJump(task)}
                                         title={t('jump_named', { title: task.title })}
                                         aria-label={t('jump_named', { title: task.title })}
-                                        className="min-w-0 flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-700 cursor-pointer rounded px-0.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                        className="min-w-0 max-w-full text-left text-sm font-medium text-gray-800 hover:text-blue-700 cursor-pointer rounded px-0.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                     >
                                         <span className="line-clamp-1">{task.title}</span>
                                         {where && (

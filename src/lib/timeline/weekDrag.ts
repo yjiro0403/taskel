@@ -5,7 +5,12 @@ import { MIN_BLOCK_MINUTES, clampMinutes, minutesToHHMM, snapMinutes } from './t
 /** Where a timeline drag would land if released now. */
 export type TimelineDropTarget =
     | { kind: 'grid'; date: string; startMin: number }
-    | { kind: 'unscheduled'; date: string };
+    | {
+          kind: 'unscheduled';
+          date: string;
+          /** The section group the pointer is over, when it is over one. */
+          sectionId?: string | null;
+      };
 
 /** A block on the grid ("scheduled") or a chip from the no-start-time area ("unscheduled"). */
 export type TimelineDragSource = 'scheduled' | 'unscheduled';
@@ -29,6 +34,7 @@ export function isSameDropTarget(a: TimelineDropTarget | null, b: TimelineDropTa
     if (!a || !b) return false;
     if (a.kind !== b.kind || a.date !== b.date) return false;
     if (a.kind === 'grid' && b.kind === 'grid') return a.startMin === b.startMin;
+    if (a.kind === 'unscheduled' && b.kind === 'unscheduled') return (a.sectionId ?? null) === (b.sectionId ?? null);
     return true;
 }
 
@@ -75,7 +81,8 @@ export function snapDropStart(input: {
  *
  * - grid: move to that day and time; the section follows the new time.
  * - unscheduled: move to that day. A scheduled block also loses its start time
- *   (explicit undefined so the store persists the clear as null).
+ *   (explicit undefined so the store persists the clear as null). Dropping on a
+ *   section group also moves the task into that section.
  */
 export function buildTimelineDropUpdate(input: {
     source: TimelineDragSource;
@@ -85,7 +92,11 @@ export function buildTimelineDropUpdate(input: {
 }): Partial<Task> {
     const { source, target, duration, sections } = input;
     if (target.kind === 'unscheduled') {
-        return source === 'scheduled' ? { date: target.date, scheduledStart: undefined } : { date: target.date };
+        return {
+            date: target.date,
+            ...(source === 'scheduled' ? { scheduledStart: undefined } : {}),
+            ...(target.sectionId ? { sectionId: target.sectionId } : {}),
+        };
     }
     const scheduledStart = minutesToHHMM(target.startMin);
     const sectionId = getPersistedSectionForTime(sections, scheduledStart);

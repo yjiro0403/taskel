@@ -1,5 +1,18 @@
 # Fixes and Features Log - September 2026
 
+## [2026-09-25] Timeline: mobile drag, click-to-create, sectioned unscheduled area, actual-time linkage
+
+- **Issue:** On phones and iPads the viewed date jumped by itself: the Now / Next widget's title and countdown were full-width buttons, so a tap on the empty part of the lane "jumped" to today's task. A stale Google Calendar pending-sync marker could also force the date back on every auth refresh. Timeline drag & drop was nearly unusable by touch (it fought page scrolling). Pressing ▶ early or ■ early left the block at its planned time. The timeline lacked the list view's copy button and Google Calendar link, no way to create a task from an empty slot, and the no-start-time tasks were one flat list.
+- **Change:**
+    - `NowNextWidget`: jump buttons are sized to their text (`inline-block max-w-full`); the lane's empty space is no longer a tap target. `TaskList`: the pending-sync date is restored once per marker, and the marker is dropped when no Google token arrived with the session.
+    - `DayTimeline`: touch/pen drags start after a still 280 ms long-press (ring + vibration); moving earlier scrolls, releasing earlier is a tap. Once lifted, `touchmove` is prevented and the timeline/page auto-scrolls near the edges. Larger touch targets via `pointer-coarse:`.
+    - Click (or tap) on empty grid space opens the create form at that time, floored to 15 minutes, with a hover slot on desktop (`AddTaskModal.initialScheduledStart`). Works on the daily page and every week column.
+    - The "No start time" area is grouped by section (`lib/timeline/unscheduledGroups.ts`); while dragging, every section is a drop slot and a drop sets `sectionId`. Chips get ▶ / ■. The daily page now has the same unscheduled-area drop targets as the week (local drag coordinator).
+    - Blocks get a Google Calendar link (when `externalLink` is set) and a duplicate button (hover on desktop, always on touch).
+    - `lib/timeline/actuals.ts`: on the timeline, ▶ moves the block to the real start time (and gives an unscheduled task one), ■ records the elapsed time so the block ends at the stop time and aligns the start of a single-run task with its real start. The list view's ▶ / ■ are unchanged.
+- **Spec:** `docs/timeline_interactions_spec.md`.
+- **Impact:** No schema changes. Behaviour of the section list view is unchanged apart from the widget tap target. New i18n keys under `Timeline`.
+
 ## [2026-09-24] Weekly timeline: title-first blocks and cross-day drag & drop
 
 - **Issue:** In the weekly planning timeline each block printed `HH:mm–HH:mm` on its first line, so short tasks (≤ 30 min) never showed their title even though the hour axis on the left already gives the time. Blocks and no-start-time chips could only be dragged inside their own day; moving Wednesday's task to Thursday required opening the editor.
