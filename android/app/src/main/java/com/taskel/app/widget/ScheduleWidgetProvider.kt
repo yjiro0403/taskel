@@ -85,13 +85,28 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             }
             val now = System.currentTimeMillis()
             val snapshot = WidgetStore.load(context)
-            ids.forEach { id -> manager.updateAppWidget(id, buildViews(context, id, snapshot, now)) }
+            // ランチャーは同じレイアウト ID の更新を既存 View への再適用（reapply）で済ませようとし、
+            // コレクション（ListView）を含むこのウィジェットではヘッダーの文言や PendingIntent が
+            // 更新されなかった（行は notifyAppWidgetViewDataChanged の別経路で更新される）。
+            // 同一内容のレイアウトを描画ごとに交互に使い、毎回完全に再インフレートさせる。
+            val layoutId = if (WidgetStore.nextScheduleLayoutGeneration(context) % 2L == 0L) {
+                R.layout.widget_schedule_alt
+            } else {
+                R.layout.widget_schedule
+            }
+            ids.forEach { id -> manager.updateAppWidget(id, buildViews(context, id, snapshot, now, layoutId)) }
             scheduleRefresh(context, snapshot, now)
             Log.i(TAG, "Rendered ${ids.size} schedule widget(s) (rows=${snapshot?.scheduleAt(now)?.size ?: -1})")
         }
 
-        private fun buildViews(context: Context, appWidgetId: Int, snapshot: NowNextSnapshot?, now: Long): RemoteViews {
-            val views = RemoteViews(context.packageName, R.layout.widget_schedule)
+        private fun buildViews(
+            context: Context,
+            appWidgetId: Int,
+            snapshot: NowNextSnapshot?,
+            now: Long,
+            layoutId: Int,
+        ): RemoteViews {
+            val views = RemoteViews(context.packageName, layoutId)
 
             views.setTextViewText(R.id.schedule_date, formatDate(now))
             openAppOperation(context)?.let { views.setOnClickPendingIntent(R.id.schedule_date, it) }
