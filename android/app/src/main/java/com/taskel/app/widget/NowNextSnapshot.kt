@@ -17,6 +17,17 @@ data class UpcomingAction(
     val endAt: Long,
 )
 
+/** 予定ウィジェットの 1 行。status は "open" | "in_progress"（Web の ScheduleStatus）。 */
+data class ScheduleItem(
+    val id: String,
+    val title: String,
+    val startAt: Long,
+    val endAt: Long,
+    val status: String,
+) {
+    val isRunning: Boolean get() = status == "in_progress"
+}
+
 /**
  * Web（src/lib/tasks/widgetPayload.ts）が送るスナップショット。時刻はすべて epoch ms。
  *
@@ -29,15 +40,25 @@ data class NowNextSnapshot(
     val current: CurrentAction?,
     val upcoming: List<UpcomingAction>,
     val queued: String?,
+    /** 予定ウィジェット用。今日の残りの時刻付きタスク（実行中を含む）、開始時刻順。 */
+    val schedule: List<ScheduleItem> = emptyList(),
 ) {
     /** 描画時点の「次」: 時間枠がまだ終わっていない最初の時刻付きタスク。 */
     fun nextAt(now: Long): UpcomingAction? = upcoming.firstOrNull { it.endAt > now }
+
+    /** 描画時点で予定ウィジェットに残す行: 時間枠がまだ終わっていないもの、または実行中のもの。 */
+    fun scheduleAt(now: Long): List<ScheduleItem> = schedule.filter { it.isRunning || it.endAt > now }
 
     /** 表示が切り替わる次の時刻（ms）。無ければ null。 */
     fun nextTransitionAfter(now: Long): Long? {
         val candidates = mutableListOf<Long>()
         current?.endAt?.let { if (it > now) candidates.add(it) }
         upcoming.forEach {
+            if (it.startAt > now) candidates.add(it.startAt)
+            if (it.endAt > now) candidates.add(it.endAt)
+        }
+        // 予定ウィジェットは開始時刻で色が変わり、終了時刻で行が消える
+        schedule.forEach {
             if (it.startAt > now) candidates.add(it.startAt)
             if (it.endAt > now) candidates.add(it.endAt)
         }
@@ -76,11 +97,32 @@ data class NowNextSnapshot(
                 ?.optString("title", "")
                 ?.takeIf { it.isNotBlank() }
 
+            // 予定ウィジェット導入前の Web は schedule を送らないので、無ければ空にする
+            val scheduleJson = json.optJSONArray("schedule")
+            val schedule = if (scheduleJson == null) {
+                emptyList()
+            } else {
+                (0 until scheduleJson.length())
+                    .mapNotNull { index -> scheduleJson.optJSONObject(index) }
+                    .filter { it.optString("id", "").isNotBlank() }
+                    .map {
+                        ScheduleItem(
+                            id = it.optString("id"),
+                            title = it.optString("title", ""),
+                            startAt = it.optLong("startAt", 0L),
+                            endAt = it.optLong("endAt", 0L),
+                            status = it.optString("status", "open"),
+                        )
+                    }
+                    .sortedBy { it.startAt }
+            }
+
             return NowNextSnapshot(
                 generatedAt = json.optLong("generatedAt", 0L),
                 current = current,
                 upcoming = upcoming,
                 queued = queued,
+                schedule = schedule,
             )
         }
     }

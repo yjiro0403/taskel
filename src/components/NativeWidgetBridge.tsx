@@ -1,9 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
+import { usePathname, useRouter } from '@/i18n/routing';
 import { formatLocalDate } from '@/lib/calendarService';
-import { clearNativeWidget, isNativePlatform, syncWidgetToNative } from '@/lib/native/taskelWidget';
+import {
+    clearNativeWidget,
+    consumeWidgetLaunchAction,
+    isNativePlatform,
+    syncWidgetToNative,
+    type WidgetLaunchAction,
+} from '@/lib/native/taskelWidget';
 import { buildWidgetPayload, widgetPayloadKey } from '@/lib/tasks/widgetPayload';
 import { useStore } from '@/store/useStore';
 
@@ -23,10 +30,16 @@ const RESYNC_INTERVAL_MS = 60_000;
  * - 内容が前回送ったものと違うときだけネイティブへ渡す（毎秒の時計は送らない）
  * - フォアグラウンド復帰時にも同期する
  * - ログアウトでスナップショットを消す
+ * - 予定ウィジェットの「+」/ 行タップでアプリが開かれたら、既存のストア経路で
+ *   タスク追加モーダル / 該当タスクの編集モーダルを開く
  */
 export function NativeWidgetBridge() {
     // 初期レンダーは常に null なので、SSR とのハイドレーション不一致は起きない
     const [isNative] = useState(() => isNativePlatform());
+    const router = useRouter();
+    const pathname = usePathname();
+    // ログイン確定前に受け取った起動アクションは、確定後に実行するまで保持する
+    const pendingLaunchRef = useRef<WidgetLaunchAction | null>(null);
 
     useEffect(() => {
         if (!isNative) return;
@@ -85,6 +98,54 @@ export function NativeWidgetBridge() {
             document.removeEventListener('visibilitychange', handleVisibility);
         };
     }, [isNative]);
+
+    // ウィジェットからの起動アクション。ネイティブ側は「+」/ 行タップの Intent を
+    // 保存しているだけなので、起動時と復帰時に取りに行き、既存のストア経路で開く。
+    useEffect(() => {
+        if (!isNative) return;
+
+        const dispatch = (launch: WidgetLaunchAction): boolean => {
+            const state = useStore.getState();
+            if (!state.user) return false;
+
+            // 「今日の予定」から来ているので、日付は今日に合わせる
+            state.setCurrentDate(formatLocalDate(new Date()));
+            if (pathname !== '/tasks') router.push('/tasks');
+
+            if (launch.action === 'new_task') {
+                state.openAddTaskModal();
+            } else {
+                // TaskList が pendingEditTaskId を拾って編集モーダルを開き、消費する
+                state.setPendingEditTaskId(launch.taskId);
+            }
+            return true;
+        };
+
+        const handle = async () => {
+            try {
+                const launch = (await consumeWidgetLaunchAction()) ?? pendingLaunchRef.current;
+                if (!launch) return;
+                pendingLaunchRef.current = dispatch(launch) ? null : launch;
+            } catch (error) {
+                console.error('consumeWidgetLaunchAction failed:', error);
+            }
+        };
+
+        void handle();
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') void handle();
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        // ログイン確定を待っていたアクションを実行する
+        const unsubscribe = useStore.subscribe((state, previous) => {
+            if (state.user && !previous.user && pendingLaunchRef.current) void handle();
+        });
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibility);
+            unsubscribe();
+        };
+    }, [isNative, pathname, router]);
 
     return null;
 }

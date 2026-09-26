@@ -26,4 +26,11 @@
     <string name="widget_concurrent">+%1$d 件実行中</string>
     <string name="widget_not_synced">Taskel を開くと同期されます</string>
     <string name="widget_updated_at">更新 %1$s</string>
+    <!-- ホーム画面ウィジェット「今日の予定」 -->
+    <string name="widget_schedule_label">Taskel 今日の予定</string>
+    <string name="widget_schedule_description">今日これからの時刻付きタスクを一覧で。＋ でタスクを追加</string>
+    <string name="widget_schedule_count">あと %1$d 件</string>
+    <string name="widget_schedule_empty">この後の予定はありません</string>
+    <string name="widget_schedule_add">タスクを追加</string>
+    <string name="widget_schedule_running">実行中</string>
 </resources>

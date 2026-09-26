@@ -177,6 +177,60 @@ Chronometer は RemoteViews 側で毎秒進むため、秒単位の更新にア�
 - アプリを閉じている間の Web / 別端末での変更は、次にアプリを開くまで反映されない（右下の「更新 HH:mm」で古さが分かる）。
 - 本リポジトリの開発環境（Claude Code サンドボックス）からは `dl.google.com` に到達できず Android ビルドを検証できないため、ビルド検証は GitHub Actions（`android-apk.yml`）で行う。
 
+## 8. ホーム画面ウィジェット「今日の予定」
+
+Google カレンダーの「スケジュール」ウィジェットに倣い、**今日これからの時刻付きタスク**を開始時刻順にスクロールできるリストで見せ、右上の「+」でタスクを追加できる。「今 / 次」とは別のウィジェットとして配置する。利用手順は [android_home_widget.md](android_home_widget.md) §6。
+
+### 8.1 アーキテクチャ（「今 / 次」との差分）
+
+- **データ経路は 1 本のまま**: `WidgetPayload` に `schedule` を足し、既存の `TaskelWidget.updateNowNext()` 1 回で両ウィジェットを更新する。ネイティブは Supabase に触れない。
+- **リストは `RemoteViewsService`**: `ScheduleWidgetProvider` が `ListView` に `ScheduleWidgetService`（`RemoteViewsFactory`）を結び、行は描画時点の `now` で `WidgetStore` の保存済みスナップショットから生成する。
+- **「+」/ 行タップは「起動アクション」として WebView へ渡す**: ウィジェット → `MainActivity` の Intent（extra `WIDGET_ACTION` = `new_task` | `edit_task`、`WIDGET_TASK_ID`）→ `TaskelWidgetPlugin` が `load()`（コールドスタート）/ `handleOnNewIntent()`（起動中、`singleTask`）で受けて `WidgetStore` に保存 → Web の `NativeWidgetBridge` が起動時 / 復帰時に `consumeLaunchAction()` で取り出し、**既存のストア経路**で画面を開く。
+
+| ファイル | 役割 |
+|---|---|
+| `src/lib/tasks/nowNext.ts` | `listScheduleForWidget`: 今日の時刻付きタスクのうち `open` で時間枠が終わっていないもの + `in_progress`（実行中は枠が過ぎても残す）。`scheduledWindow` を export |
+| `src/lib/tasks/widgetPayload.ts` | `schedule: WidgetScheduleItem[]`（`id, title, startAt, endAt, status`、最大 30 件）。`widgetPayloadKey` に含める |
+| `src/lib/native/taskelWidget.ts` | `consumeWidgetLaunchAction()` |
+| `src/components/NativeWidgetBridge.tsx` | 起動アクションの取り出しと振り分け。`new_task` → `setCurrentDate(today)` + `openAddTaskModal()`、`edit_task` → `setCurrentDate(today)` + `setPendingEditTaskId(taskId)`（`TaskList` が編集モーダルを開いて消費）。`/tasks` 以外にいれば先に遷移。ログイン確定前なら保持して確定後に実行 |
+| `android/.../widget/ScheduleWidgetProvider.kt` | ヘッダー（日付・残り件数・「+」）、`setRemoteAdapter` / `setEmptyView`、行タップの `setPendingIntentTemplate`（`FLAG_MUTABLE`）、切り替え時刻の再描画予約 |
+| `android/.../widget/ScheduleWidgetService.kt` | 行の生成。実行中は青 + 「実行中」、開始時刻を過ぎた未着手は琥珀 + 「今すぐ」。各行に `edit_task` + `taskId` の fill-in Intent |
+| `android/.../widget/TaskelWidgetPlugin.kt` | 両ウィジェットの再描画、起動アクションの捕捉（extra は取り出した時点で消す）、`consumeLaunchAction` |
+| `android/.../widget/NowNextSnapshot.kt` | `ScheduleItem` と `schedule`（無ければ空 = 旧 Web 互換）、`scheduleAt(now)`、切り替え時刻に schedule も含める |
+| `android/.../res/layout/widget_schedule.xml`, `widget_schedule_item.xml`, `xml/schedule_widget_info.xml` | レイアウト（4x3 標準、縦横リサイズ可、最小 3x2） |
+
+### 8.2 ペイロード（追加分）
+
+```json
+{
+  "schedule": [
+    { "id": "…uuid…", "title": "朝風呂", "startAt": 1790387100000, "endAt": 1790389800000, "status": "open" },
+    { "id": "…uuid…", "title": "面談",   "startAt": 1790391600000, "endAt": 1790393400000, "status": "in_progress" }
+  ]
+}
+```
+
+- `upcoming` と違い **実行中（`in_progress`）を含む**。行タップで編集モーダルを開くため **`id` を持つ**。
+- 完了・スキップ・時刻未設定のタスクは送らない（ユーザー選択: 「これから分だけ」）。
+
+### 8.3 端末側の解釈と再描画
+
+| 状態 | 判定 | 表示 |
+|---|---|---|
+| 予定 | `endAt > now` かつ未着手 | 灰の時刻 + タイトル |
+| 今すぐ | `startAt <= now < endAt` かつ未着手 | 琥珀の時刻 + 「今すぐ」 |
+| 実行中 | `status == in_progress` | 青の時刻・タイトル + 「実行中」（枠が過ぎても残す） |
+| 終了 | `endAt <= now` かつ未着手 | 行を出さない |
+| 空 | 残り 0 件 | 「この後の予定はありません」（未同期なら「Taskel を開くと同期されます」） |
+
+再描画: Web からの同期 / 各行の `startAt`・`endAt` のうち最も近い未来に AlarmManager で 1 件予約 / 30 分の保険 / 再起動後。行の Chronometer は使わない（時刻は静的表示）。
+
+### 8.4 設計判断
+
+- **起動アクションを Web 側で解釈する**: ネイティブが直接モーダルを開く手段はなく、`pendingEditTaskId` / `openAddTaskModal` という既存の経路がそのまま使える。二重に開かないよう、ネイティブは取り出し時に消し、Web は `consume` した時点で確定する。
+- **extra は取り出した時点で Intent から消す**: `singleTask` の Activity は Intent を保持し続けるため、WebView の再読み込みで `load()` が再度走っても同じ操作を二度扱わない。
+- **Web のデプロイが先**: `schedule` は Web が計算する。旧 Web + 新 APK では「この後の予定はありません」になるだけで壊れない。
+
 ## 7. 今後の拡張候補（未実装）
 - ウィジェット上からの「完了 / 次を開始」ボタン（アプリを開かずにタイマー操作）。
 - FCM 経由でウィジェット用ペイロードを配信し、Web / 別端末の変更をアプリを開かずに反映する。

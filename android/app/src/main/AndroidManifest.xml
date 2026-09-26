@@ -52,6 +52,26 @@
                 android:resource="@xml/now_next_widget_info" />
         </receiver>
 
+        <!-- ホーム画面ウィジェット「今日の予定」。リストの行は ScheduleWidgetService が生成する -->
+        <receiver
+            android:name=".widget.ScheduleWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_schedule_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/schedule_widget_info" />
+        </receiver>
+
+        <!-- 予定ウィジェットのリスト行を返す RemoteViewsService。
+             ランチャーから bind されるため BIND_REMOTEVIEWS 権限で保護する -->
+        <service
+            android:name=".widget.ScheduleWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+
         <!-- FCM 受信（サーバーからのアラーム差分プッシュ）。
              google-services.json 未配置ビルドでは FirebaseApp が初期化されず起動しない -->
         <service

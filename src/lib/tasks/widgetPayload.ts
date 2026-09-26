@@ -13,10 +13,19 @@
  */
 
 // Relative runtime imports: the vitest "unit" project does not resolve the `@/` alias.
-import { computeNowNext, listUpcomingFixed, pickQueued, type NowNextInput } from './nowNext';
+import {
+    computeNowNext,
+    listScheduleForWidget,
+    listUpcomingFixed,
+    pickQueued,
+    type NowNextInput,
+    type ScheduleStatus,
+} from './nowNext';
 
 /** Enough to cover a busy day without shipping the whole task list every time. */
 export const WIDGET_UPCOMING_LIMIT = 10;
+/** Rows the schedule widget can list; keeps the Binder payload small on a packed day. */
+export const WIDGET_SCHEDULE_LIMIT = 30;
 
 export interface WidgetCurrent {
     title: string;
@@ -33,6 +42,15 @@ export interface WidgetUpcoming {
     endAt: number;
 }
 
+export interface WidgetScheduleItem {
+    /** Task id, so a row tap can open that task's edit modal. */
+    id: string;
+    title: string;
+    startAt: number;
+    endAt: number;
+    status: ScheduleStatus;
+}
+
 export interface WidgetPayload {
     /** When this payload was computed; the widget shows it as "updated HH:mm". */
     generatedAt: number;
@@ -42,6 +60,11 @@ export interface WidgetPayload {
     upcoming: WidgetUpcoming[];
     /** First open unscheduled task, shown once no fixed-time task is left. */
     queued: { title: string } | null;
+    /**
+     * Today's remaining fixed-time tasks for the schedule widget (running ones
+     * included), earliest first. The widget drops rows itself as their windows end.
+     */
+    schedule: WidgetScheduleItem[];
 }
 
 export function buildWidgetPayload({ tasks, sections, now, today }: NowNextInput): WidgetPayload {
@@ -63,6 +86,9 @@ export function buildWidgetPayload({ tasks, sections, now, today }: NowNextInput
             .slice(0, WIDGET_UPCOMING_LIMIT)
             .map(({ task, startAt, endAt }) => ({ title: task.title, startAt, endAt })),
         queued: queued ? { title: queued.title } : null,
+        schedule: listScheduleForWidget(tasks, now, today)
+            .slice(0, WIDGET_SCHEDULE_LIMIT)
+            .map(({ task, startAt, endAt, status }) => ({ id: task.id, title: task.title, startAt, endAt, status })),
     };
 }
 
@@ -76,5 +102,6 @@ export function widgetPayloadKey(payload: WidgetPayload): string {
         current: payload.current,
         upcoming: payload.upcoming,
         queued: payload.queued,
+        schedule: payload.schedule,
     });
 }

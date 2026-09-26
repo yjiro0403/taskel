@@ -12,6 +12,8 @@ import org.json.JSONObject
 object WidgetStore {
     private const val PREFS_NAME = "taskel_widget"
     private const val KEY_SNAPSHOT = "now_next"
+    /** ウィジェットの「+」/ 行タップで積まれた起動アクション。Web が取り出すまで保持する。 */
+    private const val KEY_PENDING_ACTION = "pending_action"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -31,5 +33,18 @@ object WidgetStore {
     @Synchronized
     fun clear(context: Context) {
         prefs(context).edit().remove(KEY_SNAPSHOT).apply()
+    }
+
+    @Synchronized
+    fun savePendingAction(context: Context, json: JSONObject) {
+        prefs(context).edit().putString(KEY_PENDING_ACTION, json.toString()).apply()
+    }
+
+    /** 取り出すと消える（同じ操作でモーダルが二度開かないように）。無ければ null。 */
+    @Synchronized
+    fun consumePendingAction(context: Context): JSONObject? {
+        val raw = prefs(context).getString(KEY_PENDING_ACTION, null) ?: return null
+        prefs(context).edit().remove(KEY_PENDING_ACTION).apply()
+        return runCatching { JSONObject(raw) }.getOrNull()
     }
 }
