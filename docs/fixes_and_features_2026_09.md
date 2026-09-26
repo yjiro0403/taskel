@@ -1,5 +1,12 @@
 # Fixes and Features Log - September 2026
 
+## [2026-09-26] Timeline: clicking a block opens the editor again
+
+- **Issue:** Since the 2026-09-25 change, clicking a block (or a chip) on the daily timeline showed the grab cursor but never opened the editor. A mouse press lifts the block for an instant, and the "No start time" area above the grid immediately grew to show a drop slot for every section. That pushed the grid, and the block, out from under the pointer, so the browser dispatched the `click` to the grid instead of the block. In the week view (area below the grid) blocks still opened, but chips shifted when empty slots were inserted above them and failed the same way.
+- **Change:** `DayTimeline` expands the section slots only after the pointer has travelled at least 6 px since the block or chip was lifted (`dragTravelled`), never on the press itself. A scheduled block dragged in the daily layout keeps the grid still until the pointer reaches the area (the slots appear then); chips and drags in the week layout expand as soon as the pointer moves. A touch long-press released without moving changes nothing.
+- **Spec:** `docs/timeline_interactions_spec.md` §2.2 / §2.4. QA: TLINE-11.
+- **Impact:** No schema or store changes. Drag & drop, drop-to-unschedule, drop-into-section, click-to-create and the touch long-press behave as before.
+
 ## [2026-09-25] Timeline: mobile drag, click-to-create, sectioned unscheduled area, actual-time linkage
 
 - **Issue:** On phones and iPads the viewed date jumped by itself: the Now / Next widget's title and countdown were full-width buttons, so a tap on the empty part of the lane "jumped" to today's task. A stale Google Calendar pending-sync marker could also force the date back on every auth refresh. Timeline drag & drop was nearly unusable by touch (it fought page scrolling). Pressing ▶ early or ■ early left the block at its planned time. The timeline lacked the list view's copy button and Google Calendar link, no way to create a task from an empty slot, and the no-start-time tasks were one flat list.
