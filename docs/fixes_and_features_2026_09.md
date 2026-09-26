@@ -1,5 +1,15 @@
 # Fixes and Features Log - September 2026
 
+## [2026-09-26] Android: "Today's schedule" home-screen widget with + to add
+
+- **Issue:** The Now / Next widget answers "what now, what next" but not "what does the rest of my day look like". Users wanted a Google Calendar-style schedule widget: a scrollable list of today's timed tasks and a + button to add one, without opening the app first.
+- **Change:**
+    - New `ScheduleWidgetProvider` (4x3, resizable) with a `RemoteViewsService` list. Rows come from the same snapshot the Now / Next widget uses; the payload gains `schedule` (today's remaining timed tasks incl. running ones, max 30, with task ids). Rows recolor at their start time (`今すぐ`) and drop off at their end time on-device, via the same AlarmManager refresh the Now / Next widget uses.
+    - `+` and row taps launch `MainActivity` with an intent extra; `TaskelWidgetPlugin` captures it (cold start in `load()`, warm start in `handleOnNewIntent()`) and the web bridge consumes it on start / resume, opening the existing add-task modal or the tapped task's edit modal (`pendingEditTaskId`), switching the list to today first.
+    - Old web + new APK degrade to `この後の予定はありません`; the web change must be deployed for rows and taps to work.
+- **Spec:** `docs/now_next_widget_spec.md` §8; setup `docs/android_home_widget.md` §6. QA: WIDGET-06〜09.
+- **Impact:** No schema or store-shape changes. Browser behavior is unchanged; the Now / Next widget is unaffected.
+
 ## [2026-09-26] Timeline: clicking a block opens the editor again
 
 - **Issue:** Since the 2026-09-25 change, clicking a block (or a chip) on the daily timeline showed the grab cursor but never opened the editor. A mouse press lifts the block for an instant, and the "No start time" area above the grid immediately grew to show a drop slot for every section. That pushed the grid, and the block, out from under the pointer, so the browser dispatched the `click` to the grid instead of the block. In the week view (area below the grid) blocks still opened, but chips shifted when empty slots were inserted above them and failed the same way.

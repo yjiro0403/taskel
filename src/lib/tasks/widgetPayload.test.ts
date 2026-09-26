@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Section, Task } from '@/types';
 
-import { buildWidgetPayload, WIDGET_UPCOMING_LIMIT, widgetPayloadKey } from './widgetPayload';
+import { buildWidgetPayload, WIDGET_SCHEDULE_LIMIT, WIDGET_UPCOMING_LIMIT, widgetPayloadKey } from './widgetPayload';
 
 const TODAY = '2026-09-18';
 const MIN = 60_000;
@@ -86,7 +86,14 @@ describe('buildWidgetPayload', () => {
     });
 
     it('is empty for an empty day', () => {
-        expect(build([])).toEqual({ generatedAt: NOW, today: TODAY, current: null, upcoming: [], queued: null });
+        expect(build([])).toEqual({
+            generatedAt: NOW,
+            today: TODAY,
+            current: null,
+            upcoming: [],
+            queued: null,
+            schedule: [],
+        });
     });
 });
 
@@ -99,5 +106,60 @@ describe('widgetPayloadKey', () => {
 
         const started = build([{ ...bus, status: 'in_progress', startedAt: NOW }], NOW);
         expect(widgetPayloadKey(started)).not.toBe(widgetPayloadKey(a));
+    });
+});
+
+describe('buildWidgetPayload schedule (home-screen schedule widget)', () => {
+    const build = (tasks: Task[]) => buildWidgetPayload({ tasks, sections: SECTIONS, now: NOW, today: TODAY });
+
+    it('lists remaining fixed-time tasks earliest first, with the task id for row taps', () => {
+        const later = makeTask({ title: 'Later', scheduledStart: '14:00', estimatedMinutes: 30 });
+        const soon = makeTask({ title: 'Soon', scheduledStart: '10:30', estimatedMinutes: 15 });
+        const { schedule } = build([later, soon]);
+
+        expect(schedule.map((row) => row.title)).toEqual(['Soon', 'Later']);
+        expect(schedule[0]).toEqual({
+            id: soon.id,
+            title: 'Soon',
+            startAt: NOW + 30 * MIN,
+            endAt: NOW + 45 * MIN,
+            status: 'open',
+        });
+    });
+
+    it('keeps a running task even when its planned window has passed', () => {
+        const running = makeTask({
+            title: 'Running',
+            status: 'in_progress',
+            startedAt: NOW - 90 * MIN,
+            scheduledStart: '08:00',
+            estimatedMinutes: 30,
+        });
+        const { schedule } = build([running]);
+        expect(schedule).toHaveLength(1);
+        expect(schedule[0].status).toBe('in_progress');
+    });
+
+    it('leaves out ended, done, skipped and untimed tasks', () => {
+        const ended = makeTask({ title: 'Ended', scheduledStart: '08:00', estimatedMinutes: 30 });
+        const done = makeTask({ title: 'Done', status: 'done', scheduledStart: '11:00' });
+        const skipped = makeTask({ title: 'Skipped', status: 'skipped', scheduledStart: '11:30' });
+        const untimed = makeTask({ title: 'Untimed' });
+        const kept = makeTask({ title: 'Kept', scheduledStart: '12:00' });
+
+        expect(build([ended, done, skipped, untimed, kept]).schedule.map((row) => row.title)).toEqual(['Kept']);
+    });
+
+    it('caps the list at WIDGET_SCHEDULE_LIMIT rows', () => {
+        const tasks = Array.from({ length: WIDGET_SCHEDULE_LIMIT + 5 }, (_, index) =>
+            makeTask({ scheduledStart: `${String(11 + Math.floor(index / 12)).padStart(2, '0')}:${String((index % 12) * 5).padStart(2, '0')}` })
+        );
+        expect(build(tasks).schedule).toHaveLength(WIDGET_SCHEDULE_LIMIT);
+    });
+
+    it('changes the payload key when only the schedule changes', () => {
+        const base = build([makeTask({ title: 'A', scheduledStart: '11:00' })]);
+        const changed = build([makeTask({ title: 'B', scheduledStart: '11:00' })]);
+        expect(widgetPayloadKey(base)).not.toBe(widgetPayloadKey(changed));
     });
 });

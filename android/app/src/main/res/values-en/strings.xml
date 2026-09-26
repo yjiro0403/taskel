@@ -18,4 +18,11 @@
     <string name="widget_concurrent">+%1$d more running</string>
     <string name="widget_not_synced">Open Taskel to sync</string>
     <string name="widget_updated_at">Updated %1$s</string>
+    <!-- Home-screen widget "Today's schedule" -->
+    <string name="widget_schedule_label">Taskel Today</string>
+    <string name="widget_schedule_description">Today\'s remaining timed tasks at a glance. Tap + to add a task</string>
+    <string name="widget_schedule_count">%1$d left</string>
+    <string name="widget_schedule_empty">Nothing else scheduled today</string>
+    <string name="widget_schedule_add">Add task</string>
+    <string name="widget_schedule_running">Running</string>
 </resources>

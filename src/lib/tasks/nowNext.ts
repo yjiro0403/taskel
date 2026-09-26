@@ -93,7 +93,7 @@ function isRunning(task: Task): task is Task & { startedAt: number } {
 }
 
 /** Scheduled window [start, end) of an open task for today, or null when it has no valid start. */
-function scheduledWindow(task: Task, today: string): { startAt: number; endAt: number } | null {
+export function scheduledWindow(task: Task, today: string): { startAt: number; endAt: number } | null {
     if (task.date !== today || !hasScheduledStart(task)) return null;
     const startAt = taskStartToMillis(task.date, task.scheduledStart);
     if (startAt === null) return null;
@@ -150,6 +150,33 @@ export function listUpcomingFixed(tasks: Task[], now: number, today: string): Up
         .flatMap((task) => {
             const window = scheduledWindow(task, today);
             return window && window.endAt > now ? [{ task, ...window }] : [];
+        })
+        .sort((a, b) => a.startAt - b.startAt || (a.task.order ?? 0) - (b.task.order ?? 0));
+}
+
+export type ScheduleStatus = 'open' | 'in_progress';
+
+export interface ScheduleEntry {
+    task: Task;
+    startAt: number;
+    endAt: number;
+    status: ScheduleStatus;
+}
+
+/**
+ * Today's fixed-time tasks that still matter, earliest first, for the home-screen
+ * schedule widget: open ones whose window has not fully passed, plus running ones
+ * (a timer that is still going is "now" even when its planned window is over).
+ * Done / skipped tasks and tasks without a start time are left out.
+ */
+export function listScheduleForWidget(tasks: Task[], now: number, today: string): ScheduleEntry[] {
+    return tasks
+        .filter((task) => task.status === 'open' || task.status === 'in_progress')
+        .flatMap((task) => {
+            const window = scheduledWindow(task, today);
+            if (!window) return [];
+            const status: ScheduleStatus = task.status === 'in_progress' ? 'in_progress' : 'open';
+            return status === 'in_progress' || window.endAt > now ? [{ task, ...window, status }] : [];
         })
         .sort((a, b) => a.startAt - b.startAt || (a.task.order ?? 0) - (b.task.order ?? 0));
 }
