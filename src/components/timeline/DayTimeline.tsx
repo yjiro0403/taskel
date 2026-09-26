@@ -45,6 +45,12 @@ const LONG_PRESS_MS = 280;
 const LONG_PRESS_MOVE_TOLERANCE = 10;
 /** A press on empty grid space that travelled further than this is not a tap. */
 const TAP_TOLERANCE = 6;
+/**
+ * A lifted block or chip has to carry the pointer this far before the layout
+ * around it may change (the empty section slots appear). A press that never
+ * travels, mouse click or touch long-press, must leave everything where it is.
+ */
+const DRAG_TRAVEL_TOLERANCE = 6;
 const HOVER_SLOT_MINUTES = 30;
 
 export type TimelineVisibleRange = { startMin: number; endMin: number };
@@ -140,12 +146,16 @@ export default function DayTimeline({
     const sharedDrag = coordinator.drag;
     const gridRef = useRef<HTMLDivElement>(null);
     const [drag, setDrag] = useState<DragState>(null);
+    /** The pointer has travelled since the drag was lifted: it is a drag, not a press. */
+    const [dragTravelled, setDragTravelled] = useState(false);
     const [preview, setPreview] = useState<Record<string, { startMin: number; duration: number }>>({});
     const [hoverMin, setHoverMin] = useState<number | null>(null);
     const previewRef = useRef(preview);
     const movedRef = useRef(false);
     const dragPointerTypeRef = useRef<string>('mouse');
     const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+    /** Where the pointer was when the drag was lifted (mouse: the press; touch: the end of the long-press). */
+    const liftPointRef = useRef<{ x: number; y: number } | null>(null);
     const pendingTouchRef = useRef<PendingTouch | null>(null);
     const emptyPressRef = useRef<{ x: number; y: number } | null>(null);
     previewRef.current = preview;
@@ -218,6 +228,8 @@ export default function DayTimeline({
     const beginDrag = (event: React.PointerEvent, next: ActiveDrag) => {
         cancelPendingTouch();
         lastPointRef.current = { x: event.clientX, y: event.clientY };
+        liftPointRef.current = lastPointRef.current;
+        setDragTravelled(false);
         if (event.pointerType === 'mouse') {
             event.preventDefault();
             dragPointerTypeRef.current = 'mouse';
@@ -232,6 +244,7 @@ export default function DayTimeline({
         const onPendingMove = (moveEvent: PointerEvent) => {
             const pending = pendingTouchRef.current;
             if (!pending || moveEvent.pointerId !== pending.pointerId) return;
+            lastPointRef.current = { x: moveEvent.clientX, y: moveEvent.clientY };
             if (Math.hypot(moveEvent.clientX - pending.x, moveEvent.clientY - pending.y) > LONG_PRESS_MOVE_TOLERANCE) {
                 cancelPendingTouch();
             }
@@ -252,6 +265,8 @@ export default function DayTimeline({
             cleanup();
             // A long-press is never a tap: releasing without moving must not open the editor.
             movedRef.current = true;
+            // Travel is measured from where the finger is now, not from the press.
+            liftPointRef.current = lastPointRef.current;
             if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(12);
             setDrag(next);
         }, LONG_PRESS_MS);
@@ -358,6 +373,10 @@ export default function DayTimeline({
 
         const onMove = (event: PointerEvent) => {
             lastPointRef.current = { x: event.clientX, y: event.clientY };
+            const lift = liftPointRef.current;
+            if (lift && Math.hypot(event.clientX - lift.x, event.clientY - lift.y) > DRAG_TRAVEL_TOLERANCE) {
+                setDragTravelled(true);
+            }
             applyMove(event.clientX, event.clientY);
         };
 
@@ -485,8 +504,18 @@ export default function DayTimeline({
     const incomingSectionId = incoming?.target.kind === 'unscheduled' ? incoming.target.sectionId ?? null : null;
     // The task being carried away from its place is drawn faded there.
     const carriedTaskId = sharedDrag?.taskId ?? null;
-    // While something is being dragged, every section becomes a drop slot.
-    const expandGroups = Boolean(drag && drag.kind !== 'resize') || Boolean(incomingUnscheduled);
+    // While something is being dragged, every section becomes a drop slot. Not on
+    // the press itself, though: a mouse click lifts the block for an instant, and
+    // with the area above the grid (the daily page) the extra slots would push the
+    // block out from under the pointer before the click that opens the editor.
+    // So the slots wait for the pointer to travel, and a block over the grid of
+    // that layout keeps the grid still until the pointer reaches the area.
+    const dragExpands =
+        drag != null &&
+        drag.kind !== 'resize' &&
+        dragTravelled &&
+        (drag.kind === 'schedule' || unscheduledPlacement === 'bottom');
+    const expandGroups = dragExpands || Boolean(incomingUnscheduled);
 
     const unscheduledGroups = useMemo(
         () => groupUnscheduledBySection(unscheduled, sections, { includeEmpty: expandGroups }),
