@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent } from './calendarService';
 import {
   buildGoogleCalendarDayRequest,
+  calendarEventLinkKey,
+  duplicateCalendarImportIds,
   fetchCalendarEventsForDate,
+  findAlreadyImportedTask,
   resolveEventReminderMinutes,
   formatLocalDate,
   getLocalDayRange,
@@ -272,6 +275,122 @@ describe('Google Calendar API range integration (chosen local day)', () => {
   );
 });
 
+
+describe('calendar event identity', () => {
+  const googleLink = 'https://www.google.com/calendar/event?eid=abc123';
+  const rewrittenLink = 'https://calendar.google.com/calendar/event?eid=abc123&ctz=Asia%2FTokyo';
+
+  it('treats the same eid as one event across host and timezone params', () => {
+    expect(calendarEventLinkKey(googleLink)).toBe(calendarEventLinkKey(rewrittenLink));
+    expect(calendarEventLinkKey(googleLink)).toBe('eid:abc123');
+  });
+
+  it('keeps different events apart', () => {
+    expect(calendarEventLinkKey('https://www.google.com/calendar/event?eid=other')).not.toBe(
+      calendarEventLinkKey(googleLink)
+    );
+  });
+
+  it('matches a renamed task by its link', () => {
+    const tasks = [
+      { title: '名前を変えた予定', date: '2026-09-27', externalLink: rewrittenLink },
+    ];
+    expect(
+      findAlreadyImportedTask(tasks, { summary: '元の予定名', htmlLink: googleLink }, '2026-09-26')
+    ).toBe(tasks[0]);
+  });
+
+  it('imports a second event that only shares the title and day', () => {
+    const tasks = [
+      {
+        title: '打ち合わせ',
+        date: '2026-09-26',
+        scheduledStart: '10:00',
+        externalLink: googleLink,
+      },
+    ];
+    expect(
+      findAlreadyImportedTask(
+        tasks,
+        { summary: '打ち合わせ', htmlLink: 'https://www.google.com/calendar/event?eid=other' },
+        '2026-09-26',
+        '11:00'
+      )
+    ).toBeUndefined();
+  });
+
+  it('matches an older import that has no link yet, on title and day', () => {
+    const tasks = [{ title: ' 買い物 ', date: '2026-09-26' }];
+    expect(
+      findAlreadyImportedTask(tasks, { summary: '買い物', htmlLink: googleLink }, '2026-09-26')
+    ).toBe(tasks[0]);
+  });
+
+  it('drops untouched copies of the same event and keeps the one with work', () => {
+    const link = 'https://www.google.com/calendar/event?eid=abc123';
+    const rewritten = 'https://calendar.google.com/calendar/event?eid=abc123&ctz=Asia/Tokyo';
+    expect(
+      duplicateCalendarImportIds([
+        {
+          id: 'blank-new',
+          title: '予定',
+          date: '2026-09-26',
+          status: 'open',
+          externalLink: rewritten,
+          createdAt: 200,
+        },
+        {
+          id: 'done',
+          title: '予定',
+          date: '2026-09-26',
+          status: 'done',
+          actualMinutes: 30,
+          externalLink: link,
+          createdAt: 100,
+        },
+        {
+          id: 'noted',
+          title: '予定',
+          date: '2026-09-26',
+          status: 'open',
+          memo: '持参するもの',
+          externalLink: link,
+          createdAt: 300,
+        },
+        {
+          id: 'other-event',
+          title: '予定',
+          date: '2026-09-26',
+          status: 'open',
+          externalLink: 'https://www.google.com/calendar/event?eid=other',
+          createdAt: 50,
+        },
+      ])
+    ).toEqual(['blank-new']);
+  });
+
+  it('keeps the oldest untouched copy when none has been edited', () => {
+    const link = 'https://www.google.com/calendar/event?eid=abc123';
+    expect(
+      duplicateCalendarImportIds([
+        { id: 'newer', title: '予定', date: '2026-09-26', status: 'open', externalLink: link, createdAt: 20 },
+        { id: 'older', title: '予定', date: '2026-09-26', status: 'open', externalLink: link, createdAt: 10 },
+      ])
+    ).toEqual(['newer']);
+  });
+
+  it('does not match an older import at a different start time', () => {
+    const tasks = [{ title: '打ち合わせ', date: '2026-09-26', scheduledStart: '10:00' }];
+    expect(
+      findAlreadyImportedTask(
+        tasks,
+        { summary: '打ち合わせ' },
+        '2026-09-26',
+        '15:00'
+      )
+    ).toBeUndefined();
+  });
+});
 
 describe('resolveEventReminderMinutes', () => {
   const baseEvent = (
