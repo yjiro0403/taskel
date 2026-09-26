@@ -1,5 +1,6 @@
 'use client';
 
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { X, Calendar, Repeat, LogOut, Trash2, Settings, Briefcase, BarChart, ListTodo, CalendarRange, CalendarDays, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -14,7 +15,12 @@ export default function LeftSidebar() {
     const t = useTranslations('Sidebar');
     const tNav = useTranslations('Navigation');
     const tSearch = useTranslations('Search');
-    const { isLeftSidebarOpen, toggleLeftSidebar, user, openSearchModal } = useStore();
+    const { isLeftSidebarOpen, toggleLeftSidebar, user, openSearchModal } = useStore(useShallow((state) => ({
+        isLeftSidebarOpen: state.isLeftSidebarOpen,
+        toggleLeftSidebar: state.toggleLeftSidebar,
+        user: state.user,
+        openSearchModal: state.openSearchModal,
+    })));
     const router = useRouter();
     const pathname = usePathname();
 

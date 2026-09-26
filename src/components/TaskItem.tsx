@@ -57,7 +57,8 @@ export function TaskItem({
     className,
     isHighlighted = false,
 }: TaskItemProps) {
-    const { projects, tags } = useStore();
+    const projects = useStore((state) => state.projects);
+    const tags = useStore((state) => state.tags);
     const tLink = useTranslations('TaskLink');
     const { copyTaskLink } = useCopyTaskLink();
 

@@ -1,5 +1,6 @@
 
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { Task, Project } from '@/types';
 import { Plus, GripVertical, CheckCircle2, Circle } from 'lucide-react';
@@ -88,7 +89,12 @@ function goalsProject(goal: Task, projects: Project[]) {
 }
 
 export default function DailyGoalList({ date, goals }: Props) {
-    const { updateTask, deleteTask, projects, reorderTasks } = useStore();
+    const { updateTask, deleteTask, projects, reorderTasks } = useStore(useShallow((state) => ({
+        updateTask: state.updateTask,
+        deleteTask: state.deleteTask,
+        projects: state.projects,
+        reorderTasks: state.reorderTasks,
+    })));
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 

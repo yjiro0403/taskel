@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { Task } from '@/types';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, getISOWeek, getISOWeekYear } from 'date-fns';
@@ -28,15 +29,28 @@ interface WeeklyViewProps {
 }
 
 export default function WeeklyView({ currentDate = new Date() }: WeeklyViewProps) {
-    const { tasks, getMergedTasks, updateTask, reorderTasks } = useStore();
+    const { tasks, routines, tasksLoaded, getMergedTasks, updateTask, reorderTasks } = useStore(
+        useShallow((state) => ({
+            tasks: state.tasks,
+            routines: state.routines,
+            tasksLoaded: state.tasksLoaded,
+            getMergedTasks: state.getMergedTasks,
+            updateTask: state.updateTask,
+            reorderTasks: state.reorderTasks,
+        }))
+    );
 
-    // Calculate Week Range
-    const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday start
-    const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
-    const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
-
-    // Calculate Week ID: YYYY-Www
-    const weekId = `${getISOWeekYear(weekStart)}-W${String(getISOWeek(weekStart)).padStart(2, '0')}`;
+    // Week start is stable for the whole ISO week, so a new `currentDate` each render
+    // (the standalone page defaults to `new Date()`) does not rebuild the seven columns.
+    const weekAnchor = startOfWeek(currentDate, { weekStartsOn: 1 }).getTime();
+    const { days, weekId } = useMemo(() => {
+        const weekStart = new Date(weekAnchor);
+        const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+        return {
+            days: eachDayOfInterval({ start: weekStart, end: weekEnd }),
+            weekId: `${getISOWeekYear(weekStart)}-W${String(getISOWeek(weekStart)).padStart(2, '0')}`,
+        };
+    }, [weekAnchor]);
 
     // Filter Weekly Goals
     const weeklyGoals = useMemo(() => {
@@ -52,7 +66,7 @@ export default function WeeklyView({ currentDate = new Date() }: WeeklyViewProps
             map.set(dateStr, dayTasks);
         });
         return map;
-    }, [days, getMergedTasks]);
+    }, [days, getMergedTasks, tasks, routines, tasksLoaded]);
 
     // --- DnD Logic ---
     const sensors = useSensors(

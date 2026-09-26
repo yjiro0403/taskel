@@ -8,6 +8,7 @@ import {
     type FinanceSummary,
     type FinanceTypeGroup,
 } from './types';
+import { normalizeCategoryLabel } from './validation';
 
 type Tables = Database['public']['Tables'];
 
@@ -95,6 +96,46 @@ export function createEmptyFinanceDraft(entryType: FinanceEntryType = 'expense')
         amountInput: '',
         memo: '',
     };
+}
+
+/**
+ * Keep categories already loaded, and append ones created by a task save so the
+ * combobox does not refetch the whole list.
+ */
+export function mergeFinanceCategories(
+    existing: FinanceCategory[],
+    entries: FinanceEntry[],
+    userId: string
+): FinanceCategory[] {
+    if (entries.length === 0 || !userId) {
+        return existing;
+    }
+
+    const seenIds = new Set(existing.map((category) => category.id));
+    const seenNorms = new Set(existing.map((category) => category.normalizedLabel));
+    const additions: FinanceCategory[] = [];
+
+    for (const entry of entries) {
+        if (!entry.categoryId || seenIds.has(entry.categoryId)) {
+            continue;
+        }
+        const normalizedLabel = normalizeCategoryLabel(entry.categoryLabelSnapshot);
+        if (!normalizedLabel || seenNorms.has(normalizedLabel)) {
+            continue;
+        }
+        seenIds.add(entry.categoryId);
+        seenNorms.add(normalizedLabel);
+        additions.push({
+            id: entry.categoryId,
+            userId,
+            label: entry.categoryLabelSnapshot,
+            normalizedLabel,
+            createdAt: entry.createdAt,
+            updatedAt: entry.updatedAt,
+        });
+    }
+
+    return additions.length === 0 ? existing : [...existing, ...additions];
 }
 
 export function financeEntryToDraft(entry: FinanceEntry): FinanceDraftRow {

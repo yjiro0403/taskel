@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslations } from 'next-intl';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { Task, Attachment, ChecklistItem } from '@/types';
 import { X, MessageSquare, Link2, Check, Trash2 } from 'lucide-react';
@@ -63,7 +64,30 @@ export default function AddTaskModal({
     existingTask,
     onTaskCreatedWithAI,
 }: AddTaskModalProps) {
-    const { sections, addTask, updateTask, deleteTask, currentDate, tasks, tags: tagsList, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, financeEnabled, financeCategories, loadFinanceCategories, loadFinanceEntriesForTask, replaceTaskFinanceEntries, user, addAlarm, updateAlarm } = useStore();
+    const { sections, addTask, updateTask, deleteTask, currentDate, tasks, tagsList, projects, taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, financeEnabled, financeCategories, loadFinanceCategories, loadFinanceEntriesForTask, replaceTaskFinanceEntries, user, addAlarm, updateAlarm } = useStore(useShallow((state) => ({
+        sections: state.sections,
+        addTask: state.addTask,
+        updateTask: state.updateTask,
+        deleteTask: state.deleteTask,
+        currentDate: state.currentDate,
+        tasks: state.tasks,
+        tagsList: state.tags,
+        projects: state.projects,
+        taskComments: state.taskComments,
+        commentsLoading: state.commentsLoading,
+        aiProcessing: state.aiProcessing,
+        fetchComments: state.fetchComments,
+        addUserComment: state.addUserComment,
+        triggerAIReply: state.triggerAIReply,
+        financeEnabled: state.financeEnabled,
+        financeCategories: state.financeCategories,
+        loadFinanceCategories: state.loadFinanceCategories,
+        loadFinanceEntriesForTask: state.loadFinanceEntriesForTask,
+        replaceTaskFinanceEntries: state.replaceTaskFinanceEntries,
+        user: state.user,
+        addAlarm: state.addAlarm,
+        updateAlarm: state.updateAlarm,
+    })));
     const tLink = useTranslations('TaskLink');
     const tFinance = useTranslations('Finance');
     const tAlarm = useTranslations('Alarm');

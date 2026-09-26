@@ -4,8 +4,11 @@ import { createClient } from '../../lib/supabase/client';
 import {
     financeRangeKey,
     invalidateFinanceSummaryCache,
+    isFinanceSummaryFresh,
     putCachedFinanceSummary,
+    putFinanceSummaryEpoch,
 } from '../../lib/finance/cache';
+import { mergeFinanceCategories } from '../../lib/finance/mapping';
 import type { FinanceCategory, FinanceEntry, FinanceReplacePayloadEntry, FinanceSummary } from '../../lib/finance/types';
 import {
     fetchFinanceCategories,
@@ -25,6 +28,10 @@ export interface FinanceSlice {
     financeCategories: FinanceCategory[];
     financeCategoriesLoaded: boolean;
     financeSummaryCache: Record<string, FinanceSummary>;
+    /** Revision at which each cached range was fetched. Older entries stay visible but are not reused. */
+    financeSummaryCacheEpoch: Record<string, number>;
+    /** Bumped after a successful write so visible day/week/month/year totals refetch. */
+    financeSummaryRevision: number;
     financeSummaryLoading: Record<string, boolean>;
     financeSummaryError: Record<string, string | null>;
     loadFinancePreference: () => Promise<void>;
@@ -48,6 +55,8 @@ const initialFinanceState = {
     financeCategories: [] as FinanceCategory[],
     financeCategoriesLoaded: false,
     financeSummaryCache: {} as Record<string, FinanceSummary>,
+    financeSummaryCacheEpoch: {} as Record<string, number>,
+    financeSummaryRevision: 0,
     financeSummaryLoading: {} as Record<string, boolean>,
     financeSummaryError: {} as Record<string, string | null>,
 };
@@ -78,6 +87,7 @@ function clearFinanceData() {
         financeCategories: [] as FinanceCategory[],
         financeCategoriesLoaded: false,
         financeSummaryCache: invalidateFinanceSummaryCache(),
+        financeSummaryCacheEpoch: {} as Record<string, number>,
         financeSummaryLoading: {} as Record<string, boolean>,
         financeSummaryError: {} as Record<string, string | null>,
     };
@@ -156,6 +166,7 @@ export const createFinanceSlice: StateCreator<StoreState, [], [], FinanceSlice> 
                     financeEnabled: true,
                     financePreferenceSaving: false,
                     financeSummaryCache: invalidateFinanceSummaryCache(),
+                    financeSummaryCacheEpoch: {},
                     financeSummaryLoading: {},
                     financeSummaryError: {},
                 });
@@ -225,14 +236,15 @@ export const createFinanceSlice: StateCreator<StoreState, [], [], FinanceSlice> 
             return null;
         }
 
+        const revision = get().financeSummaryRevision;
         const key = financeRangeKey(start, end);
         const cached = get().financeSummaryCache[key];
-        if (cached) {
+        if (cached && isFinanceSummaryFresh(get().financeSummaryCacheEpoch, start, end, revision)) {
             return cached;
         }
 
         const generation = financeGeneration;
-        const requestKey = `${user.uid}:${generation}:${key}`;
+        const requestKey = `${user.uid}:${generation}:${revision}:${key}`;
         const inflight = inflightSummaries.get(requestKey);
         if (inflight) {
             return inflight;
@@ -247,15 +259,26 @@ export const createFinanceSlice: StateCreator<StoreState, [], [], FinanceSlice> 
                 const summary = await summarizeFinanceRange(createClient(), start, end);
                 if (
                     !isCurrentFinanceRequest(get, user.uid, generation) ||
-                    !get().financeEnabled
+                    !get().financeEnabled ||
+                    get().financeSummaryRevision !== revision
                 ) {
                     return null;
                 }
-                set((state) => ({
-                    financeSummaryCache: putCachedFinanceSummary(state.financeSummaryCache, summary),
-                    financeSummaryLoading: { ...state.financeSummaryLoading, [key]: false },
-                    financeSummaryError: { ...state.financeSummaryError, [key]: null },
-                }));
+                set((state) => {
+                    const financeSummaryCache = putCachedFinanceSummary(state.financeSummaryCache, summary);
+                    return {
+                        financeSummaryCache,
+                        financeSummaryCacheEpoch: putFinanceSummaryEpoch(
+                            state.financeSummaryCacheEpoch,
+                            financeSummaryCache,
+                            start,
+                            end,
+                            revision
+                        ),
+                        financeSummaryLoading: { ...state.financeSummaryLoading, [key]: false },
+                        financeSummaryError: { ...state.financeSummaryError, [key]: null },
+                    };
+                });
                 return summary;
             } catch (error) {
                 console.error('Failed to load finance summary:', error);
@@ -320,20 +343,26 @@ export const createFinanceSlice: StateCreator<StoreState, [], [], FinanceSlice> 
         }
 
         const generation = financeGeneration;
+        const userId = user.uid;
         try {
-            await replaceTaskFinanceEntriesRecord(createClient(), taskId, entries, sourceTaskId);
+            const saved = await replaceTaskFinanceEntriesRecord(createClient(), taskId, entries, sourceTaskId);
             if (
-                !isCurrentFinanceRequest(get, user.uid, generation) ||
+                !isCurrentFinanceRequest(get, userId, generation) ||
                 !get().financeEnabled
             ) {
                 return false;
             }
+            // Drop in-flight totals so a request that started before this write cannot
+            // be stored as fresh. Keep the previous numbers on screen until the refetch lands.
             invalidateFinanceRequests();
-            set({
-                financeSummaryCache: invalidateFinanceSummaryCache(),
-                financeSummaryLoading: {},
-                financeSummaryError: {},
-                financeCategoriesLoaded: false,
+            set((state) => {
+                const financeCategories = mergeFinanceCategories(state.financeCategories, saved, userId);
+                return {
+                    financeSummaryRevision: state.financeSummaryRevision + 1,
+                    financeSummaryLoading: {},
+                    financeSummaryError: {},
+                    ...(financeCategories !== state.financeCategories ? { financeCategories } : {}),
+                };
             });
             return true;
         } catch (error) {

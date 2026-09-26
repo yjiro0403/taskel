@@ -18,17 +18,20 @@ export function FinancePeriodSummary({ start, end }: FinancePeriodSummaryProps) 
     const locale = useLocale();
     const financeEnabled = useStore((state) => state.financeEnabled);
     const ensureFinanceSummary = useStore((state) => state.ensureFinanceSummary);
+    const summaryRevision = useStore((state) => state.financeSummaryRevision);
     const summary = useStore((state) => state.financeSummaryCache[financeRangeKey(start, end)]);
     const loading = useStore((state) => state.financeSummaryLoading[financeRangeKey(start, end)]);
     const error = useStore((state) => state.financeSummaryError[financeRangeKey(start, end)]);
     const [breakdownOpen, setBreakdownOpen] = useState(false);
 
+    // summaryRevision changes after a task's income/expense is saved. The date
+    // range does not, so without this dependency the header would keep the old total.
     useEffect(() => {
         if (!financeEnabled) {
             return;
         }
         void ensureFinanceSummary(start, end);
-    }, [financeEnabled, start, end, ensureFinanceSummary]);
+    }, [financeEnabled, start, end, summaryRevision, ensureFinanceSummary]);
 
     if (!financeEnabled) {
         return null;

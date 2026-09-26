@@ -3,12 +3,9 @@
 import PlanningView from '@/components/PlanningView';
 import LeftSidebar from '@/components/LeftSidebar';
 import RightSidebar from '@/components/RightSidebar';
-import { useStore } from '@/store/useStore';
 import DailyNoteModal from '@/components/DailyNoteModal';
 
 export default function PlanningPage() {
-    const { toggleLeftSidebar } = useStore();
-
     return (
         <main className="flex h-screen bg-gray-50 overflow-hidden">
             <LeftSidebar />

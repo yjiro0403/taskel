@@ -1,12 +1,18 @@
 'use client';
 
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { Trash2, X, CircleArrowRight as MoveIcon, CheckCircle2 } from 'lucide-react';
 import { useState } from 'react';
 import clsx from 'clsx';
 
 export default function SelectionHeader() {
-    const { selectedTaskIds, bulkDeleteTasks, bulkUpdateTasks, clearSelection } = useStore();
+    const { selectedTaskIds, bulkDeleteTasks, bulkUpdateTasks, clearSelection } = useStore(useShallow((state) => ({
+        selectedTaskIds: state.selectedTaskIds,
+        bulkDeleteTasks: state.bulkDeleteTasks,
+        bulkUpdateTasks: state.bulkUpdateTasks,
+        clearSelection: state.clearSelection,
+    })));
     const [isDeleting, setIsDeleting] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
     const [targetDate, setTargetDate] = useState('');

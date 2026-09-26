@@ -1,13 +1,20 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { FileText, X, Copy, Check } from 'lucide-react';
 import { generateDailyReportMarkdown } from '@/lib/reportUtils';
 import clsx from 'clsx';
 
 export default function DailyNoteModal() {
-    const { dailyNotes, saveDailyNote, currentDate, isDailyNoteModalOpen, toggleDailyNoteModal, tasks } = useStore();
+    const { dailyNotes, saveDailyNote, currentDate, isDailyNoteModalOpen, toggleDailyNoteModal } = useStore(useShallow((state) => ({
+        dailyNotes: state.dailyNotes,
+        saveDailyNote: state.saveDailyNote,
+        currentDate: state.currentDate,
+        isDailyNoteModalOpen: state.isDailyNoteModalOpen,
+        toggleDailyNoteModal: state.toggleDailyNoteModal,
+    })));
     const [noteContent, setNoteContent] = useState('');
     const [isCopied, setIsCopied] = useState(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -35,7 +42,7 @@ export default function DailyNoteModal() {
 
     const handleCopyReport = async () => {
         // Filter tasks for the current date
-        const todaysTasks = tasks.filter(t => t.date === currentDate);
+        const todaysTasks = useStore.getState().tasks.filter(t => t.date === currentDate);
 
         const markdown = generateDailyReportMarkdown(currentDate, todaysTasks, noteContent);
 
