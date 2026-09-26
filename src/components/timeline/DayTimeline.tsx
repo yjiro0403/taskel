@@ -84,7 +84,11 @@ interface DayTimelineProps {
     plainChrome?: boolean;
     /** Smaller, title-only blocks for narrow week columns. */
     compact?: boolean;
-    /** Print the HH:mm–HH:mm range inside each block. The hour axis shows it anyway. */
+    /**
+     * Print the HH:mm–HH:mm range inside each block when the block is wide enough.
+     * Narrow columns hide it: the hour gutter already shows the time, and the range
+     * was pushing the title and the play button off the screen.
+     */
     showTimeRange?: boolean;
 }
 
@@ -740,6 +744,7 @@ export default function DayTimeline({
                         const editable = canEditTask(task);
                         const lifted = drag?.taskId === task.id && drag.kind !== 'resize';
                         const running = task.status === 'in_progress';
+                        const showPlay = editable && task.status !== 'done';
                         // The title comes first and takes every line the block has room for.
                         const titleLines = Math.max(1, Math.floor((height - BLOCK_PADDING_Y) / titleLineHeight));
 
@@ -748,7 +753,7 @@ export default function DayTimeline({
                                 key={task.id}
                                 data-task-id={task.id}
                                 className={clsx(
-                                    'group absolute rounded-lg border px-2 py-1 overflow-hidden shadow-sm select-none [-webkit-touch-callout:none]',
+                                    'group @container absolute rounded-lg border px-2 py-1 overflow-hidden shadow-sm select-none [-webkit-touch-callout:none]',
                                     running
                                         ? 'bg-blue-50 border-blue-400'
                                         : task.status === 'done'
@@ -779,7 +784,7 @@ export default function DayTimeline({
                                     if (!movedRef.current) onEditTask(task);
                                 }}
                             >
-                                <div className="flex items-start justify-between gap-1">
+                                <div className={clsx('flex min-w-0 items-start gap-1', showPlay && 'pr-6')}>
                                     <div
                                         className={clsx(
                                             'min-w-0 flex-1 font-medium text-gray-900 break-words',
@@ -796,11 +801,11 @@ export default function DayTimeline({
                                         {task.title}
                                     </div>
                                     {showTimeRange && (
-                                        <div className="flex-shrink-0 text-[11px] leading-5 font-mono text-gray-600">
+                                        <div className="hidden shrink-0 whitespace-nowrap font-mono text-[11px] leading-5 text-gray-600 @min-[13rem]:block">
                                             {minutesToHHMM(interval.startMin)}–{minutesToHHMM(interval.endMin)}
                                         </div>
                                     )}
-                                    <div className="flex items-center gap-0.5 flex-shrink-0 -mr-1">
+                                    <div className="flex shrink-0 items-center gap-0.5">
                                         {task.externalLink && (
                                             <a
                                                 href={task.externalLink}
@@ -810,7 +815,7 @@ export default function DayTimeline({
                                                 aria-label={t('openInCalendar')}
                                                 onPointerDown={stopPointer}
                                                 onClick={stopPointer}
-                                                className="p-0.5 rounded text-gray-500 hover:text-blue-700 hover:bg-white/70 cursor-pointer pointer-coarse:p-1"
+                                                className="inline-flex rounded p-0.5 text-gray-500 hover:bg-white/70 hover:text-blue-700 cursor-pointer pointer-coarse:hidden pointer-coarse:p-1 @min-[10rem]:pointer-coarse:inline-flex"
                                             >
                                                 <ExternalLink size={12} />
                                             </a>
@@ -825,29 +830,29 @@ export default function DayTimeline({
                                                     event.stopPropagation();
                                                     onDuplicate(task);
                                                 }}
-                                                className="p-0.5 rounded text-gray-500 hover:text-blue-700 hover:bg-white/70 cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 pointer-coarse:p-1"
+                                                className="hidden rounded p-0.5 text-gray-500 hover:bg-white/70 hover:text-blue-700 cursor-pointer pointer-fine:group-hover:inline-flex pointer-fine:focus-visible:inline-flex @min-[10rem]:pointer-coarse:inline-flex"
                                             >
                                                 <Copy size={12} />
                                             </button>
                                         )}
-                                        {editable && task.status !== 'done' && (
-                                            <button
-                                                type="button"
-                                                title={running ? t('stop') : t('start')}
-                                                aria-label={running ? t('stop') : t('start')}
-                                                onPointerDown={stopPointer}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    if (running) onStop(task);
-                                                    else onPlay(task);
-                                                }}
-                                                className="p-0.5 rounded text-blue-700 hover:bg-white/70 cursor-pointer pointer-coarse:p-1"
-                                            >
-                                                {running ? <Square size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
-                                            </button>
-                                        )}
                                     </div>
                                 </div>
+                                {showPlay && (
+                                    <button
+                                        type="button"
+                                        title={running ? t('stop') : t('start')}
+                                        aria-label={running ? t('stop') : t('start')}
+                                        onPointerDown={stopPointer}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            if (running) onStop(task);
+                                            else onPlay(task);
+                                        }}
+                                        className="absolute inset-y-0 right-0 z-10 flex w-8 items-center justify-center text-blue-700 hover:bg-white/70 active:bg-white cursor-pointer touch-manipulation"
+                                    >
+                                        {running ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+                                    </button>
+                                )}
                                 {editable && (
                                     // Mouse: a thin strip along the bottom edge. Touch: a small grip in the
                                     // bottom-left corner (away from the ▶ / copy buttons), so the rest of a
@@ -856,7 +861,7 @@ export default function DayTimeline({
                                         type="button"
                                         data-resize="true"
                                         aria-label={t('resize')}
-                                        className="absolute bottom-0 right-0 left-0 h-2 cursor-ns-resize pointer-coarse:right-auto pointer-coarse:h-4 pointer-coarse:w-8"
+                                        className="absolute bottom-0 right-0 left-0 z-20 h-2 cursor-ns-resize pointer-coarse:right-auto pointer-coarse:h-4 pointer-coarse:w-8"
                                         onPointerDown={(event) => {
                                             event.stopPropagation();
                                             beginDrag(event, {

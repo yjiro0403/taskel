@@ -14,7 +14,7 @@ import { isoWeekRangeFromDate, monthRangeFromDate, yearRangeFromDate } from '@/l
 type Tab = 'weekly' | 'monthly' | 'yearly';
 
 export default function PlanningView() {
-    const { toggleLeftSidebar } = useStore();
+    const toggleLeftSidebar = useStore((state) => state.toggleLeftSidebar);
     const [activeTab, setActiveTab] = useState<Tab>('weekly');
     const [currentDate, setCurrentDate] = useState(new Date());
 

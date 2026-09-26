@@ -15,6 +15,7 @@ import {
     sortableKeyboardCoordinates,
     arrayMove,
 } from '@dnd-kit/sortable';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { generateDisplaySections } from '@/lib/sectionUtils';
 import { compareTasksForDisplay } from '@/lib/tasks/taskOrder';
@@ -30,13 +31,26 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
     const {
         tasks,
         sections,
+        routines,
+        tasksLoaded,
         updateTask,
         reorderTasks,
         currentDate,
         getMergedTasks,
         projects,
         timelineEnabled,
-    } = useStore();
+    } = useStore(useShallow((state) => ({
+        tasks: state.tasks,
+        sections: state.sections,
+        routines: state.routines,
+        tasksLoaded: state.tasksLoaded,
+        updateTask: state.updateTask,
+        reorderTasks: state.reorderTasks,
+        currentDate: state.currentDate,
+        getMergedTasks: state.getMergedTasks,
+        projects: state.projects,
+        timelineEnabled: state.timelineEnabled,
+    })));
 
     const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -135,7 +149,7 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
         return merged.find((task) => String(task.id) === String(activeId))
             || tasks.find((task) => String(task.id) === String(activeId))
             || null;
-    }, [activeId, currentDate, tasks, getMergedTasks]);
+    }, [activeId, currentDate, tasks, routines, tasksLoaded, getMergedTasks]);
 
     if (timelineEnabled) {
         return <>{children}</>;

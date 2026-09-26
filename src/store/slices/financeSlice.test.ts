@@ -117,6 +117,8 @@ describe('financeSlice default-off behavior', () => {
 
         await slice.ensureFinanceSummary('2026-01-01', '2026-01-02');
         expect(Object.keys(state.financeSummaryCache)).toHaveLength(1);
+        await slice.ensureFinanceSummary('2026-01-01', '2026-01-02');
+        expect(mockedSummarize).toHaveBeenCalledTimes(1);
 
         await expect(slice.setFinanceEnabled(false)).resolves.toBe(true);
         expect(mockedUpsertPreference).toHaveBeenCalledWith(expect.anything(), 'user-1', false);
@@ -125,10 +127,35 @@ describe('financeSlice default-off behavior', () => {
         expect(state.financeCategories).toEqual([]);
     });
 
-    it('invalidates the summary cache after a successful replace', async () => {
-        mockedReplace.mockResolvedValue([]);
+    it('marks cached summaries stale after a successful replace and refetches them', async () => {
+        mockedReplace.mockResolvedValue([
+            {
+                id: 'entry-1',
+                userId: 'user-1',
+                taskId: 'task-1',
+                taskTitleSnapshot: 'Lunch',
+                occurredOn: '2026-01-01',
+                entryType: 'expense',
+                amountYen: 1200,
+                categoryId: 'cat-food',
+                categoryLabelSnapshot: '食費',
+                memo: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+        ]);
+        mockedSummarize.mockResolvedValue({
+            start: '2026-01-01',
+            end: '2026-01-02',
+            expenseTotal: 1200,
+            incomeTotal: 0,
+            expenseCount: 1,
+            incomeCount: 0,
+        });
         const { state, slice } = createHarness();
         state.financeEnabled = true;
+        state.financeCategoriesLoaded = true;
+        state.financeSummaryRevision = 0;
         state.financeSummaryCache = {
             '2026-01-01/2026-01-02': {
                 start: '2026-01-01',
@@ -139,9 +166,22 @@ describe('financeSlice default-off behavior', () => {
                 incomeCount: 0,
             },
         };
+        state.financeSummaryCacheEpoch = { '2026-01-01/2026-01-02': 0 };
 
         await expect(slice.replaceTaskFinanceEntries('task-1', [])).resolves.toBe(true);
-        expect(state.financeSummaryCache).toEqual({});
+        expect(state.financeSummaryRevision).toBe(1);
+        expect(state.financeCategoriesLoaded).toBe(true);
+        expect(state.financeCategories.map((category) => category.label)).toEqual(['食費']);
+        // Previous total stays visible until the header refetches.
+        expect(state.financeSummaryCache['2026-01-01/2026-01-02']?.expenseTotal).toBe(1);
+
+        const summary = await slice.ensureFinanceSummary('2026-01-01', '2026-01-02');
+        expect(mockedSummarize).toHaveBeenCalledTimes(1);
+        expect(summary?.expenseTotal).toBe(1200);
+        expect(state.financeSummaryCacheEpoch['2026-01-01/2026-01-02']).toBe(1);
+
+        await slice.ensureFinanceSummary('2026-01-01', '2026-01-02');
+        expect(mockedSummarize).toHaveBeenCalledTimes(1);
     });
 
     it('does not apply a preference response after the user changes', async () => {

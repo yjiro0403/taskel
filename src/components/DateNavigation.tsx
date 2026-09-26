@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, FileText } from 'lucide-react';
 import { addDays, format, parseISO, isSameDay } from 'date-fns';
@@ -8,7 +9,12 @@ import { FinancePeriodSummary } from '@/components/finance/FinancePeriodSummary'
 import { dayRange } from '@/lib/finance/dateRange';
 
 export default function DateNavigation() {
-    const { currentDate, setCurrentDate, hydrateCurrentDateFromStorage, toggleDailyNoteModal } = useStore();
+    const { currentDate, setCurrentDate, hydrateCurrentDateFromStorage, toggleDailyNoteModal } = useStore(useShallow((state) => ({
+        currentDate: state.currentDate,
+        setCurrentDate: state.setCurrentDate,
+        hydrateCurrentDateFromStorage: state.hydrateCurrentDateFromStorage,
+        toggleDailyNoteModal: state.toggleDailyNoteModal,
+    })));
 
     // After mount (and full reload), restore selected date from sessionStorage without SSR mismatch.
     useEffect(() => {

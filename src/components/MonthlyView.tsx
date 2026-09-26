@@ -1,5 +1,6 @@
 'use client';
 
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { format, startOfMonth, endOfMonth, eachWeekOfInterval, startOfWeek, endOfWeek } from 'date-fns';
 import MonthlyGoalList from './MonthlyGoalList';
@@ -26,7 +27,13 @@ interface MonthlyViewProps {
 }
 
 export default function MonthlyView({ currentDate = new Date() }: MonthlyViewProps) {
-    const { tasks, updateTask, reorderTasks } = useStore();
+    const { tasks, updateTask, reorderTasks } = useStore(
+        useShallow((state) => ({
+            tasks: state.tasks,
+            updateTask: state.updateTask,
+            reorderTasks: state.reorderTasks,
+        }))
+    );
 
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);

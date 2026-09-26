@@ -1,5 +1,6 @@
 'use client';
 
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { Task } from '@/types';
 import { X, Calendar, Play, Square, Circle, CheckCircle2, Search, Filter, Tag as TagIcon } from 'lucide-react';
@@ -20,9 +21,19 @@ export default function RightSidebar() {
         selectedTaskIds,
         toggleTaskSelection,
         projects,
-        getUniqueTags, // NEW: Get available tags
+        getUniqueTags,
         highlightedTaskId,
-    } = useStore();
+    } = useStore(useShallow((state) => ({
+        isRightSidebarOpen: state.isRightSidebarOpen,
+        toggleRightSidebar: state.toggleRightSidebar,
+        tasks: state.tasks,
+        updateTask: state.updateTask,
+        selectedTaskIds: state.selectedTaskIds,
+        toggleTaskSelection: state.toggleTaskSelection,
+        projects: state.projects,
+        getUniqueTags: state.getUniqueTags,
+        highlightedTaskId: state.highlightedTaskId,
+    })));
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
 

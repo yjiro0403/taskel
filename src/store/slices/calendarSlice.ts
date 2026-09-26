@@ -14,6 +14,8 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
         // 循環依存回避のためdynamic import
         const {
             fetchCalendarEventsForDate,
+            duplicateCalendarImportIds,
+            findAlreadyImportedTask,
             resolveEventReminderMinutes,
             GoogleCalendarAuthorizationError,
         } = await import('../../lib/calendarService');
@@ -39,6 +41,7 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                 bulkAddTasks,
                 updateTask,
                 addAlarm,
+                bulkDeleteTasks,
                 sections,
                 setCurrentDate,
             } = latestState;
@@ -49,6 +52,8 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
             }
 
             const tasksToAdd: Task[] = [];
+            // A title/day match can only stand in for one event per import.
+            const claimedTaskIds = new Set<string>();
             // 取り込んだイベントの通知（30分前 など）を、タスク作成後にアラーム化する。
             const alarmsToAdd: {
                 taskId: string;
@@ -68,8 +73,6 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
 
                 if (!eventDate) continue;
 
-                const existingTask = tasks.find(t => t.title === event.summary && t.date === eventDate);
-
                 let scheduledStart = undefined;
                 let estimatedMinutes = 30;
                 if (event.start.dateTime && event.end.dateTime) {
@@ -80,6 +83,13 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                     const diffMins = (end.getTime() - start.getTime()) / 60000;
                     estimatedMinutes = diffMins > 0 ? diffMins : 30;
                 }
+
+                // 同じ予定（リンク先）は、タイトルや日付を変えていても取り込まない。
+                // この応答の中で同じ予定が2回来ても、1件だけにする。
+                if (findAlreadyImportedTask(tasksToAdd, event, eventDate, scheduledStart, claimedTaskIds)) {
+                    continue;
+                }
+                const existingTask = findAlreadyImportedTask(tasks, event, eventDate, scheduledStart, claimedTaskIds);
 
                 if (!existingTask) {
                     // 新規タスクの作成
@@ -120,8 +130,10 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                         }
                     }
                 } else {
-                    // 既存タスクのセクション修復
+                    if (existingTask.id) claimedTaskIds.add(existingTask.id);
+                    // 既存タスクのセクション修復。リンク未保存の古い取り込みにはリンクを足す。
                     const isValidSection = sections.some(s => s.id === existingTask.sectionId);
+                    const patch: Partial<Task> = {};
                     if (!isValidSection) {
                         let newSectionId = sections[0]?.id || 'section-1';
                         if (existingTask.scheduledStart) {
@@ -130,10 +142,24 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                             d.setHours(hh, mm, 0, 0);
                             newSectionId = getSectionForTime(sections, d);
                         }
-                        await updateTask(existingTask.id, { sectionId: newSectionId });
+                        patch.sectionId = newSectionId;
+                    }
+                    if (event.htmlLink && !existingTask.externalLink) {
+                        patch.externalLink = event.htmlLink;
+                    }
+                    if (patch.sectionId || patch.externalLink) {
+                        await updateTask(existingTask.id, patch);
                         updatedCount++;
                     }
                 }
+            }
+
+            // すでに入っている同じ予定の、未着手のコピーを捨てる。記録のある方は残す。
+            const duplicateIds = duplicateCalendarImportIds(tasks);
+            let removedCount = 0;
+            if (duplicateIds.length > 0) {
+                await bulkDeleteTasks(duplicateIds);
+                removedCount = duplicateIds.length;
             }
 
             let message = '';
@@ -154,13 +180,17 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
             }
 
             if (updatedCount > 0) {
-                message += `Fixed ${updatedCount} existing events.`;
+                message += `Fixed ${updatedCount} existing events. `;
             }
 
-            if (tasksToAdd.length === 0 && updatedCount === 0) {
+            if (removedCount > 0) {
+                message += `Removed ${removedCount} duplicate ${removedCount === 1 ? 'event' : 'events'}.`;
+            }
+
+            if (tasksToAdd.length === 0 && updatedCount === 0 && removedCount === 0) {
                 alert('No new events to import.');
             } else {
-                alert(message);
+                alert(message.trim());
             }
 
             return 'success';

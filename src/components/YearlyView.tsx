@@ -13,7 +13,7 @@ interface YearlyViewProps {
 }
 
 export default function YearlyView({ currentDate = new Date() }: YearlyViewProps) {
-    const { tasks } = useStore();
+    const tasks = useStore((state) => state.tasks);
     const yearId = format(currentDate, 'yyyy');
 
     // Filter tasks

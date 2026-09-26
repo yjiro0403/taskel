@@ -68,25 +68,31 @@ export interface UseNowNextResult {
 export function useNowNext(): UseNowNextResult {
     const tasks = useStore((state) => state.tasks);
     const sections = useStore((state) => state.sections);
+    const routines = useStore((state) => state.routines);
     const tasksLoaded = useStore((state) => state.tasksLoaded);
     const getMergedTasks = useStore((state) => state.getMergedTasks);
     const now = useSyncExternalStore(subscribeToClock, getClockSnapshot, getClockServerSnapshot);
+    const today = now === 0 ? '' : formatLocalDate(new Date(now));
 
-    const snapshot = useMemo(() => {
-        if (now === 0 || !tasksLoaded) return null;
-        const today = formatLocalDate(new Date(now));
+    // Rebuild routine occurrences only when the task data changes. The one-second
+    // clock below only recomputes the countdown from this list.
+    const tasksForNow = useMemo(() => {
+        if (!today || !tasksLoaded) return null;
         const runningElsewhere = tasks.filter(
             (task) => task.date !== today && task.status === 'in_progress'
         );
-        // Routine changes are picked up by the next tick (≤ 1 s); getMergedTasks reads
-        // routines from the store directly.
+        return [...getMergedTasks(today), ...runningElsewhere];
+    }, [today, tasksLoaded, tasks, routines, getMergedTasks]);
+
+    const snapshot = useMemo(() => {
+        if (now === 0 || !tasksForNow) return null;
         return computeNowNext({
-            tasks: [...getMergedTasks(today), ...runningElsewhere],
+            tasks: tasksForNow,
             sections,
             now,
             today,
         });
-    }, [now, tasksLoaded, tasks, sections, getMergedTasks]);
+    }, [now, tasksForNow, sections, today]);
 
     return { snapshot };
 }

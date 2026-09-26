@@ -8,6 +8,7 @@ import {
     mapFinanceCategory,
     mapFinanceEntry,
     mapFinanceSummary,
+    mergeFinanceCategories,
 } from './mapping';
 import type { FinanceEntry } from './types';
 
@@ -32,6 +33,30 @@ const entryRow = (
 });
 
 describe('finance mapping', () => {
+    it('appends categories created by a save and keeps the existing list when nothing is new', () => {
+        const existing = [
+            mapFinanceCategory({
+                id: 'cat-1',
+                user_id: 'user-1',
+                label: '食費',
+                normalized_label: '食費',
+                created_at: '2026-09-15T00:00:00.000Z',
+                updated_at: '2026-09-15T00:00:00.000Z',
+            }),
+        ];
+        const same = mapFinanceEntry(entryRow());
+        expect(mergeFinanceCategories(existing, [same], 'user-1')).toBe(existing);
+
+        const created = mapFinanceEntry(entryRow({
+            id: 'entry-2',
+            category_id: 'cat-2',
+            category_label_snapshot: '交通費',
+        }));
+        const merged = mergeFinanceCategories(existing, [created], 'user-1');
+        expect(merged.map((category) => category.label)).toEqual(['食費', '交通費']);
+        expect(merged[1]?.normalizedLabel).toBe('交通費');
+    });
+
     it('maps category and entry rows, including bigint-as-string amounts', () => {
         expect(
             mapFinanceCategory({

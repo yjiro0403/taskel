@@ -5,7 +5,8 @@ import { Task, Section } from '@/types';
 import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar, CalendarSync, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import { calculateTaskSchedule, formatTime, type TimeSlot } from '@/lib/timeUtils';
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, memo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { addMinutes } from 'date-fns';
 import { INTERVAL_SECTION_PREFIX, isIntervalSection, generateDisplaySections, getSectionForTime } from '@/lib/sectionUtils';
 
@@ -40,8 +41,34 @@ import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { compareTasksForDisplay, sortTasksForDisplay } from '@/lib/tasks/taskOrder';
 import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
 
-export default function TaskList() {
-    const { tasks, tasksLoaded, sections, routines, updateTask, duplicateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore();
+function TaskList() {
+    const { tasks, tasksLoaded, sections, routines, updateTask, duplicateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore(useShallow((state) => ({
+        tasks: state.tasks,
+        tasksLoaded: state.tasksLoaded,
+        sections: state.sections,
+        routines: state.routines,
+        updateTask: state.updateTask,
+        duplicateTask: state.duplicateTask,
+        currentTime: state.currentTime,
+        setCurrentTime: state.setCurrentTime,
+        selectedTaskIds: state.selectedTaskIds,
+        toggleTaskSelection: state.toggleTaskSelection,
+        currentDate: state.currentDate,
+        setCurrentDate: state.setCurrentDate,
+        syncGoogleCalendar: state.syncGoogleCalendar,
+        user: state.user,
+        initialDataStatus: state.initialDataStatus,
+        tags: state.tags,
+        projects: state.projects,
+        getMergedTasks: state.getMergedTasks,
+        addUserComment: state.addUserComment,
+        triggerAIProcess: state.triggerAIProcess,
+        highlightedTaskId: state.highlightedTaskId,
+        pendingEditTaskId: state.pendingEditTaskId,
+        setPendingEditTaskId: state.setPendingEditTaskId,
+        timelineEnabled: state.timelineEnabled,
+        hideEmptyIntervals: state.hideEmptyIntervals,
+    })));
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     /** A click on empty timeline space: the create form opens with this date and time. */
@@ -290,7 +317,10 @@ export default function TaskList() {
 
     // 並び順（done > in_progress > open → 予定時刻順 → 予定あり優先 → order）は
     // lib/tasks/taskOrder に集約。今/次ウィジェットも同じ順序で「次のタスク」を決める。
-    const globalSchedule = calculateTaskSchedule(sortTasksForDisplay(filteredTasks, sections), currentTime);
+    const globalSchedule = useMemo(
+        () => calculateTaskSchedule(sortTasksForDisplay(filteredTasks, sections), currentTime),
+        [filteredTasks, sections, currentTime]
+    );
 
     const getTasksBySection = (sectionId: string) => {
         const sectionTasks = filteredTasks
@@ -517,6 +547,8 @@ export default function TaskList() {
         </TaskContextProvider >
     );
 }
+
+export default memo(TaskList);
 
 interface SectionContainerProps {
     section: Section;

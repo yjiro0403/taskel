@@ -39,6 +39,155 @@ export function resolveEventReminderMinutes(
     return [...new Set(minutes)].sort((a, b) => a - b);
 }
 
+/**
+ * Identity of a calendar event link. Google rewrites the host and adds `ctz`,
+ * but the `eid` query value stays the same for one event, including each
+ * instance of a recurring event.
+ */
+export function calendarEventLinkKey(link: string | undefined | null): string | null {
+    const trimmed = link?.trim();
+    if (!trimmed) return null;
+    try {
+        const url = new URL(trimmed);
+        const eid = url.searchParams.get('eid');
+        if (eid) return `eid:${eid}`;
+        for (const key of [...url.searchParams.keys()]) {
+            if (key === 'ctz' || key === 'usp' || key.startsWith('utm_')) {
+                url.searchParams.delete(key);
+            }
+        }
+        const params = [...url.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
+        const search = new URLSearchParams(params).toString();
+        return `${url.origin}${url.pathname}${search ? `?${search}` : ''}`;
+    } catch {
+        return trimmed;
+    }
+}
+
+export interface ImportedCalendarTaskRef {
+    id?: string;
+    title: string;
+    date: string;
+    externalLink?: string;
+    scheduledStart?: string;
+}
+
+/**
+ * A task already created for this calendar event.
+ * The link wins, so a renamed task is not imported again. Tasks saved before
+ * links were stored still match on title + day (+ start, when both have one).
+ * A task that already points at a different event is left alone.
+ */
+export function findAlreadyImportedTask<T extends ImportedCalendarTaskRef>(
+    tasks: T[],
+    event: { summary?: string; htmlLink?: string },
+    eventDate: string,
+    scheduledStart?: string,
+    /** Title/day matches already used for another event in this import. Link matches still count. */
+    claimedTaskIds?: ReadonlySet<string>
+): T | undefined {
+    const linkKey = calendarEventLinkKey(event.htmlLink);
+    if (linkKey) {
+        const byLink = tasks.find((task) => calendarEventLinkKey(task.externalLink) === linkKey);
+        if (byLink) return byLink;
+    }
+
+    const summary = event.summary?.trim();
+    if (!summary) return undefined;
+
+    return tasks.find((task) => {
+        if (task.id && claimedTaskIds?.has(task.id)) return false;
+        if (task.title.trim() !== summary || task.date !== eventDate) return false;
+        const taskKey = calendarEventLinkKey(task.externalLink);
+        if (linkKey && taskKey && taskKey !== linkKey) return false;
+        if (scheduledStart && task.scheduledStart && task.scheduledStart !== scheduledStart) return false;
+        return true;
+    });
+}
+
+export interface CalendarImportCopy extends ImportedCalendarTaskRef {
+    id: string;
+    createdAt?: number;
+    status?: string;
+    actualMinutes?: number;
+    startedAt?: number;
+    completedAt?: number;
+    memo?: string;
+    checklist?: readonly unknown[];
+    attachments?: readonly unknown[];
+    tags?: readonly string[];
+    aiTags?: readonly string[];
+    projectId?: string;
+    milestoneId?: string;
+    parentGoalId?: string;
+    routineId?: string;
+    commentCount?: number;
+    isVirtual?: boolean;
+}
+
+/** A calendar copy the user has not edited, logged, or attached anything to. */
+export function isUntouchedCalendarImport(task: CalendarImportCopy): boolean {
+    return task.status === 'open'
+        && !task.actualMinutes
+        && !task.startedAt
+        && !task.completedAt
+        && !task.memo?.trim()
+        && !task.checklist?.length
+        && !task.attachments?.length
+        && !task.tags?.length
+        && !task.aiTags?.length
+        && !task.projectId
+        && !task.milestoneId
+        && !task.parentGoalId
+        && !task.routineId
+        && !task.commentCount
+        && !task.isVirtual;
+}
+
+function calendarImportWorkScore(task: CalendarImportCopy): number {
+    let score = 0;
+    if (task.status && task.status !== 'open') score += 100;
+    if (task.actualMinutes) score += 80;
+    if (task.startedAt || task.completedAt) score += 40;
+    if (task.memo?.trim()) score += 20;
+    if (task.checklist?.length || task.attachments?.length) score += 20;
+    if (task.tags?.length || task.aiTags?.length || task.commentCount) score += 10;
+    if (task.projectId || task.milestoneId || task.parentGoalId || task.routineId) score += 10;
+    return score;
+}
+
+/**
+ * Extra copies of one calendar event already stored on tasks.
+ * Keeps the copy with logged work (or the oldest untouched one) and returns
+ * the other untouched copies. A copy the user has edited is never removed.
+ */
+export function duplicateCalendarImportIds(tasks: CalendarImportCopy[]): string[] {
+    const groups = new Map<string, CalendarImportCopy[]>();
+    for (const task of tasks) {
+        const key = calendarEventLinkKey(task.externalLink);
+        if (!key || !task.id) continue;
+        const group = groups.get(key);
+        if (group) group.push(task);
+        else groups.set(key, [task]);
+    }
+
+    const removeIds: string[] = [];
+    for (const group of groups.values()) {
+        if (group.length < 2) continue;
+        const ranked = [...group].sort((a, b) => {
+            const score = calendarImportWorkScore(b) - calendarImportWorkScore(a);
+            if (score !== 0) return score;
+            const created = (a.createdAt ?? Number.MAX_SAFE_INTEGER) - (b.createdAt ?? Number.MAX_SAFE_INTEGER);
+            if (created !== 0) return created;
+            return a.id.localeCompare(b.id);
+        });
+        for (const extra of ranked.slice(1)) {
+            if (isUntouchedCalendarImport(extra)) removeIds.push(extra.id);
+        }
+    }
+    return removeIds;
+}
+
 export class GoogleCalendarAuthorizationError extends Error {
     constructor(public readonly status: number) {
         super(`Google Calendar authorization failed (${status})`);

@@ -38,3 +38,34 @@ export function putCachedFinanceSummary(
 export function invalidateFinanceSummaryCache(): Record<string, FinanceSummary> {
     return {};
 }
+
+/** A cached total is fresh only when it was stored for the current write generation. */
+export function isFinanceSummaryFresh(
+    epochs: Record<string, number>,
+    start: string,
+    end: string,
+    revision: number
+): boolean {
+    return epochs[financeRangeKey(start, end)] === revision;
+}
+
+/**
+ * Record that `cache` was stored at `revision`, and drop epochs whose ranges
+ * were evicted from the cache.
+ */
+export function putFinanceSummaryEpoch(
+    epochs: Record<string, number>,
+    cache: Record<string, FinanceSummary>,
+    start: string,
+    end: string,
+    revision: number
+): Record<string, number> {
+    const key = financeRangeKey(start, end);
+    const next: Record<string, number> = { [key]: revision };
+    for (const cacheKey of Object.keys(cache)) {
+        if (cacheKey !== key && epochs[cacheKey] !== undefined) {
+            next[cacheKey] = epochs[cacheKey];
+        }
+    }
+    return next;
+}

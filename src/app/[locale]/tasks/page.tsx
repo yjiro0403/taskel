@@ -11,6 +11,7 @@ import TasksDnDWrapper from '@/components/TasksDnDWrapper'; // NEW
 import TaskDeepLinkHandler from '@/components/TaskDeepLinkHandler';
 import NowNextWidget from '@/components/NowNextWidget';
 import { Plus, Clock, PanelRight, Menu, Search } from 'lucide-react'; // Added Menu
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
 import Image from 'next/image';
@@ -19,7 +20,20 @@ import { useTranslations } from 'next-intl';
 export default function Home() {
   const t = useTranslations('TaskList');
   const tSearch = useTranslations('Search');
-  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal, openSearchModal, timelineEnabled } = useStore();
+  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal, openSearchModal, timelineEnabled } = useStore(useShallow((state) => ({
+    tasks: state.tasks,
+    sections: state.sections,
+    currentTime: state.currentTime,
+    setCurrentTime: state.setCurrentTime,
+    isRightSidebarOpen: state.isRightSidebarOpen,
+    toggleRightSidebar: state.toggleRightSidebar,
+    toggleLeftSidebar: state.toggleLeftSidebar,
+    isAddTaskModalOpen: state.isAddTaskModalOpen,
+    openAddTaskModal: state.openAddTaskModal,
+    closeAddTaskModal: state.closeAddTaskModal,
+    openSearchModal: state.openSearchModal,
+    timelineEnabled: state.timelineEnabled,
+  })));
   const [finishTime, setFinishTime] = useState<Date | null>(null);
 
   useEffect(() => {
