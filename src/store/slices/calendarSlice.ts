@@ -184,7 +184,7 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
             }
 
             if (removedCount > 0) {
-                message += `Removed ${removedCount} duplicate events.`;
+                message += `Removed ${removedCount} duplicate ${removedCount === 1 ? 'event' : 'events'}.`;
             }
 
             if (tasksToAdd.length === 0 && updatedCount === 0 && removedCount === 0) {

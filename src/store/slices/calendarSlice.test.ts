@@ -288,4 +288,82 @@ describe('calendarSlice sync state freshness', () => {
         expect(alert).toHaveBeenCalledWith('Fixed 1 existing events.');
         expect(alert).not.toHaveBeenCalledWith('No new events to import.');
     });
+
+    it('removes an untouched duplicate copy and keeps the one already worked on', async () => {
+        const bulkAddTasks = vi.fn().mockResolvedValue(undefined);
+        const bulkDeleteTasks = vi.fn().mockResolvedValue(undefined);
+        const updateTask = vi.fn().mockResolvedValue(true);
+        const alert = vi.fn();
+        const link = 'https://www.google.com/calendar/event?eid=same-event';
+
+        const state = {
+            user: { uid: 'user-1' },
+            currentDate: '2026-07-30',
+            tasks: [
+                {
+                    id: 'worked',
+                    userId: 'user-1',
+                    title: '打ち合わせ',
+                    date: '2026-07-30',
+                    sectionId: 'morning-section',
+                    status: 'done',
+                    actualMinutes: 25,
+                    externalLink: link,
+                    createdAt: 10,
+                },
+                {
+                    id: 'blank-copy',
+                    userId: 'user-1',
+                    title: '打ち合わせ',
+                    date: '2026-07-30',
+                    sectionId: 'morning-section',
+                    status: 'open',
+                    actualMinutes: 0,
+                    externalLink: 'https://calendar.google.com/calendar/event?eid=same-event&ctz=Asia/Tokyo',
+                    createdAt: 20,
+                },
+            ],
+            sections: [
+                {
+                    id: 'morning-section',
+                    userId: 'user-1',
+                    name: 'Morning',
+                    startTime: '06:00',
+                    endTime: '09:00',
+                    order: 0,
+                },
+            ],
+            bulkAddTasks,
+            bulkDeleteTasks,
+            updateTask,
+            setCurrentDate: vi.fn(),
+        } as unknown as StoreState;
+
+        vi.stubGlobal('alert', alert);
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    items: [
+                        {
+                            id: 'calendar-event-1',
+                            summary: '打ち合わせ',
+                            htmlLink: link,
+                            start: { date: '2026-07-30' },
+                            end: { date: '2026-07-31' },
+                        },
+                    ],
+                }),
+            })
+        );
+
+        const slice = createCalendarSlice(vi.fn(), () => state, {} as never);
+        await expect(slice.syncGoogleCalendar('calendar-token', '2026-07-30')).resolves.toBe('success');
+
+        expect(bulkAddTasks).not.toHaveBeenCalled();
+        expect(bulkDeleteTasks).toHaveBeenCalledWith(['blank-copy']);
+        expect(alert).toHaveBeenCalledWith('Removed 1 duplicate event.');
+    });
 });
