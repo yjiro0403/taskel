@@ -126,7 +126,16 @@
     "deleting": "削除中…",
     "deleteConfirm": "「{title}」を削除しますか？",
     "skipOccurrence": "今回分を削除",
-    "skipOccurrenceConfirm": "「{title}」の今回分を削除（スキップ）しますか？ルーチン自体は残ります。"
+    "skipOccurrenceConfirm": "「{title}」の今回分を削除（スキップ）しますか？ルーチン自体は残ります。",
+    "estimateMinutes": "見積もり（分）",
+    "scheduledStart": "開始予定",
+    "actualStart": "実績の開始",
+    "actualEnd": "実績の終了",
+    "actualMinutes": "実績（分）",
+    "actualHint": "開始や終了を押し忘れたときは、ここを直すとタイムラインの位置も動きます。終了を空にすると実行中のままです。",
+    "actualEndBeforeStart": "実績の終了は開始より後にしてください。",
+    "actualEndNeedsStart": "実績の終了を入れるときは、開始も入れてください。",
+    "actualNeedsDate": "実績の時刻を入れるには、日付が必要です。"
   },
   "TaskLink": {
     "copy": "リンクをコピー",

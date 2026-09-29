@@ -3,8 +3,10 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import clsx from 'clsx';
+import { useTranslations } from 'next-intl';
 
 import type { Section } from '@/types';
+import { hhmmToMinutes, minutesToHHMM } from '@/lib/timeline/time';
 
 type TaskType = 'task' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -29,6 +31,10 @@ interface TaskDatePickerProps {
     setSectionId: Dispatch<SetStateAction<string>>;
     scheduledStart: string;
     setScheduledStart: Dispatch<SetStateAction<string>>;
+    actualStart: string;
+    setActualStart: Dispatch<SetStateAction<string>>;
+    actualEnd: string;
+    setActualEnd: Dispatch<SetStateAction<string>>;
     displaySections: Section[];
     isTimeSectionInconsistent: boolean;
 }
@@ -54,9 +60,20 @@ export function TaskDatePicker({
     setSectionId,
     scheduledStart,
     setScheduledStart,
+    actualStart,
+    setActualStart,
+    actualEnd,
+    setActualEnd,
     displaySections,
     isTimeSectionInconsistent,
 }: TaskDatePickerProps) {
+    const t = useTranslations('TaskModal');
+    const syncMinutes = (start: string, end: string) => {
+        const startMin = hhmmToMinutes(start);
+        const endMin = hhmmToMinutes(end);
+        if (startMin == null || endMin == null || endMin <= startMin || endMin >= 24 * 60) return;
+        setActualMinutes(endMin - startMin);
+    };
     return (
         <>
             {activeType === 'task' && (
@@ -143,22 +160,12 @@ export function TaskDatePicker({
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex gap-2">
                         <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Est. (min)</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">{t('estimateMinutes')}</label>
                             <input
                                 type="number"
                                 min="1"
                                 value={estimatedMinutes}
                                 onChange={(e) => setEstimatedMinutes(e.target.value === '' ? '' : Number(e.target.value))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
-                            />
-                        </div>
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Act. (min)</label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={actualMinutes}
-                                onChange={(e) => setActualMinutes(e.target.value === '' ? '' : Number(e.target.value))}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
                             />
                         </div>
@@ -186,7 +193,7 @@ export function TaskDatePicker({
                     </div>
 
                     <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Scheduled Start Time (Optional)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t('scheduledStart')}</label>
                         <input
                             type="time"
                             value={scheduledStart}
@@ -201,6 +208,56 @@ export function TaskDatePicker({
                                 ⚠️ 時間 ({scheduledStart}) は別のセクション範囲外です
                             </p>
                         )}
+                    </div>
+
+                    <div className="col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3">
+                        <p className="text-xs text-gray-600">{t('actualHint')}</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">{t('actualStart')}</label>
+                                <input
+                                    type="time"
+                                    value={actualStart}
+                                    onChange={(e) => {
+                                        const next = e.target.value;
+                                        setActualStart(next);
+                                        syncMinutes(next, actualEnd);
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 bg-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">{t('actualEnd')}</label>
+                                <input
+                                    type="time"
+                                    value={actualEnd}
+                                    onChange={(e) => {
+                                        const next = e.target.value;
+                                        setActualEnd(next);
+                                        if (!next) setActualMinutes(0);
+                                        else syncMinutes(actualStart, next);
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 bg-white"
+                                />
+                            </div>
+                        </div>
+                        <div className="max-w-[10rem]">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">{t('actualMinutes')}</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={actualMinutes}
+                                onChange={(e) => {
+                                    const raw = e.target.value === '' ? '' : Number(e.target.value);
+                                    setActualMinutes(raw);
+                                    const startMin = hhmmToMinutes(actualStart);
+                                    if (startMin == null || raw === '' || raw <= 0) return;
+                                    const endMin = startMin + raw;
+                                    if (endMin < 24 * 60) setActualEnd(minutesToHHMM(endMin));
+                                }}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 bg-white"
+                            />
+                        </div>
                     </div>
                 </div>
             )}

@@ -2,8 +2,8 @@ import { format } from 'date-fns';
 
 import type { Section, Task } from '../../types';
 import { getPersistedSectionForTime } from '../sectionUtils';
-import { actualTaskInterval } from './layout';
-import { minutesToHHMM } from './time';
+import { actualTaskInterval, minutesOnDate } from './layout';
+import { hhmmToMinutes, minutesToHHMM } from './time';
 
 /** The same calendar day as `timestamp`, at `minutes` past midnight. */
 function atMinuteOfDay(timestamp: number, minutes: number): number {
@@ -94,4 +94,78 @@ export function buildTimelineSlotUpdate(
     }
     if (slot.duration != null) update.estimatedMinutes = slot.duration;
     return update;
+}
+
+/** Clock times the editor should show for a task's recorded run. Empty when it has none. */
+export function recordedIntervalFromTask(task: Pick<Task, 'status' | 'date' | 'startedAt' | 'completedAt' | 'actualMinutes'>): { start: string; end: string } {
+    if (task.status === 'in_progress') {
+        const startMin = minutesOnDate(task.startedAt, task.date);
+        if (startMin == null) return { start: '', end: '' };
+        return { start: minutesToHHMM(startMin), end: '' };
+    }
+    if (task.status === 'done') {
+        const actual = Math.round(Number(task.actualMinutes || 0));
+        const endMin = minutesOnDate(task.completedAt, task.date);
+        if (endMin == null || actual <= 0) return { start: '', end: '' };
+        return { start: minutesToHHMM(Math.max(0, endMin - actual)), end: minutesToHHMM(endMin) };
+    }
+    return { start: '', end: '' };
+}
+
+function timestampOnDate(date: string, minutes: number): number {
+    const [year, month, day] = date.split('-').map(Number);
+    return new Date(year, month - 1, day, Math.floor(minutes / 60), minutes % 60, 0, 0).getTime();
+}
+
+/**
+ * What to store when the editor's actual start / end change.
+ * Both times mark the task done over that span. A start alone keeps it running
+ * from then. Clearing both drops the recorded run back to not started.
+ */
+export function buildRecordedIntervalUpdate(
+    input: { date: string; start: string; end: string }
+): { ok: true; update: Partial<Task> } | { ok: false; error: 'date' | 'end_without_start' | 'order' } {
+    const startMin = hhmmToMinutes(input.start);
+    const endMin = hhmmToMinutes(input.end);
+    const hasStart = input.start.trim() !== '';
+    const hasEnd = input.end.trim() !== '';
+
+    if (!hasStart && !hasEnd) {
+        return {
+            ok: true,
+            update: {
+                status: 'open',
+                startedAt: undefined,
+                completedAt: undefined,
+                actualMinutes: 0,
+            },
+        };
+    }
+    if (!input.date) return { ok: false, error: 'date' };
+    if (hasEnd && !hasStart) return { ok: false, error: 'end_without_start' };
+    if (startMin == null || (hasEnd && endMin == null)) return { ok: false, error: 'order' };
+    if (hasEnd && endMin != null && endMin <= startMin) return { ok: false, error: 'order' };
+
+    // Planned start and estimate stay as entered. The timeline draws a running
+    // or finished task from these recorded times, not from the plan.
+    if (!hasEnd || endMin == null) {
+        return {
+            ok: true,
+            update: {
+                status: 'in_progress',
+                startedAt: timestampOnDate(input.date, startMin),
+                completedAt: undefined,
+            },
+        };
+    }
+
+    return {
+        ok: true,
+        update: {
+            status: 'done',
+            startedAt: undefined,
+            completedAt: timestampOnDate(input.date, endMin),
+            actualMinutes: endMin - startMin,
+        },
+    };
 }

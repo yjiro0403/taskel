@@ -126,7 +126,16 @@
     "deleting": "Deleting…",
     "deleteConfirm": "Delete \"{title}\"?",
     "skipOccurrence": "Skip this occurrence",
-    "skipOccurrenceConfirm": "Skip this occurrence of \"{title}\"? The routine itself stays."
+    "skipOccurrenceConfirm": "Skip this occurrence of \"{title}\"? The routine itself stays.",
+    "estimateMinutes": "Estimate (min)",
+    "scheduledStart": "Planned start",
+    "actualStart": "Actual start",
+    "actualEnd": "Actual end",
+    "actualMinutes": "Actual (min)",
+    "actualHint": "If you forgot to press start or stop, correct it here. The timeline block follows these times. Leave the end empty to keep it running.",
+    "actualEndBeforeStart": "Actual end has to be after the start.",
+    "actualEndNeedsStart": "Enter an actual start when you enter an end.",
+    "actualNeedsDate": "A date is required to record actual times."
   },
   "TaskLink": {
     "copy": "Copy link",
