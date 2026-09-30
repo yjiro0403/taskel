@@ -230,6 +230,7 @@ Google カレンダーの「スケジュール」ウィジェットに倣い、*
 - **起動アクションを Web 側で解釈する**: ネイティブが直接モーダルを開く手段はなく、`pendingEditTaskId` / `openAddTaskModal` という既存の経路がそのまま使える。二重に開かないよう、ネイティブは取り出し時に消し、Web は `consume` した時点で確定する。
 - **extra は取り出した時点で Intent から消す**: `singleTask` の Activity は Intent を保持し続けるため、WebView の再読み込みで `load()` が再度走っても同じ操作を二度扱わない。
 - **Web のデプロイが先**: `schedule` は Web が計算する。旧 Web + 新 APK では「この後の予定はありません」になるだけで壊れない。
+- **描画ごとにレイアウト ID を交互に切り替える**（`widget_schedule` / `widget_schedule_alt`、同一内容）: ランチャーは同じレイアウト ID の更新を既存 View への再適用（reapply）で済ませようとし、コレクション（`ListView`）を含むこのウィジェットでは実機（Pixel 8 Pro / Android 17 / Pixel Launcher）でヘッダーの文言と `PendingIntent` が更新されなかった（行は `notifyAppWidgetViewDataChanged` の別経路で更新されるため、行数と件数が食い違う）。別レイアウト ID にすると完全に再インフレートされ、ヘッダーと「+」/ 行タップの `PendingIntent` が毎回作り直される。`am force-stop` 等で `PendingIntent` が取り消された後も、次の描画で復旧する。
 
 ## 7. 今後の拡張候補（未実装）
 - ウィジェット上からの「完了 / 次を開始」ボタン（アプリを開かずにタイマー操作）。

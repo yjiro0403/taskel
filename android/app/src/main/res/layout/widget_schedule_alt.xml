@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  widget_schedule.xml と同一内容の複製。ScheduleWidgetProvider は描画ごとにこの 2 つを
+  交互に使い、ランチャーに「別レイアウト」と認識させて完全な再インフレートを強制する。
+  （同一レイアウト ID だとホストは既存 View への再適用（reapply）を試み、コレクション
+  （ListView）を含むこのウィジェットではヘッダーの文言や PendingIntent が更新されなかった）
+  編集するときは必ず両方を同じ内容にすること。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:paddingStart="12dp"
+    android:paddingEnd="6dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="8dp">
+
+    <!-- ヘッダー: 日付 / 残り件数 / ＋ -->
+    <LinearLayout
+        android:id="@+id/schedule_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/schedule_date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/schedule_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:textColor="@color/widget_text_muted"
+            android:textSize="11sp"
+            android:maxLines="1" />
+
+        <ImageButton
+            android:id="@+id/schedule_add"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_widget_add"
+            android:tint="@color/widget_accent"
+            android:background="@android:color/transparent"
+            android:scaleType="centerInside"
+            android:contentDescription="@string/widget_schedule_add" />
+    </LinearLayout>
+
+    <!-- 区切り線（RemoteViews では素の View が使えないため FrameLayout で代用） -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginEnd="6dp"
+        android:layout_marginBottom="2dp"
+        android:background="@color/widget_divider" />
+
+    <!-- リスト。空のときは schedule_empty が代わりに表示される（setEmptyView） -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ListView
+            android:id="@+id/schedule_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="@color/widget_divider"
+            android:dividerHeight="1dp"
+            android:paddingEnd="6dp"
+            android:clipToPadding="false" />
+
+        <TextView
+            android:id="@+id/schedule_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textColor="@color/widget_text_muted"
+            android:textSize="13sp"
+            android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>
