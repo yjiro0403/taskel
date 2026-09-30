@@ -8,6 +8,7 @@ import { useStore } from '@/store/useStore';
 import { Task, Attachment, ChecklistItem } from '@/types';
 import { X, MessageSquare, Link2, Check, Trash2 } from 'lucide-react';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
+import { buildRecordedIntervalUpdate, recordedIntervalFromTask } from '@/lib/timeline/actuals';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
 import { TaskForm } from '@/components/TaskForm';
 import { TaskAttachments } from '@/components/TaskAttachments';
@@ -145,6 +146,10 @@ export default function AddTaskModal({
     const [projectId, setProjectId] = useState(targetTask?.projectId || initialProjectId || '');
     const [milestoneId, setMilestoneId] = useState(targetTask?.milestoneId || initialMilestoneId || '');
     const [scheduledStart, setScheduledStart] = useState(targetTask?.scheduledStart || '');
+    const initialRecorded = targetTask ? recordedIntervalFromTask(targetTask) : { start: '', end: '' };
+    const [actualStart, setActualStart] = useState(initialRecorded.start);
+    const [actualEnd, setActualEnd] = useState(initialRecorded.end);
+    const initialRecordedRef = useRef(initialRecorded);
 
     // Validation State
     const [error, setError] = useState<string | null>(null);
@@ -297,6 +302,10 @@ export default function AddTaskModal({
 
             setSectionId(initialSectionId);
             setScheduledStart(startingScheduledStart);
+            const recorded = targetTask ? recordedIntervalFromTask(targetTask) : { start: '', end: '' };
+            setActualStart(recorded.start);
+            setActualEnd(recorded.end);
+            initialRecordedRef.current = recorded;
 
             // Context Fields
             setDate(targetTask ? (targetTask.date || '') : (initialDate !== undefined ? initialDate : currentDate));
@@ -510,6 +519,24 @@ export default function AddTaskModal({
             ? (existingAiTags.includes('ai-workspace') ? existingAiTags : [...existingAiTags, 'ai-workspace'])
             : existingAiTags.filter(tag => tag !== 'ai-workspace');
 
+        const recordedChanged = activeType === 'task' && (
+            actualStart !== initialRecordedRef.current.start || actualEnd !== initialRecordedRef.current.end
+        );
+        let recordedUpdate: Partial<Task> = {};
+        if (recordedChanged) {
+            const recorded = buildRecordedIntervalUpdate({ date, start: actualStart, end: actualEnd });
+            if (!recorded.ok) {
+                const message = recorded.error === 'date'
+                    ? tModal('actualNeedsDate')
+                    : recorded.error === 'end_without_start'
+                        ? tModal('actualEndNeedsStart')
+                        : tModal('actualEndBeforeStart');
+                setError(message);
+                return;
+            }
+            recordedUpdate = recorded.update;
+        }
+
         const taskFields = {
             title,
             sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal',
@@ -528,6 +555,7 @@ export default function AddTaskModal({
             memo,
             checklist,
             attachments,
+            ...recordedUpdate,
         };
 
         setIsSaving(true);
@@ -761,6 +789,10 @@ export default function AddTaskModal({
                         setSectionId={setSectionId}
                         scheduledStart={scheduledStart}
                         setScheduledStart={setScheduledStart}
+                        actualStart={actualStart}
+                        setActualStart={setActualStart}
+                        actualEnd={actualEnd}
+                        setActualEnd={setActualEnd}
                         displaySections={displaySections}
                         isTimeSectionInconsistent={isTimeSectionInconsistent}
                     />

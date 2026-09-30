@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Section, Task } from '../../types';
-import { buildTimelinePlayUpdate, buildTimelineSlotUpdate, buildTimelineStopUpdate } from './actuals';
+import { buildRecordedIntervalUpdate, buildTimelinePlayUpdate, buildTimelineSlotUpdate, buildTimelineStopUpdate, recordedIntervalFromTask } from './actuals';
 
 const sections: Section[] = [
     { id: 'morning', userId: 'u1', name: 'Morning', startTime: '06:00', order: 0 },
@@ -127,5 +127,55 @@ describe('buildTimelineSlotUpdate', () => {
         expect(resized.actualMinutes).toBe(45);
         expect(new Date(resized.completedAt!).getMinutes()).toBe(10);
         expect(new Date(resized.completedAt!).getHours()).toBe(16);
+    });
+});
+
+describe('recorded interval editing', () => {
+    it('reads a running start and a finished span', () => {
+        expect(recordedIntervalFromTask(task({
+            status: 'in_progress',
+            startedAt: at(10, 5).getTime(),
+        }))).toEqual({ start: '10:05', end: '' });
+        expect(recordedIntervalFromTask(task({
+            status: 'done',
+            actualMinutes: 40,
+            completedAt: at(11, 20).getTime(),
+        }))).toEqual({ start: '10:40', end: '11:20' });
+    });
+
+    it('records a missed start and stop as a finished block', () => {
+        const update = buildRecordedIntervalUpdate({ date: '2026-09-24', start: '10:15', end: '11:00' });
+        expect(update.ok).toBe(true);
+        if (!update.ok) return;
+        expect(update.update.status).toBe('done');
+        expect(update.update.actualMinutes).toBe(45);
+        expect(update.update.scheduledStart).toBeUndefined();
+        expect(update.update.startedAt).toBeUndefined();
+        expect(new Date(update.update.completedAt!).getHours()).toBe(11);
+        expect(new Date(update.update.completedAt!).getMinutes()).toBe(0);
+    });
+
+    it('keeps a task running when only the actual start is corrected', () => {
+        const update = buildRecordedIntervalUpdate({ date: '2026-09-24', start: '09:40', end: '' });
+        expect(update.ok).toBe(true);
+        if (!update.ok) return;
+        expect(update.update.status).toBe('in_progress');
+        expect(new Date(update.update.startedAt!).getHours()).toBe(9);
+        expect(new Date(update.update.startedAt!).getMinutes()).toBe(40);
+        expect(update.update.completedAt).toBeUndefined();
+    });
+
+    it('clears a recorded run when both times are emptied', () => {
+        const update = buildRecordedIntervalUpdate({ date: '2026-09-24', start: '', end: '' });
+        expect(update).toEqual({
+            ok: true,
+            update: { status: 'open', startedAt: undefined, completedAt: undefined, actualMinutes: 0 },
+        });
+    });
+
+    it('rejects an end that is not after the start, or an end without a start', () => {
+        expect(buildRecordedIntervalUpdate({ date: '2026-09-24', start: '11:00', end: '10:00' })).toEqual({ ok: false, error: 'order' });
+        expect(buildRecordedIntervalUpdate({ date: '2026-09-24', start: '', end: '10:00' })).toEqual({ ok: false, error: 'end_without_start' });
+        expect(buildRecordedIntervalUpdate({ date: '', start: '10:00', end: '11:00' })).toEqual({ ok: false, error: 'date' });
     });
 });
