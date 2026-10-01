@@ -30,7 +30,7 @@ export interface FinanceSlice {
     financeSummaryCache: Record<string, FinanceSummary>;
     /** Revision at which each cached range was fetched. Older entries stay visible but are not reused. */
     financeSummaryCacheEpoch: Record<string, number>;
-    /** Bumped after a successful write so visible day/week/month/year totals refetch. */
+    /** Bumped after a finance write or a task delete so visible day/week/month/year totals refetch. */
     financeSummaryRevision: number;
     financeSummaryLoading: Record<string, boolean>;
     financeSummaryError: Record<string, string | null>;
@@ -45,6 +45,8 @@ export interface FinanceSlice {
         entries: FinanceReplacePayloadEntry[],
         sourceTaskId?: string
     ) => Promise<boolean>;
+    /** Day, week, month, and year headers refetch. Call after a task delete removes its money rows. */
+    markFinanceSummariesStale: () => void;
     resetFinanceSlice: () => void;
 }
 
@@ -369,6 +371,20 @@ export const createFinanceSlice: StateCreator<StoreState, [], [], FinanceSlice> 
             console.error('Failed to save finance entries:', error);
             return false;
         }
+    },
+
+    markFinanceSummariesStale: () => {
+        if (!get().financeEnabled) {
+            return;
+        }
+        // Drop in-flight totals so a request that started before this delete cannot
+        // be stored as fresh. Keep the previous numbers on screen until the refetch lands.
+        invalidateFinanceRequests();
+        set((state) => ({
+            financeSummaryRevision: state.financeSummaryRevision + 1,
+            financeSummaryLoading: {},
+            financeSummaryError: {},
+        }));
     },
 
     resetFinanceSlice: () => {

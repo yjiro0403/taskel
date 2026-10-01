@@ -271,6 +271,9 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 set((state) => ({
                     tasks: state.tasks.filter((task) => task.id !== taskId),
                 }));
+                // Task deletion cascades finance rows. Another device's delete still
+                // has to drop the amounts from the open day and week totals.
+                get().markFinanceSummariesStale();
                 rebuildDataSubscriptions(
                     get().projects.map((project) => project.id)
                 );

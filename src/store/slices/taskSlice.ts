@@ -318,6 +318,8 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             }
 
             await deleteTaskRecord(taskId);
+            // The row delete cascades finance_entries. Refresh open period totals.
+            get().markFinanceSummariesStale();
         } catch (error) {
             console.error('Error deleting task:', error);
             set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
@@ -363,6 +365,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             selectedTaskIds: [],
         }));
 
+        let removedPersistedTask = false;
         try {
             for (const id of taskIds) {
                 const virtualTask = getMergedTasks(currentDate).find((task) => task.id === id && task.isVirtual);
@@ -379,10 +382,16 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 }
 
                 await deleteTaskRecord(id);
+                removedPersistedTask = true;
             }
         } catch (error) {
             console.error('Error bulk deleting tasks:', error);
             set((state) => ({ tasks: rollbackTasks(state.tasks, snapshot) }));
+        } finally {
+            // A later failure must still refresh totals for rows already deleted.
+            if (removedPersistedTask) {
+                get().markFinanceSummariesStale();
+            }
         }
     },
 

@@ -185,3 +185,97 @@ describe('timeline play through the real updateTask path', () => {
         expect(state.tasks.some((entry) => entry.id === virtualId)).toBe(true);
     });
 });
+
+describe('deleteTask finance totals', () => {
+    afterEach(() => {
+        vi.clearAllMocks();
+        mockedDelete.mockReset();
+        mockedReplace.mockReset();
+    });
+
+    it('refreshes finance totals after a persisted task is deleted', async () => {
+        const markFinanceSummariesStale = vi.fn();
+        const { state, slice } = createHarness({
+            tasks: [task()],
+            markFinanceSummariesStale,
+        } as Partial<StoreState>);
+        mockedDelete.mockResolvedValue(undefined);
+
+        await slice.deleteTask('task-1');
+
+        expect(mockedDelete).toHaveBeenCalledWith('task-1');
+        expect(markFinanceSummariesStale).toHaveBeenCalledTimes(1);
+        expect(state.tasks).toEqual([]);
+    });
+
+    it('does not refresh finance totals when the delete fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const markFinanceSummariesStale = vi.fn();
+        const { state, slice } = createHarness({
+            tasks: [task()],
+            markFinanceSummariesStale,
+        } as Partial<StoreState>);
+        mockedDelete.mockRejectedValueOnce(new Error('network'));
+
+        await slice.deleteTask('task-1');
+
+        expect(markFinanceSummariesStale).not.toHaveBeenCalled();
+        expect(state.tasks.map((entry) => entry.id)).toEqual(['task-1']);
+    });
+
+    it('refreshes finance totals once after a bulk delete removes persisted tasks', async () => {
+        const markFinanceSummariesStale = vi.fn();
+        const { slice } = createHarness({
+            tasks: [task(), task({ id: 'task-2' })],
+            markFinanceSummariesStale,
+        } as Partial<StoreState>);
+        mockedDelete.mockResolvedValue(undefined);
+
+        await slice.bulkDeleteTasks(['task-1', 'task-2']);
+
+        expect(mockedDelete).toHaveBeenCalledTimes(2);
+        expect(markFinanceSummariesStale).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes finance totals when a bulk delete removes one task and then fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const markFinanceSummariesStale = vi.fn();
+        const { slice } = createHarness({
+            tasks: [task(), task({ id: 'task-2' })],
+            markFinanceSummariesStale,
+        } as Partial<StoreState>);
+        mockedDelete.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('network'));
+
+        await slice.bulkDeleteTasks(['task-1', 'task-2']);
+
+        expect(markFinanceSummariesStale).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not refresh finance totals when a virtual routine occurrence is skipped', async () => {
+        const { createVirtualRoutineTaskId } = await import('../../lib/tasks/virtualTask');
+        const markFinanceSummariesStale = vi.fn();
+        const routine = {
+            id: 'routine-1',
+            userId: 'user-1',
+            title: 'Morning run',
+            frequency: 'daily',
+            startDate: '2026-09-01',
+            nextRun: '2026-09-01',
+            sectionId: 'section-1',
+            estimatedMinutes: 15,
+            active: true,
+        };
+        const { slice } = createHarness({
+            tasks: [],
+            routines: [routine],
+            currentDate: '2026-09-15',
+            markFinanceSummariesStale,
+        } as unknown as Partial<StoreState>);
+        mockedReplace.mockResolvedValue(undefined);
+
+        await slice.deleteTask(createVirtualRoutineTaskId('routine-1', '2026-09-15'));
+
+        expect(mockedDelete).not.toHaveBeenCalled();
+        expect(markFinanceSummariesStale).not.toHaveBeenCalled();
+    });
+});

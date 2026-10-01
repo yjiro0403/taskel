@@ -242,4 +242,55 @@ describe('financeSlice default-off behavior', () => {
 
         await expect(request).rejects.toThrow('Stale finance request');
     });
+
+    it('bumps open period totals after a task delete and ignores a summary already in flight', async () => {
+        const pending = deferred<{
+            start: string;
+            end: string;
+            expenseTotal: number;
+            incomeTotal: number;
+            expenseCount: number;
+            incomeCount: number;
+        }>();
+        mockedSummarize.mockReturnValueOnce(pending.promise);
+        const { state, slice } = createHarness();
+        state.financeEnabled = true;
+        state.financeSummaryRevision = 2;
+        state.financeSummaryCache = {
+            '2026-01-01/2026-01-02': {
+                start: '2026-01-01',
+                end: '2026-01-02',
+                expenseTotal: 4000,
+                incomeTotal: 0,
+                expenseCount: 1,
+                incomeCount: 0,
+            },
+        };
+
+        const summaryRequest = slice.ensureFinanceSummary('2026-01-01', '2026-01-02');
+        slice.markFinanceSummariesStale();
+        pending.resolve({
+            start: '2026-01-01',
+            end: '2026-01-02',
+            expenseTotal: 4000,
+            incomeTotal: 0,
+            expenseCount: 1,
+            incomeCount: 0,
+        });
+        await summaryRequest;
+
+        expect(state.financeSummaryRevision).toBe(3);
+        expect(state.financeSummaryCache['2026-01-01/2026-01-02']?.expenseTotal).toBe(4000);
+        expect(state.financeSummaryCacheEpoch['2026-01-01/2026-01-02']).toBeUndefined();
+    });
+
+    it('does not bump period totals when finance recording is off', () => {
+        const { state, slice } = createHarness();
+        state.financeEnabled = false;
+        state.financeSummaryRevision = 2;
+
+        slice.markFinanceSummariesStale();
+
+        expect(state.financeSummaryRevision).toBe(2);
+    });
 });
