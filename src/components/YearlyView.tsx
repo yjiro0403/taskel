@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import YearlyGoalList from './YearlyGoalList';
 import YearlyMonthColumn from './YearlyMonthColumn';
 import YearlyNotePanel from './YearlyNotePanel';
+import { GoogleCalendarSyncButton } from './GoogleCalendarSyncButton';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 
 interface YearlyViewProps {
@@ -46,6 +47,13 @@ export default function YearlyView({ currentDate = new Date() }: YearlyViewProps
             <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
                 {/* Main Area: Goals + Months */}
                 <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 gap-6">
+                    <GoogleCalendarSyncButton
+                        startDate={`${yearId}-01-01`}
+                        endDate={`${yearId}-12-31`}
+                        returnTo="/yearly"
+                        label="この年のカレンダーを取り込む"
+                        helper="今年の予定を日ごとのタスクにします。開始前の通知は近い予定からセットされ、アプリを開いているあいだ届きます。"
+                    />
                     <div className="flex flex-col lg:flex-row gap-6 h-full">
                         {/* Yearly Goals (Left Column) */}
                         <div className="w-full lg:w-64 shrink-0">

@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import type { Attachment } from '@/types';
 
 import { X } from 'lucide-react';
@@ -13,7 +14,7 @@ interface TaskAttachmentsProps {
     handleRemoveAttachment: (attachmentId: string) => Promise<void>;
 }
 
-export function TaskAttachments({
+export const TaskAttachments = memo(function TaskAttachments({
     attachments,
     isUploading,
     handleFileSelect,
@@ -56,4 +57,4 @@ export function TaskAttachments({
             <p className="text-xs text-gray-400">Supported images (Max 5MB). Auto-compressed.</p>
         </div>
     );
-}
+});

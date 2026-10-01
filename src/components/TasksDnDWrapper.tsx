@@ -8,6 +8,7 @@ import {
     useSensor,
     useSensors,
     DragEndEvent,
+    DragOverEvent,
     DragStartEvent,
     DragOverlay,
 } from '@dnd-kit/core';
@@ -21,7 +22,8 @@ import { generateDisplaySections } from '@/lib/sectionUtils';
 import { compareTasksForDisplay } from '@/lib/tasks/taskOrder';
 import DraggableUnscheduledTask from './RightSidebarDraggableItem';
 import { TaskItem } from './TaskItem';
-import { useState, useMemo } from 'react';
+import { setDragOverId } from './dndDragOver';
+import { useEffect, useState, useMemo } from 'react';
 import { Task } from '@/types';
 
 // Drag activation distance threshold (px) - prevents accidental drags during taps/scrolls
@@ -54,6 +56,8 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
 
     const [activeId, setActiveId] = useState<string | null>(null);
 
+    useEffect(() => () => setDragOverId(null), []);
+
     // Helper function to find task by ID in merged or global tasks
     const findTaskById = (id: string, mergedTasks: Task[]): Task | undefined => {
         return mergedTasks.find(t => String(t.id) === String(id))
@@ -78,12 +82,23 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
     const handleDragStart = (event: DragStartEvent) => {
         const id = String(event.active.id);
         setActiveId(id);
+        setDragOverId(null);
+    };
+
+    const handleDragOver = (event: DragOverEvent) => {
+        const activeType = event.active.data.current?.type;
+        if (activeType !== 'Unscheduled') {
+            setDragOverId(null);
+            return;
+        }
+        setDragOverId(event.over ? String(event.over.id) : null);
     };
 
     // --- Drag and Drop Logic (Moved from TaskList) ---
     const handleDragEnd = async (event: DragEndEvent) => {
         const { active, over } = event;
         setActiveId(null);
+        setDragOverId(null);
 
         if (!over) return;
         if (active.id === over.id) return;
@@ -160,7 +175,12 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
             sensors={sensors}
             collisionDetection={pointerWithin}
             onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
+            onDragCancel={() => {
+                setActiveId(null);
+                setDragOverId(null);
+            }}
         >
             {children}
             <DragOverlay dropAnimation={{
@@ -171,7 +191,6 @@ export default function TasksDnDWrapper({ children }: { children: React.ReactNod
                     !activeTask.sectionId ? (
                         <DraggableUnscheduledTask
                             task={activeTask}
-                            selectedTaskIds={[]}
                             toggleTaskSelection={() => { }}
                             handlePlay={() => { }}
                             handleStop={() => { }}

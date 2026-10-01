@@ -2,9 +2,8 @@
 
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
-import { Trash2, X, CircleArrowRight as MoveIcon, CheckCircle2 } from 'lucide-react';
+import { Trash2, X, CircleArrowRight as MoveIcon } from 'lucide-react';
 import { useState } from 'react';
-import clsx from 'clsx';
 
 export default function SelectionHeader() {
     const { selectedTaskIds, bulkDeleteTasks, bulkUpdateTasks, clearSelection } = useStore(useShallow((state) => ({
@@ -39,7 +38,7 @@ export default function SelectionHeader() {
     };
 
     return (
-        <div className="fixed top-16 left-0 right-0 h-14 bg-blue-50/95 backdrop-blur-sm border-b border-blue-100 flex items-center justify-between px-4 z-40 animate-in slide-in-from-top-2 duration-200">
+        <div className="fixed top-16 left-0 right-0 h-14 bg-blue-50 border-b border-blue-100 flex items-center justify-between px-4 z-40 animate-in slide-in-from-top-2 duration-200">
             <div className="flex items-center gap-4">
                 <button
                     onClick={clearSelection}

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { CALENDAR_ALERTS_STORAGE_KEY } from '../../lib/calendarAlerts';
+import { buildGoogleCalendarRangeRequest, formatLocalDate } from '../../lib/calendarService';
 import type { StoreState } from '../types';
 import { createCalendarSlice } from './calendarSlice';
 
@@ -79,6 +81,119 @@ describe('calendarSlice sync state freshness', () => {
                 sectionId: 'morning-section',
             }),
         ]);
+        expect(setCurrentDate).not.toHaveBeenCalled();
+    });
+
+    it('moves the open day when a one-day sync targets a different date', async () => {
+        const setCurrentDate = vi.fn();
+        const bulkAddTasks = vi.fn().mockResolvedValue(undefined);
+        const state = {
+            user: { uid: 'user-1' },
+            currentDate: '2026-07-14',
+            tasks: [],
+            sections: [{ id: 'morning-section', userId: 'user-1', name: 'Morning', order: 0 }],
+            bulkAddTasks,
+            updateTask: vi.fn(),
+            setCurrentDate,
+        } as unknown as StoreState;
+
+        vi.stubGlobal('alert', vi.fn());
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                items: [{
+                    id: 'one-day',
+                    summary: 'Other day',
+                    start: { date: '2026-07-18' },
+                }],
+            }),
+        }));
+
+        const slice = createCalendarSlice(vi.fn(), () => state, {} as never);
+        await expect(slice.syncGoogleCalendar('token', '2026-07-18')).resolves.toBe('success');
+        expect(setCurrentDate).toHaveBeenCalledWith('2026-07-18');
+        expect(bulkAddTasks).toHaveBeenCalledWith([
+            expect.objectContaining({ title: 'Other day', date: '2026-07-18' }),
+        ]);
+    });
+
+    it('imports each day of a range without moving the open day, and arms a start reminder', async () => {
+        const setCurrentDate = vi.fn();
+        const bulkAddTasks = vi.fn().mockResolvedValue(undefined);
+        const alertMock = vi.fn();
+        const storage = new Map<string, string>();
+        const start = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        const later = new Date(start);
+        later.setDate(later.getDate() + 6);
+        const startDate = formatLocalDate(start);
+        const endDate = formatLocalDate(later);
+
+        const state = {
+            user: { uid: 'user-1' },
+            currentDate: '2026-01-01',
+            tasks: [],
+            sections: [{ id: 'morning-section', userId: 'user-1', name: 'Morning', order: 0 }],
+            bulkAddTasks,
+            updateTask: vi.fn().mockResolvedValue(true),
+            setCurrentDate,
+        } as unknown as StoreState;
+
+        vi.stubGlobal('alert', alertMock);
+        vi.stubGlobal('window', { dispatchEvent: vi.fn() });
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => storage.get(key) ?? null,
+            setItem: (key: string, value: string) => storage.set(key, value),
+            removeItem: (key: string) => storage.delete(key),
+        });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                items: [
+                    {
+                        id: 'timed-meeting',
+                        summary: '案件面談',
+                        start: { dateTime: start.toISOString() },
+                        end: { dateTime: end.toISOString() },
+                    },
+                    {
+                        id: 'later-all-day',
+                        summary: '週の終わり',
+                        start: { date: endDate },
+                    },
+                    {
+                        id: 'cancelled-meeting',
+                        summary: '中止した面談',
+                        status: 'cancelled',
+                        start: { dateTime: start.toISOString() },
+                        end: { dateTime: end.toISOString() },
+                    },
+                ],
+            }),
+        }));
+
+        const slice = createCalendarSlice(vi.fn(), () => state, {} as never);
+        await expect(
+            slice.syncGoogleCalendar('token', startDate, endDate)
+        ).resolves.toBe('success');
+
+        expect(setCurrentDate).not.toHaveBeenCalled();
+        expect(bulkAddTasks).toHaveBeenCalledWith([
+            expect.objectContaining({ title: '案件面談', date: startDate }),
+            expect.objectContaining({ title: '週の終わり', date: endDate }),
+        ]);
+
+        const fetchUrl = new URL((vi.mocked(fetch).mock.calls[0]?.[0] ?? '') as string);
+        const expected = buildGoogleCalendarRangeRequest(startDate, endDate);
+        expect(fetchUrl.searchParams.get('timeMin')).toBe(expected.timeMin);
+        expect(fetchUrl.searchParams.get('timeMax')).toBe(expected.timeMax);
+
+        const stored = JSON.parse(storage.get(CALENDAR_ALERTS_STORAGE_KEY) ?? '[]') as Array<{ title: string }>;
+        expect(stored.map((alert) => alert.title)).toEqual(['案件面談']);
+        expect(alertMock).toHaveBeenCalledWith(expect.stringContaining('開始前の通知を1件セットしました。'));
+        expect(alertMock).not.toHaveBeenCalledWith('No new events to import.');
     });
 
     it('does not import an event whose link is already on a task', async () => {

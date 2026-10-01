@@ -9,7 +9,7 @@ import { AttachmentImage } from '@/components/AttachmentImage';
 import { getAttachmentSignedUrl } from '@/lib/storage';
 import { addMinutes } from 'date-fns';
 import { useStore } from '@/store/useStore';
-import { CSSProperties } from 'react';
+import { CSSProperties, memo, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useCopyTaskLink } from '@/hooks/useCopyTaskLink';
 
@@ -36,7 +36,7 @@ export interface TaskItemProps {
     isHighlighted?: boolean;
 }
 
-export function TaskItem({
+export const TaskItem = memo(function TaskItem({
     task,
     schedule,
     isDraggable,
@@ -59,6 +59,10 @@ export function TaskItem({
 }: TaskItemProps) {
     const projects = useStore((state) => state.projects);
     const tags = useStore((state) => state.tags);
+    const projectTitle = useMemo(() => {
+        if (!task.projectId) return null;
+        return projects.find((project) => project.id === task.projectId)?.title || 'Unknown Project';
+    }, [projects, task.projectId]);
     const tLink = useTranslations('TaskLink');
     const { copyTaskLink } = useCopyTaskLink();
 
@@ -151,7 +155,7 @@ export function TaskItem({
                                 !isOverlay && "cursor-pointer hover:bg-indigo-100"
                             )}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-                                {projects.find(p => p.id === task.projectId)?.title || 'Unknown Project'}
+                                {projectTitle}
                             </span>
                         )}
                         {task.tags && task.tags.map(tagName => {
@@ -307,4 +311,4 @@ export function TaskItem({
             </div>
         </div>
     );
-}
+});

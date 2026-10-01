@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { FileText, X, Copy, Check } from 'lucide-react';
 import { generateDailyReportMarkdown } from '@/lib/reportUtils';
+import { tasksOnDate } from '@/lib/tasks/taskDateIndex';
 import clsx from 'clsx';
 
 export default function DailyNoteModal() {
@@ -42,7 +43,7 @@ export default function DailyNoteModal() {
 
     const handleCopyReport = async () => {
         // Filter tasks for the current date
-        const todaysTasks = useStore.getState().tasks.filter(t => t.date === currentDate);
+        const todaysTasks = tasksOnDate(useStore.getState().tasks, currentDate);
 
         const markdown = generateDailyReportMarkdown(currentDate, todaysTasks, noteContent);
 
@@ -61,7 +62,7 @@ export default function DailyNoteModal() {
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
-                className="fixed inset-0 bg-black/30 backdrop-blur-sm transition-opacity"
+                className="fixed inset-0 bg-black/40 transition-opacity"
                 onClick={toggleDailyNoteModal}
             />
 

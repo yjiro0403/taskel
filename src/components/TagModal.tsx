@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { Tag } from '@/types';
 import { X } from 'lucide-react';
@@ -11,8 +11,10 @@ interface TagModalProps {
     tagId: string | null;
 }
 
-export default function TagModal({ isOpen, onClose, tagId }: TagModalProps) {
-    const { tags, updateTag, deleteTag } = useStore();
+function TagModal({ isOpen, onClose, tagId }: TagModalProps) {
+    const tags = useStore((state) => state.tags);
+    const updateTag = useStore((state) => state.updateTag);
+    const deleteTag = useStore((state) => state.deleteTag);
     const tag = tags.find(t => t.id === tagId);
 
     const [name, setName] = useState('');
@@ -41,7 +43,7 @@ export default function TagModal({ isOpen, onClose, tagId }: TagModalProps) {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center p-4 border-b border-gray-100">
                     <h2 className="text-lg font-semibold text-gray-800">Edit Tag</h2>
@@ -98,3 +100,5 @@ export default function TagModal({ isOpen, onClose, tagId }: TagModalProps) {
         </div>
     );
 }
+
+export default memo(TagModal);

@@ -1,24 +1,24 @@
-import { useDraggable } from '@dnd-kit/core';
+import { memo, type CSSProperties } from 'react';
+import { useDraggable, type DraggableAttributes, type DraggableSyntheticListeners } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { clsx } from 'clsx';
 import { CheckCircle2, Circle, Square, Play, GripVertical } from 'lucide-react';
 import { Task } from '@/types';
+import { useIsTaskHighlighted, useIsTaskSelected } from './taskRowFlags';
 
 interface DraggableUnscheduledTaskProps {
     task: Task;
-    onClick?: () => void;
-    selectedTaskIds?: string[];
+    onEdit?: (task: Task) => void;
     toggleTaskSelection?: (id: string) => void;
     handlePlay?: (task: Task) => void;
     handleStop?: (task: Task) => void;
     projects?: Array<{ id: string; title: string }>;
     isOverlay?: boolean;
-    isHighlighted?: boolean;
 }
 
 interface TaskCardContentProps {
     task: Task;
-    selectedTaskIds?: string[];
+    isSelected: boolean;
     toggleTaskSelection?: (id: string) => void;
     handlePlay?: (task: Task) => void;
     handleStop?: (task: Task) => void;
@@ -27,44 +27,65 @@ interface TaskCardContentProps {
     isOverlay?: boolean;
 }
 
-export default function DraggableUnscheduledTask({
-    task, onClick, selectedTaskIds, toggleTaskSelection, handlePlay, handleStop, projects, isOverlay, isHighlighted
+function DraggableUnscheduledTask(props: DraggableUnscheduledTaskProps) {
+    if (props.isOverlay) return <UnscheduledTaskSurface {...props} />;
+    return <DraggableUnscheduledTaskRow {...props} />;
+}
+
+function DraggableUnscheduledTaskRow({
+    task, onEdit, toggleTaskSelection, handlePlay, handleStop, projects,
 }: DraggableUnscheduledTaskProps) {
-    const { attributes, listeners, setNodeRef, transform } = !isOverlay ? useDraggable({
+    const { attributes, listeners, setNodeRef, transform } = useDraggable({
         id: task.id,
         data: {
             type: 'Unscheduled',
-            task
-        }
-    }) : { attributes: {}, listeners: {}, setNodeRef: null, transform: null };
-
+            task,
+        },
+    });
     const style = transform ? {
         transform: CSS.Translate.toString(transform),
-        touchAction: 'none'
+        touchAction: 'none' as const,
     } : undefined;
 
-    if (isOverlay) {
-        return (
-            <div
-                className="bg-white border border-blue-500 rounded-lg p-2 shadow-xl mb-2 flex items-start gap-2 relative pr-8 cursor-grabbing"
-            >
-                {/* Drag Handle (Visual only) */}
-                <div className="absolute right-2 top-2 p-1 text-gray-400">
-                    <GripVertical size={16} />
-                </div>
-                <TaskCardContent
-                    task={task}
-                    selectedTaskIds={selectedTaskIds || []}
-                    projects={projects}
-                    onClick={onClick}
-                    toggleTaskSelection={toggleTaskSelection}
-                    handlePlay={handlePlay}
-                    handleStop={handleStop}
-                    isOverlay={true}
-                />
-            </div>
-        )
-    }
+    return (
+        <UnscheduledTaskSurface
+            task={task}
+            onEdit={onEdit}
+            toggleTaskSelection={toggleTaskSelection}
+            handlePlay={handlePlay}
+            handleStop={handleStop}
+            projects={projects}
+            setNodeRef={setNodeRef}
+            listeners={listeners}
+            attributes={attributes}
+            style={style}
+        />
+    );
+}
+
+export default memo(DraggableUnscheduledTask);
+
+function UnscheduledTaskSurface({
+    task,
+    onEdit,
+    toggleTaskSelection,
+    handlePlay,
+    handleStop,
+    projects,
+    isOverlay,
+    setNodeRef,
+    listeners,
+    attributes,
+    style,
+}: DraggableUnscheduledTaskProps & {
+    setNodeRef?: (element: HTMLElement | null) => void;
+    listeners?: DraggableSyntheticListeners;
+    attributes?: DraggableAttributes;
+    style?: CSSProperties;
+}) {
+    const isSelected = useIsTaskSelected(task.id);
+    const isHighlighted = useIsTaskHighlighted(task.id);
+    const openTask = onEdit ? () => onEdit(task) : undefined;
 
     return (
         <div
@@ -72,43 +93,48 @@ export default function DraggableUnscheduledTask({
             data-task-id={task.id}
             style={style}
             className={clsx(
-                "bg-white border border-gray-100 rounded-lg p-2 shadow-sm hover:shadow-md transition-shadow group mb-2 flex items-start gap-2 relative pr-8",
-                isHighlighted && "ring-2 ring-amber-400 bg-amber-50 shadow-md border-amber-200",
+                "bg-white rounded-lg p-2 flex items-start gap-2 relative pr-8",
+                isOverlay
+                    ? "border border-blue-500 shadow-xl mb-2 cursor-grabbing"
+                    : "border border-gray-100 shadow-sm hover:shadow-md transition-shadow group",
+                !isOverlay && isHighlighted && "ring-2 ring-amber-400 bg-amber-50 shadow-md border-amber-200",
             )}
         >
-            {/* Drag Handle */}
             <div
                 {...listeners}
                 {...attributes}
-                className="absolute right-2 top-2 p-1 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none"
+                className={clsx(
+                    "absolute right-2 top-2 p-1",
+                    isOverlay ? "text-gray-400" : "text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none",
+                )}
             >
                 <GripVertical size={16} />
             </div>
-
             <TaskCardContent
                 task={task}
-                selectedTaskIds={selectedTaskIds}
+                isSelected={isSelected}
                 toggleTaskSelection={toggleTaskSelection}
                 handlePlay={handlePlay}
                 handleStop={handleStop}
                 projects={projects}
-                onClick={onClick}
+                onClick={openTask}
+                isOverlay={isOverlay}
             />
         </div>
     );
 }
 
-function TaskCardContent({ task, selectedTaskIds, toggleTaskSelection, handlePlay, handleStop, projects, onClick, isOverlay }: TaskCardContentProps) {
+function TaskCardContent({ task, isSelected, toggleTaskSelection, handlePlay, handleStop, projects, onClick, isOverlay }: TaskCardContentProps) {
     return (
         <>
             <button
                 onClick={(e) => {
                     e.stopPropagation();
-                    toggleTaskSelection && toggleTaskSelection(task.id);
+                    toggleTaskSelection?.(task.id);
                 }}
                 className="pt-0.5 text-gray-400 hover:text-blue-600 transition-colors shrink-0"
             >
-                {selectedTaskIds && selectedTaskIds.includes(task.id) ? (
+                {isSelected ? (
                     <CheckCircle2 size={16} className="text-blue-600" />
                 ) : (
                     <Circle size={16} />
@@ -138,7 +164,7 @@ function TaskCardContent({ task, selectedTaskIds, toggleTaskSelection, handlePla
                     )}
                     {task.projectId && (
                         <span className="flex items-center gap-1 bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
-                            {(projects || []).find((p) => p.id === task.projectId)?.title || 'Unknown Project'}
+                            {(projects || []).find((project) => project.id === task.projectId)?.title || 'Unknown Project'}
                         </span>
                     )}
                     {task.status === 'in_progress' && (
@@ -151,9 +177,9 @@ function TaskCardContent({ task, selectedTaskIds, toggleTaskSelection, handlePla
                 onClick={(e) => {
                     e.stopPropagation();
                     if (task.status === 'in_progress') {
-                        handleStop && handleStop(task);
+                        handleStop?.(task);
                     } else {
-                        handlePlay && handlePlay(task);
+                        handlePlay?.(task);
                     }
                 }}
                 className={clsx(

@@ -2,7 +2,7 @@
 
 import { useStore } from '@/store/useStore';
 import { Task, Section } from '@/types';
-import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar, CalendarSync, RefreshCw } from 'lucide-react';
+import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar } from 'lucide-react';
 import clsx from 'clsx';
 import { calculateTaskSchedule, formatTime, type TimeSlot } from '@/lib/timeUtils';
 import { useEffect, useState, useMemo, useRef, memo } from 'react';
@@ -29,20 +29,14 @@ import {
     verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { AIChatPanel } from './AIChatPanel';
-import { createClient } from '@/lib/supabase/client';
-import {
-    clearGoogleCalendarProviderToken,
-    isGoogleCalendarSyncDataReady,
-    PENDING_GOOGLE_CALENDAR_SYNC_KEY,
-    readGoogleCalendarProviderToken,
-    writeStoredCurrentDate,
-} from '@/lib/calendarService';
+import { GoogleCalendarSyncButton } from './GoogleCalendarSyncButton';
+import { TaskRowFlagsSync } from './taskRowFlags';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { compareTasksForDisplay, sortTasksForDisplay } from '@/lib/tasks/taskOrder';
 import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
 
 function TaskList() {
-    const { tasks, tasksLoaded, sections, routines, updateTask, duplicateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore(useShallow((state) => ({
+    const { tasks, tasksLoaded, sections, routines, updateTask, duplicateTask, currentTime, setCurrentTime, toggleTaskSelection, currentDate, user, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore(useShallow((state) => ({
         tasks: state.tasks,
         tasksLoaded: state.tasksLoaded,
         sections: state.sections,
@@ -51,14 +45,9 @@ function TaskList() {
         duplicateTask: state.duplicateTask,
         currentTime: state.currentTime,
         setCurrentTime: state.setCurrentTime,
-        selectedTaskIds: state.selectedTaskIds,
         toggleTaskSelection: state.toggleTaskSelection,
         currentDate: state.currentDate,
-        setCurrentDate: state.setCurrentDate,
-        syncGoogleCalendar: state.syncGoogleCalendar,
         user: state.user,
-        initialDataStatus: state.initialDataStatus,
-        tags: state.tags,
         projects: state.projects,
         getMergedTasks: state.getMergedTasks,
         addUserComment: state.addUserComment,
@@ -73,11 +62,8 @@ function TaskList() {
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     /** A click on empty timeline space: the create form opens with this date and time. */
     const [createSlot, setCreateSlot] = useState<{ date: string; time: string } | null>(null);
-    const [isSyncing, setIsSyncing] = useState(false);
     const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-    const pendingCalendarSyncInFlight = useRef<string | null>(null);
-    const restoredPendingSyncDate = useRef<string | null>(null);
 
     // FTUE: 初回ユーザー向けオンボーディングツアー
     const { startTour } = useTour();
@@ -102,133 +88,6 @@ function TaskList() {
 
     // DnD Sensors
     // DnD Sensors removed (lifted to wrapper)
-
-    const startGoogleCalendarOAuth = async (selectedDate: string) => {
-        localStorage.setItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY, selectedDate);
-        writeStoredCurrentDate(selectedDate);
-
-        const supabase = createClient();
-        const redirectTo = `${window.location.origin}/auth/callback?next=/tasks`;
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo,
-                scopes: 'https://www.googleapis.com/auth/calendar.readonly',
-                queryParams: {
-                    access_type: 'offline',
-                    prompt: 'consent',
-                },
-            },
-        });
-        if (error) {
-            throw error;
-        }
-    };
-
-    const handleSync = async () => {
-        if (!user) return;
-        setIsSyncing(true);
-
-        try {
-            const supabase = createClient();
-            const { data } = await supabase.auth.getSession();
-            const accessToken = readGoogleCalendarProviderToken(
-                data.session?.provider_token,
-                user.uid
-            );
-            // Capture UI date at click time — do not re-read store after OAuth redirects.
-            const selectedDate = currentDate;
-
-            if (accessToken) {
-                const result = await syncGoogleCalendar(accessToken, selectedDate);
-                if (result === 'auth_required') {
-                    clearGoogleCalendarProviderToken();
-                    await startGoogleCalendarOAuth(selectedDate);
-                }
-            } else {
-                // Survive full page reload after /auth/callback (Zustand re-inits).
-                await startGoogleCalendarOAuth(selectedDate);
-            }
-        } catch (e) {
-            console.error("Sync failed", e);
-            alert("Sync failed. Check console.");
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    useEffect(() => {
-        const pendingDate = localStorage.getItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
-        if (!pendingDate || !user) return;
-
-        // Restore UI-selected date after OAuth full reload (store may have re-inited).
-        // Do not depend on currentDate here — setCurrentDate would re-trigger an infinite loop.
-        // Only once per pending sync: this effect also re-runs whenever the user object is
-        // replaced (token refresh, tab focus), and re-applying the date each time snapped
-        // the list back to the sync date while the user was browsing other days.
-        if (restoredPendingSyncDate.current !== pendingDate) {
-            restoredPendingSyncDate.current = pendingDate;
-            if (pendingDate !== useStore.getState().currentDate) {
-                setCurrentDate(pendingDate);
-            }
-        }
-
-        if (
-            !isGoogleCalendarSyncDataReady(
-                initialDataStatus,
-                tasksLoaded,
-                sections.length
-            ) ||
-            pendingCalendarSyncInFlight.current === pendingDate
-        ) {
-            return;
-        }
-
-        let cancelled = false;
-        const syncPending = async () => {
-            const supabase = createClient();
-            const sessionProviderToken =
-                (await supabase.auth.getSession()).data.session?.provider_token;
-            const accessToken = readGoogleCalendarProviderToken(
-                sessionProviderToken,
-                user.uid
-            );
-            if (cancelled) return;
-            if (!accessToken) {
-                // Data is ready but no Google token came back with this session: the OAuth
-                // round-trip did not complete. Drop the marker so it cannot keep forcing
-                // the date on later loads; the user can press Sync again.
-                localStorage.removeItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
-                return;
-            }
-
-            pendingCalendarSyncInFlight.current = pendingDate;
-            localStorage.removeItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
-            try {
-                const result = await syncGoogleCalendar(accessToken, pendingDate);
-                if (result === 'auth_required') {
-                    clearGoogleCalendarProviderToken();
-                    alert(
-                        'Google Calendar access was not granted. Please try connecting again.'
-                    );
-                }
-            } finally {
-                pendingCalendarSyncInFlight.current = null;
-            }
-        };
-
-        void syncPending();
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        initialDataStatus,
-        sections.length,
-        setCurrentDate,
-        syncGoogleCalendar,
-        tasksLoaded,
-        user,
-    ]);
 
     const handleEditTask = (task: Task) => {
         setEditingTask(task);
@@ -422,17 +281,15 @@ function TaskList() {
         onToggleStatus: handleStatusToggle,
         onTagClick: (tagId: string) => setSelectedTagId(tagId),
         onImageClick: (url: string) => setLightboxImage(url),
-        selectedTaskIds,
-        projects,
-        tags,
     };
 
     return (
         <TaskContextProvider value={taskContextValue}>
+            <TaskRowFlagsSync />
             <div id="tour-task-list" className={clsx("flex flex-col gap-6 mx-auto p-4", timelineEnabled ? "max-w-5xl" : "max-w-4xl")}>
-                <div className="flex justify-between items-center">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                     <DateNavigation />
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <Link
                             href="/calendar"
                             className="p-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center"
@@ -440,19 +297,14 @@ function TaskList() {
                         >
                             <Calendar size={18} />
                         </Link>
-                        <button
-                            onClick={handleSync}
-                            disabled={isSyncing}
-                            className="p-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                            title={isSyncing ? "Syncing Google Calendar..." : "Sync Google Calendar"}
-                            aria-label={isSyncing ? "Syncing Google Calendar" : "Sync Google Calendar"}
-                        >
-                            {isSyncing ? (
-                                <RefreshCw size={18} className="animate-spin" />
-                            ) : (
-                                <CalendarSync size={18} />
-                            )}
-                        </button>
+                        <GoogleCalendarSyncButton
+                            startDate={currentDate}
+                            endDate={currentDate}
+                            returnTo="/tasks"
+                            label="Sync Google Calendar"
+                            syncingLabel="Syncing..."
+                            className="text-sm bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        />
                     </div>
                 </div>
 

@@ -23,6 +23,7 @@ import { sortableKeyboardCoordinates, arrayMove } from '@dnd-kit/sortable';
 import { useState } from 'react';
 import GoalItem from './GoalItem';
 import WeeklyTaskItem from './WeeklyTaskItem';
+import { GoogleCalendarSyncButton } from './GoogleCalendarSyncButton';
 
 interface WeeklyViewProps {
     currentDate?: Date;
@@ -152,6 +153,13 @@ export default function WeeklyView({ currentDate = new Date() }: WeeklyViewProps
                 <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
                     {/* Main Area: Goals + Days */}
                     <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-4 gap-4">
+                        <GoogleCalendarSyncButton
+                            startDate={format(days[0], 'yyyy-MM-dd')}
+                            endDate={format(days[days.length - 1], 'yyyy-MM-dd')}
+                            returnTo="/weekly"
+                            label="この週のカレンダーを取り込む"
+                            helper="表示中の週の予定を、日ごとのタスクにします。アプリを開いているあいだ、開始前に知らせます。"
+                        />
                         <div className="shrink-0 max-h-40 overflow-y-auto">
                             <WeeklyGoalList weekId={weekId} goals={weeklyGoals} />
                         </div>
