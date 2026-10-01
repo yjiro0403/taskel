@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 
 // Google Calendar同期スライス
 export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice> = (set, get) => ({
-    syncGoogleCalendar: async (accessToken: string, targetDateStr?: string) => {
+    syncGoogleCalendar: async (accessToken: string, targetDateStr?: string, rangeEndDateStr?: string) => {
         const { user, currentDate } = get();
         if (!user) return 'cancelled';
         const syncingUserId = user.uid;
@@ -14,20 +14,47 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
         // 循環依存回避のためdynamic import
         const {
             fetchCalendarEventsForDate,
+            fetchCalendarEventsForRange,
+            resolveCalendarSyncDate,
             duplicateCalendarImportIds,
             findAlreadyImportedTask,
             resolveEventReminderMinutes,
             GoogleCalendarAuthorizationError,
         } = await import('../../lib/calendarService');
+        const { scheduleCalendarAlertsFromEvents } = await import('../../lib/calendarAlerts');
 
         try {
-            // Explicit arg (TaskList / OAuth pending) wins; else UI store currentDate.
+            // Explicit arg (button / OAuth pending) wins; else UI store currentDate.
             // Never falls back to system "today" — empty/invalid throws.
-            const { dateStr, events, defaultReminders } = await fetchCalendarEventsForDate(
-                accessToken,
-                targetDateStr,
-                currentDate
-            );
+            // A different end date is one inclusive range and must not move currentDate.
+            const startDateStr = resolveCalendarSyncDate(targetDateStr, currentDate);
+            const endDateStr = rangeEndDateStr
+                ? resolveCalendarSyncDate(rangeEndDateStr, currentDate)
+                : startDateStr;
+            const isRange = startDateStr !== endDateStr;
+            let dateStr = startDateStr;
+            let events: Awaited<ReturnType<typeof fetchCalendarEventsForDate>>['events'];
+            let defaultReminders: Awaited<ReturnType<typeof fetchCalendarEventsForDate>>['defaultReminders'];
+            if (isRange) {
+                const result = await fetchCalendarEventsForRange(
+                    accessToken,
+                    startDateStr,
+                    endDateStr,
+                    currentDate
+                );
+                dateStr = result.startDateStr;
+                events = result.events;
+                defaultReminders = result.defaultReminders;
+            } else {
+                const result = await fetchCalendarEventsForDate(
+                    accessToken,
+                    startDateStr,
+                    currentDate
+                );
+                dateStr = result.dateStr;
+                events = result.events;
+                defaultReminders = result.defaultReminders;
+            }
 
             // OAuth return can overlap the initial Supabase data load. Always use
             // the latest store snapshot after the network request, never the empty
@@ -46,8 +73,9 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                 setCurrentDate,
             } = latestState;
 
-            // Keep UI + sessionStorage aligned with the date actually synced (OAuth reload safety).
-            if (dateStr !== latestState.currentDate) {
+            // One-day sync keeps the open day aligned after OAuth reload.
+            // Week/month/year sync must leave the period screen's date alone.
+            if (!isRange && dateStr !== latestState.currentDate) {
                 setCurrentDate(dateStr);
             }
 
@@ -64,7 +92,7 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
             let updatedCount = 0;
 
             for (const event of events) {
-                if (!event.summary) continue;
+                if (!event.summary || !event.start || event.status === 'cancelled') continue;
 
                 // イベント日付の取得
                 const eventDate = event.start.dateTime
@@ -75,7 +103,7 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
 
                 let scheduledStart = undefined;
                 let estimatedMinutes = 30;
-                if (event.start.dateTime && event.end.dateTime) {
+                if (event.start.dateTime && event.end?.dateTime) {
                     const start = new Date(event.start.dateTime);
                     const end = new Date(event.end.dateTime);
 
@@ -187,7 +215,18 @@ export const createCalendarSlice: StateCreator<StoreState, [], [], CalendarSlice
                 message += `Removed ${removedCount} duplicate ${removedCount === 1 ? 'event' : 'events'}.`;
             }
 
-            if (tasksToAdd.length === 0 && updatedCount === 0 && removedCount === 0) {
+            const scheduledCount = scheduleCalendarAlertsFromEvents(events);
+            if (scheduledCount > 0) {
+                const notice = `開始前の通知を${scheduledCount}件セットしました。`;
+                message = message ? `${message.trim()} ${notice}` : notice;
+            }
+
+            if (
+                tasksToAdd.length === 0 &&
+                updatedCount === 0 &&
+                removedCount === 0 &&
+                scheduledCount === 0
+            ) {
                 alert('No new events to import.');
             } else {
                 alert(message.trim());

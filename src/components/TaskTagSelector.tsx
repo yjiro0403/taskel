@@ -1,6 +1,6 @@
 'use client';
 
-import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
+import { memo, type Dispatch, type KeyboardEvent, type SetStateAction } from 'react';
 
 import { X } from 'lucide-react';
 
@@ -19,7 +19,7 @@ interface TaskTagSelectorProps {
     setScore: Dispatch<SetStateAction<number | string>>;
 }
 
-export function TaskTagSelector({
+export const TaskTagSelector = memo(function TaskTagSelector({
     currentTag,
     setCurrentTag,
     showSuggestions,
@@ -97,4 +97,4 @@ export function TaskTagSelector({
             </div>
         </div>
     );
-}
+});

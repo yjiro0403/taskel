@@ -4,7 +4,7 @@ import { createContext, useContext, ReactNode } from 'react';
 import { Task } from '@/types';
 
 interface TaskContextType {
-    // Handler functions
+    // Handler functions. Kept stable so task rows can skip rendering.
     onEdit: (task: Task) => void;
     canEdit: boolean;
     onToggleSelection: (id: string) => void;
@@ -13,11 +13,6 @@ interface TaskContextType {
     onToggleStatus: (task: Task) => void;
     onTagClick: (tagId: string) => void;
     onImageClick: (url: string) => void;
-
-    // Data
-    selectedTaskIds: string[];
-    projects: Array<{ id: string; title: string; color?: string }>;
-    tags: Array<{ id: string; name: string; color?: string }>;
 }
 
 const TaskContext = createContext<TaskContextType | undefined>(undefined);

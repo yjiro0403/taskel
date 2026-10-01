@@ -9,6 +9,8 @@ import { mapSupabaseUser } from '@/lib/supabase/auth';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useStore } from '@/store/useStore';
 import TaskSearchModal from '@/components/TaskSearchModal';
+import { GoogleCalendarSyncResume } from '@/components/GoogleCalendarSyncButton';
+import { CalendarAlertScheduler } from '@/components/CalendarAlertScheduler';
 import {
     clearGoogleCalendarProviderToken,
     storeGoogleCalendarProviderToken,
@@ -80,6 +82,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
 
                 if (!session?.user && !isPublicPath(normalizedPath)) {
+                    if (normalizedPath === '/intake') {
+                        try {
+                            sessionStorage.setItem('taskel_auth_return', '/intake');
+                        } catch {
+                            // Private mode can reject storage. Login still proceeds.
+                        }
+                    }
                     router.push('/login');
                 }
             });
@@ -103,6 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         <>
             {children}
             <TaskSearchModal />
+            <GoogleCalendarSyncResume />
+            <CalendarAlertScheduler />
         </>
     );
 }

@@ -20,6 +20,7 @@ import {
 import { sortableKeyboardCoordinates, arrayMove } from '@dnd-kit/sortable';
 import { useState } from 'react';
 import GoalItem from './GoalItem';
+import { GoogleCalendarSyncButton } from './GoogleCalendarSyncButton';
 
 interface MonthlyViewProps {
     currentDate?: Date;
@@ -157,6 +158,13 @@ export default function MonthlyView({ currentDate = new Date() }: MonthlyViewPro
                 <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
                     {/* Main Area: Goals + Weeks */}
                     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 gap-6">
+                        <GoogleCalendarSyncButton
+                            startDate={format(monthStart, 'yyyy-MM-dd')}
+                            endDate={format(monthEnd, 'yyyy-MM-dd')}
+                            returnTo="/monthly"
+                            label="この月のカレンダーを取り込む"
+                            helper="表示中の月の予定を、日ごとのタスクにします。開始前の通知は近い予定からセットされ、アプリを開いているあいだ届きます。"
+                        />
                         <div className="flex flex-col lg:flex-row gap-6 h-full">
                             {/* Monthly Goals (Left Column) */}
                             <div className="w-full lg:w-64 shrink-0">

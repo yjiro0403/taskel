@@ -57,7 +57,7 @@ export default function DateNavigation() {
                     <CalendarIcon size={20} className="text-blue-600" />
                     <span
                         data-testid="current-date-display"
-                        className="text-base sm:text-lg font-bold text-gray-800"
+                        className="text-base sm:text-lg font-bold text-gray-800 whitespace-nowrap"
                     >
                         {format(displayDate, 'yyyy-MM-dd')}
                     </span>

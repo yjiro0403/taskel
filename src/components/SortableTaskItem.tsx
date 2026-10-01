@@ -1,23 +1,26 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
-import { useDndContext } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '@/types';
 import { TaskItem } from './TaskItem';
 import { useTaskContext } from '@/contexts/TaskContext';
-import { useStore } from '@/store/useStore';
+import { useIsExternalDragOver } from './dndDragOver';
+import { useIsTaskHighlighted, useIsTaskSelected } from './taskRowFlags';
 
 interface SortableTaskItemProps {
     task: Task;
     schedule?: { start: Date; end: Date } | null;
     isDraggable: boolean;
-    canEdit: boolean; // Computed per-task
+    canEdit: boolean;
 }
 
-export function SortableTaskItem(props: SortableTaskItemProps) {
+export const SortableTaskItem = memo(function SortableTaskItem(props: SortableTaskItemProps) {
     const taskContext = useTaskContext();
-    const highlightedTaskId = useStore((s) => s.highlightedTaskId);
+    const isSelected = useIsTaskSelected(props.task.id);
+    const isHighlighted = useIsTaskHighlighted(props.task.id);
+    const isDropBefore = useIsExternalDragOver(props.task.id);
 
     const {
         attributes,
@@ -35,14 +38,10 @@ export function SortableTaskItem(props: SortableTaskItemProps) {
         }
     });
 
-    const style = {
+    const style = useMemo(() => ({
         transform: CSS.Translate.toString(transform),
         transition,
-    };
-
-    const { active, over } = useDndContext();
-    const isExternalDrag = active?.data?.current?.type === 'Unscheduled';
-    const isOver = over?.id === props.task.id;
+    }), [transform, transition]);
 
     return (
         <TaskItem
@@ -53,20 +52,17 @@ export function SortableTaskItem(props: SortableTaskItemProps) {
             style={style}
             isDragging={isDragging}
             dragHandleProps={{ ...attributes, ...listeners }}
-            // From Context
             onEdit={taskContext.onEdit}
             canEdit={props.canEdit}
             onToggleSelection={taskContext.onToggleSelection}
-            isSelected={taskContext.selectedTaskIds.includes(props.task.id)}
+            isSelected={isSelected}
             onPlay={taskContext.onPlay}
             onStop={taskContext.onStop}
             onToggleStatus={taskContext.onToggleStatus}
             onTagClick={taskContext.onTagClick}
             onImageClick={taskContext.onImageClick}
-            isHighlighted={highlightedTaskId === props.task.id}
-            // Add a visual indicator (top border) when an external item is dragged over this task
-            // This indicates insertion BEFORE the current task
-            className={isExternalDrag && isOver ? "border-t-4 border-blue-500 transition-all custom-drop-indicator" : ""}
+            isHighlighted={isHighlighted}
+            className={isDropBefore ? "border-t-4 border-blue-500 transition-all custom-drop-indicator" : ""}
         />
     );
-}
+});

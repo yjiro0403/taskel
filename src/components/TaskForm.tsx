@@ -1,6 +1,6 @@
 'use client';
 
-import type { Dispatch, SetStateAction } from 'react';
+import { memo, type Dispatch, type SetStateAction } from 'react';
 
 import type { Project } from '@/types';
 
@@ -19,7 +19,7 @@ interface TaskFormProps {
     setMemo: Dispatch<SetStateAction<string>>;
 }
 
-export function TaskForm({
+export const TaskForm = memo(function TaskForm({
     title,
     setTitle,
     activeType,
@@ -41,7 +41,7 @@ export function TaskForm({
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors text-gray-900"
                     placeholder={activeType === 'task' ? "e.g., Check emails" : `e.g., ${activeType} Goal`}
                     autoFocus
                 />
@@ -86,10 +86,10 @@ export function TaskForm({
                 <textarea
                     value={memo}
                     onChange={(e) => setMemo(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 min-h-[100px] font-mono text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors text-gray-900 min-h-[100px] font-mono text-sm"
                     placeholder="Add notes, meeting minutes..."
                 />
             </div>
         </>
     );
-}
+});

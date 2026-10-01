@@ -40,10 +40,18 @@ export default defineConfig({
     },
     projects: [
       {
+        resolve: {
+          alias: {
+            '@': srcDir,
+          },
+        },
         test: {
           name: 'unit',
           environment: 'node',
           include: ['src/**/*.test.ts'],
+          alias: {
+            '@': srcDir,
+          },
         },
       },
       ...(storybookVitestPlugin && playwrightProvider

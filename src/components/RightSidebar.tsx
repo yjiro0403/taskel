@@ -18,7 +18,6 @@ export default function RightSidebar() {
         toggleRightSidebar,
         tasks,
         updateTask,
-        selectedTaskIds,
         toggleTaskSelection,
         projects,
         getUniqueTags,
@@ -28,7 +27,6 @@ export default function RightSidebar() {
         toggleRightSidebar: state.toggleRightSidebar,
         tasks: state.tasks,
         updateTask: state.updateTask,
-        selectedTaskIds: state.selectedTaskIds,
         toggleTaskSelection: state.toggleTaskSelection,
         projects: state.projects,
         getUniqueTags: state.getUniqueTags,
@@ -318,13 +316,11 @@ export default function RightSidebar() {
                         <DraggableUnscheduledTask
                             key={task.id}
                             task={task}
-                            onClick={() => handleEditTask(task)}
-                            selectedTaskIds={selectedTaskIds}
+                            onEdit={handleEditTask}
                             toggleTaskSelection={toggleTaskSelection}
                             handlePlay={handlePlay}
                             handleStop={handleStop}
                             projects={projects}
-                            isHighlighted={highlightedTaskId === task.id}
                         />
                     ))
                 )}

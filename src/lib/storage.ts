@@ -100,7 +100,12 @@ export const uploadTaskAttachment = async (file: File, userId: string): Promise<
 
 // private 化した attachments バケットの storage_path から、短命（既定1時間）の署名付きURLを生成する。
 // 描画時に呼び、公開URLの代わりに <img src> へ渡す。失敗時は null を返し、呼び出し側でフォールバックする。
+// リストの再マウントごとに署名を取り直すと今日画面が固まるので、期限の少し前まで使い回す。
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1時間
+const SIGNED_URL_REFRESH_BEFORE_MS = 5 * 60 * 1000;
+
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+const signedUrlInflight = new Map<string, Promise<string | null>>();
 
 export const getAttachmentSignedUrl = async (
     path: string,
@@ -110,16 +115,40 @@ export const getAttachmentSignedUrl = async (
         return null;
     }
 
-    const { data, error } = await createClient()
-        .storage.from('attachments')
-        .createSignedUrl(path, expiresIn);
-
-    if (error || !data) {
-        console.error('Failed to create signed URL for attachment:', error);
-        return null;
+    const cacheKey = `${expiresIn}:${path}`;
+    const cached = signedUrlCache.get(cacheKey);
+    if (cached && cached.expiresAt - SIGNED_URL_REFRESH_BEFORE_MS > Date.now()) {
+        return cached.url;
     }
 
-    return data.signedUrl;
+    const pending = signedUrlInflight.get(cacheKey);
+    if (pending) {
+        return pending;
+    }
+
+    const request = (async () => {
+        try {
+            const { data, error } = await createClient()
+                .storage.from('attachments')
+                .createSignedUrl(path, expiresIn);
+
+            if (error || !data?.signedUrl) {
+                console.error('Failed to create signed URL for attachment:', error);
+                return null;
+            }
+
+            signedUrlCache.set(cacheKey, {
+                url: data.signedUrl,
+                expiresAt: Date.now() + expiresIn * 1000,
+            });
+            return data.signedUrl;
+        } finally {
+            signedUrlInflight.delete(cacheKey);
+        }
+    })();
+
+    signedUrlInflight.set(cacheKey, request);
+    return request;
 };
 
 export const deleteAttachment = async (path: string): Promise<void> => {

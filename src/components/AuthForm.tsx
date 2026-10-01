@@ -38,7 +38,16 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
 
     useEffect(() => {
         if (user) {
-            router.push('/tasks');
+            let back: string | null = null;
+            try {
+                back = sessionStorage.getItem('taskel_auth_return');
+                if (back === '/intake') {
+                    sessionStorage.removeItem('taskel_auth_return');
+                }
+            } catch {
+                back = null;
+            }
+            router.push(back === '/intake' ? '/intake' : '/tasks');
         }
     }, [router, user]);
 
