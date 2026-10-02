@@ -82,8 +82,8 @@ export interface ProjectSlice {
 
 export interface RoutineSlice {
     routines: Routine[];
-    addRoutine: (routine: Routine) => void;
-    updateRoutine: (routineId: string, updates: Partial<Routine>) => void;
+    addRoutine: (routine: Routine) => Promise<boolean>;
+    updateRoutine: (routineId: string, updates: Partial<Routine>) => Promise<boolean>;
     deleteRoutine: (routineId: string) => void;
     resetRoutineSlice: () => void;
 }
