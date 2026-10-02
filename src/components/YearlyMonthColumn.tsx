@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { Task } from '@/types';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import clsx from 'clsx';
 import { CheckCircle2, Circle, Plus, GripVertical } from 'lucide-react';
-import AddTaskModal from './AddTaskModal';
+import AddTaskModal from './LazyAddTaskModal';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -61,7 +62,12 @@ function SortableItem({ task, onClick, onDelete, onToggle }: { task: Task; onCli
 }
 
 export default function YearlyMonthColumn({ monthId, monthLabel, goals }: Props) {
-    const { updateTask, deleteTask } = useStore();
+    const { updateTask, deleteTask } = useStore(
+        useShallow((state) => ({
+            updateTask: state.updateTask,
+            deleteTask: state.deleteTask,
+        }))
+    );
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 

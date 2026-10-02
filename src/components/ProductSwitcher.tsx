@@ -5,6 +5,7 @@ import { User as UserIcon, LogOut, Trash2, Check, ChevronDown } from 'lucide-rea
 import clsx from 'clsx';
 import { useRouter, usePathname } from 'next/navigation';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { AppUser } from '@/types/auth';
 
 interface ProductSwitcherProps {
@@ -14,7 +15,12 @@ interface ProductSwitcherProps {
 
 export default function ProductSwitcher({ user, onDeleteAccount }: ProductSwitcherProps) {
     const [isOpen, setIsOpen] = useState(false);
-    const { toggleLeftSidebar, signOut } = useStore();
+    const { toggleLeftSidebar, signOut } = useStore(
+        useShallow((state) => ({
+            toggleLeftSidebar: state.toggleLeftSidebar,
+            signOut: state.signOut,
+        }))
+    );
     const router = useRouter();
     const pathname = usePathname();
     const containerRef = useRef<HTMLDivElement>(null);

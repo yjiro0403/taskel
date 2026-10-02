@@ -6,9 +6,15 @@ import { AlertTriangle } from 'lucide-react';
 import SettingsLayout from '@/components/SettingsLayout';
 import { createClient } from '@/lib/supabase/client';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 
 export default function AccountSettingsPage() {
-    const { user, setUser } = useStore();
+    const { user, setUser } = useStore(
+        useShallow((state) => ({
+            user: state.user,
+            setUser: state.setUser,
+        }))
+    );
     const [displayName, setDisplayName] = useState('');
     const [isEditingName, setIsEditingName] = useState(false);
     const [isLoading, setIsLoading] = useState(false);

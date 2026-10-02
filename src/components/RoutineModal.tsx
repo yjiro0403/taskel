@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Routine, Frequency } from '@/types';
 import { format } from 'date-fns';
 import { getPersistedSectionForTime } from '@/lib/sectionUtils';
@@ -14,7 +15,17 @@ interface RoutineModalProps {
 }
 
 export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineModalProps) {
-    const { addRoutine, updateRoutine, user, sections, projects, tags: tagsList, addTag } = useStore();
+    const { addRoutine, updateRoutine, user, sections, projects, tags: tagsList, addTag } = useStore(
+        useShallow((state) => ({
+            addRoutine: state.addRoutine,
+            updateRoutine: state.updateRoutine,
+            user: state.user,
+            sections: state.sections,
+            projects: state.projects,
+            tags: state.tags,
+            addTag: state.addTag,
+        }))
+    );
     const [title, setTitle] = useState('');
     const [frequency, setFrequency] = useState<Frequency>('daily');
     const [sectionId, setSectionId] = useState('');

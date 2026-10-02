@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Task, Project } from '@/types';
 import { Plus, GripVertical, CheckCircle2, Circle } from 'lucide-react';
 import clsx from 'clsx';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import AddTaskModal from './AddTaskModal';
+import AddTaskModal from './LazyAddTaskModal';
 import GoalItem from './GoalItem';
 
 interface Props {
@@ -49,7 +50,14 @@ function SortableGoalItem({ goal, projects, onToggle, onDelete, onClick }: Sorta
 }
 
 export default function MonthlyGoalList({ monthId, goals }: Props) {
-    const { updateTask, deleteTask, projects, reorderTasks } = useStore();
+    const { updateTask, deleteTask, projects, reorderTasks } = useStore(
+        useShallow((state) => ({
+            updateTask: state.updateTask,
+            deleteTask: state.deleteTask,
+            projects: state.projects,
+            reorderTasks: state.reorderTasks,
+        }))
+    );
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 

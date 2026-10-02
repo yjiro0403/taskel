@@ -1,9 +1,14 @@
-import { driver } from "driver.js";
-import "driver.js/dist/driver.css";
 import { useCallback } from "react";
 
+// driver.js（本体 + CSS）はツアーを実際に始めるときだけ読み込む。
+// ツアーはユーザーごとに一度しか走らないので、毎回の初期バンドルに含めない。
 export const useTour = () => {
-    const startTour = useCallback(() => {
+    const startTour = useCallback(async () => {
+        const [{ driver }] = await Promise.all([
+            import("driver.js"),
+            import("driver.js/dist/driver.css"),
+        ]);
+
         const driverObj = driver({
             showProgress: true,
             animate: true,

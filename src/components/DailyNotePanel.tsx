@@ -2,11 +2,18 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function DailyNotePanel() {
-    const { dailyNotes, saveDailyNote, currentDate } = useStore();
+    const { dailyNotes, saveDailyNote, currentDate } = useStore(
+        useShallow((state) => ({
+            dailyNotes: state.dailyNotes,
+            saveDailyNote: state.saveDailyNote,
+            currentDate: state.currentDate,
+        }))
+    );
     const [isOpen, setIsOpen] = useState(false);
     const [noteContent, setNoteContent] = useState('');
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);

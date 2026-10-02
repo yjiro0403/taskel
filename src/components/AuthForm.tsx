@@ -6,6 +6,7 @@ import { Loader2, Lock, Mail } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Link, useRouter } from '@/i18n/routing';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface AuthFormProps {
     isLogin?: boolean;
@@ -34,7 +35,11 @@ export function AuthForm({ isLogin = true }: AuthFormProps) {
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const router = useRouter();
-    const { user } = useStore();
+    const { user } = useStore(
+        useShallow((state) => ({
+            user: state.user,
+        }))
+    );
 
     useEffect(() => {
         if (user) {

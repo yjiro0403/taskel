@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Users, Link as LinkIcon, Copy, Loader2, Mail, Check, AlertTriangle, User } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { HubRole } from '@/types';
 
 type InviteRole = Exclude<HubRole, 'owner'>;
@@ -21,7 +22,13 @@ interface FoundUser {
 }
 
 export default function ProjectInviteModal({ isOpen, onClose, projectId, existingMemberIds }: ProjectInviteModalProps) {
-    const { generateInviteLink, inviteMember, projects } = useStore();
+    const { generateInviteLink, inviteMember, projects } = useStore(
+        useShallow((state) => ({
+            generateInviteLink: state.generateInviteLink,
+            inviteMember: state.inviteMember,
+            projects: state.projects,
+        }))
+    );
 
     // Determine current project to robustly handle updates if needed, though projectId is passed
     const project = projects.find(p => p.id === projectId);

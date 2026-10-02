@@ -3,8 +3,9 @@ import { format, isToday } from 'date-fns';
 import { Plus } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useState } from 'react';
-import AddTaskModal from './AddTaskModal';
+import AddTaskModal from './LazyAddTaskModal';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -43,7 +44,11 @@ function SortableTaskItem({ task, onToggle, onClick }: SortableTaskItemProps) {
 }
 
 export default function WeeklyDayColumn({ date, tasks }: Props) {
-    const { updateTask } = useStore();
+    const { updateTask } = useStore(
+        useShallow((state) => ({
+            updateTask: state.updateTask,
+        }))
+    );
     const formattedDate = format(date, 'd');
     const dayName = format(date, 'EEE');
     const isCurrentDay = isToday(date);

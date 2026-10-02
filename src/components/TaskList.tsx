@@ -6,11 +6,12 @@ import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar, CalendarS
 import clsx from 'clsx';
 import { calculateTaskSchedule, formatTime, type TimeSlot } from '@/lib/timeUtils';
 import { useEffect, useState, useMemo, useRef, memo } from 'react';
+import dynamic from 'next/dynamic';
 import { useShallow } from 'zustand/react/shallow';
 import { addMinutes } from 'date-fns';
 import { INTERVAL_SECTION_PREFIX, isIntervalSection, generateDisplaySections, getSectionForTime } from '@/lib/sectionUtils';
 
-import AddTaskModal from './AddTaskModal';
+import AddTaskModal from './LazyAddTaskModal';
 import TagModal from './TagModal';
 import DateNavigation from './DateNavigation';
 import Link from 'next/link';
@@ -28,7 +29,6 @@ import {
     SortableContext,
     verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { AIChatPanel } from './AIChatPanel';
 import { createClient } from '@/lib/supabase/client';
 import {
     clearGoogleCalendarProviderToken,
@@ -40,6 +40,12 @@ import {
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { compareTasksForDisplay, sortTasksForDisplay } from '@/lib/tasks/taskOrder';
 import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
+
+// AI チャットは framer-motion / @ai-sdk/react / react-markdown を引き込む。開くまでは
+// 右下のボタンしか見えないので、初期バンドルから外して別チャンクで後から読み込む。
+const AIChatPanel = dynamic(() => import('./AIChatPanel').then((module) => module.AIChatPanel), {
+    ssr: false,
+});
 
 function TaskList() {
     const { tasks, tasksLoaded, sections, routines, updateTask, duplicateTask, currentTime, setCurrentTime, selectedTaskIds, toggleTaskSelection, currentDate, setCurrentDate, syncGoogleCalendar, user, initialDataStatus, tags, projects, getMergedTasks, addUserComment, triggerAIProcess, highlightedTaskId, pendingEditTaskId, setPendingEditTaskId, timelineEnabled, hideEmptyIntervals } = useStore(useShallow((state) => ({
@@ -93,7 +99,7 @@ function TaskList() {
         if (tasks.length > 0) {
             tourTriggered.current = true;
             const timer = setTimeout(() => {
-                startTour();
+                startTour().catch((error) => console.error('Failed to start the tour:', error));
                 localStorage.setItem('taskel_tour_completed', 'true');
             }, 1500);
             return () => clearTimeout(timer);
@@ -322,13 +328,33 @@ function TaskList() {
         [filteredTasks, sections, currentTime]
     );
 
-    const getTasksBySection = (sectionId: string) => {
-        const sectionTasks = filteredTasks
-            .filter((task) => task.sectionId === sectionId);
+    // セクションごとの並び済みタスク。以前はセクションごとに 2 回（終了時刻用と描画用）
+    // 全タスクをフィルタ・ソートし直していたため、1 回のパスで作って使い回す。
+    const tasksBySection = useMemo(() => {
+        const groups = new Map<string, Task[]>();
+        filteredTasks.forEach((task) => {
+            const group = groups.get(task.sectionId);
+            if (group) {
+                group.push(task);
+            } else {
+                groups.set(task.sectionId, [task]);
+            }
+        });
         // UNIFIED SORT: the visual order matches the draggable 'order' property, with
         // scheduled tasks handled by the tie-breaker in compareTasksForDisplay.
-        return sectionTasks.sort(compareTasksForDisplay);
-    };
+        groups.forEach((group) => group.sort(compareTasksForDisplay));
+        return groups;
+    }, [filteredTasks]);
+
+    const EMPTY_SECTION: Task[] = useMemo(() => [], []);
+    const getTasksBySection = (sectionId: string) => tasksBySection.get(sectionId) ?? EMPTY_SECTION;
+
+    // DayTimeline は tasks の参照が変わると配置を計算し直すので、毎レンダーの filter で
+    // 新しい配列を渡さない。
+    const timelineTasks = useMemo(
+        () => filteredTasks.filter((task) => task.status !== 'skipped'),
+        [filteredTasks]
+    );
 
     // Shared with deep-link focusTask so Edit Item cannot open for viewers.
     const canEditTask = (task: Task) =>
@@ -461,7 +487,7 @@ function TaskList() {
 
                 {timelineEnabled ? (
                     <DayTimeline
-                        tasks={filteredTasks.filter((task) => task.status !== 'skipped')}
+                        tasks={timelineTasks}
                         sections={sections}
                         currentTime={currentTime}
                         currentDate={currentDate}

@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { X, Sparkles, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslations } from 'next-intl';
@@ -41,7 +42,33 @@ export const AIChatPanel: React.FC = () => {
         usageRequestCount,
         usageRequestLimit,
         fetchBillingInfo,
-    } = useStore();
+    } = useStore(
+        useShallow((state) => ({
+            isAIPanelOpen: state.isAIPanelOpen,
+            toggleAIPanel: state.toggleAIPanel,
+            user: state.user,
+            currentDate: state.currentDate,
+            sections: state.sections,
+            taskCandidates: state.taskCandidates,
+            addTaskCandidate: state.addTaskCandidate,
+            confirmTaskCandidate: state.confirmTaskCandidate,
+            dismissTaskCandidate: state.dismissTaskCandidate,
+            updateTaskCandidate: state.updateTaskCandidate,
+            cachedGoalSummaries: state.cachedGoalSummaries,
+            setCachedGoalSummaries: state.setCachedGoalSummaries,
+            cachedCalibrationHint: state.cachedCalibrationHint,
+            setCachedCalibrationHint: state.setCachedCalibrationHint,
+            confirmMultipleCandidates: state.confirmMultipleCandidates,
+            dismissMultipleCandidates: state.dismissMultipleCandidates,
+            confirmAndStartTask: state.confirmAndStartTask,
+            goals: state.goals,
+            tasks: state.tasks,
+            billingPlan: state.billingPlan,
+            usageRequestCount: state.usageRequestCount,
+            usageRequestLimit: state.usageRequestLimit,
+            fetchBillingInfo: state.fetchBillingInfo,
+        }))
+    );
     const t = useTranslations('AIChatPanel');
     // Fallback if translation is missing
     const t_placeholder = t('inputPlaceholder') === 'AIChatPanel.inputPlaceholder'

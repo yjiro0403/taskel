@@ -101,6 +101,12 @@ export const uploadTaskAttachment = async (file: File, userId: string): Promise<
 // private 化した attachments バケットの storage_path から、短命（既定1時間）の署名付きURLを生成する。
 // 描画時に呼び、公開URLの代わりに <img src> へ渡す。失敗時は null を返し、呼び出し側でフォールバックする。
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1時間
+// 失効の少し手前までは同じ URL を使い回す。日付を行き来するたびに全画像の署名を
+// 取り直し、しかも URL が毎回変わってブラウザの画像キャッシュが効かなかったため。
+const SIGNED_URL_REUSE_MARGIN_MS = 5 * 60 * 1000;
+
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+const signedUrlInFlight = new Map<string, Promise<string | null>>();
 
 export const getAttachmentSignedUrl = async (
     path: string,
@@ -110,16 +116,47 @@ export const getAttachmentSignedUrl = async (
         return null;
     }
 
-    const { data, error } = await createClient()
-        .storage.from('attachments')
-        .createSignedUrl(path, expiresIn);
-
-    if (error || !data) {
-        console.error('Failed to create signed URL for attachment:', error);
-        return null;
+    const cacheKey = `${path}#${expiresIn}`;
+    const cached = signedUrlCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.url;
     }
 
-    return data.signedUrl;
+    // 同じ画像が同時に複数描画されても署名リクエストは 1 回にまとめる。
+    const inFlight = signedUrlInFlight.get(cacheKey);
+    if (inFlight) {
+        return inFlight;
+    }
+
+    const request = (async () => {
+        const { data, error } = await createClient()
+            .storage.from('attachments')
+            .createSignedUrl(path, expiresIn);
+
+        if (error || !data) {
+            console.error('Failed to create signed URL for attachment:', error);
+            return null;
+        }
+
+        signedUrlCache.set(cacheKey, {
+            url: data.signedUrl,
+            expiresAt: Date.now() + expiresIn * 1000 - SIGNED_URL_REUSE_MARGIN_MS,
+        });
+        return data.signedUrl;
+    })().finally(() => {
+        signedUrlInFlight.delete(cacheKey);
+    });
+    signedUrlInFlight.set(cacheKey, request);
+    return request;
+};
+
+/** 添付を消したときに古い署名 URL を残さないためのキャッシュ破棄。 */
+export const forgetAttachmentSignedUrl = (path: string) => {
+    for (const key of Array.from(signedUrlCache.keys())) {
+        if (key.startsWith(`${path}#`)) {
+            signedUrlCache.delete(key);
+        }
+    }
 };
 
 export const deleteAttachment = async (path: string): Promise<void> => {
@@ -127,4 +164,5 @@ export const deleteAttachment = async (path: string): Promise<void> => {
     if (error) {
         throw error;
     }
+    forgetAttachmentSignedUrl(path);
 };
