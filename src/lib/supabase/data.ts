@@ -397,6 +397,22 @@ type TaskWithRelations = Tables['tasks']['Row'] & {
     attachments: Tables['attachments']['Row'][] | null;
 };
 
+const TASK_WITH_RELATIONS_SELECT = '*, task_tags(*), attachments(*)';
+
+// 埋め込み付きの行を「親行 / task_tags / attachments」に分けて集める（ページ取得・差分取得で共通）。
+function splitTaskRelations(rows: TaskWithRelations[]) {
+    const taskRows: Tables['tasks']['Row'][] = [];
+    const taskTagRows: Tables['task_tags']['Row'][] = [];
+    const attachmentRows: Tables['attachments']['Row'][] = [];
+    for (const row of rows) {
+        const { task_tags: relatedTags, attachments: relatedAttachments, ...taskRow } = row;
+        taskRows.push(taskRow as Tables['tasks']['Row']);
+        taskTagRows.push(...(relatedTags ?? []));
+        attachmentRows.push(...(relatedAttachments ?? []));
+    }
+    return { taskRows, taskTagRows, attachmentRows };
+}
+
 async function fetchTaskPage(
     client: Client,
     from: number,
@@ -404,8 +420,8 @@ async function fetchTaskPage(
     includeCount = false
 ): Promise<{ page: TaskWithRelations[]; count: number | null }> {
     const query = includeCount
-        ? client.from('tasks').select('*, task_tags(*), attachments(*)', { count: 'exact' })
-        : client.from('tasks').select('*, task_tags(*), attachments(*)');
+        ? client.from('tasks').select(TASK_WITH_RELATIONS_SELECT, { count: 'exact' })
+        : client.from('tasks').select(TASK_WITH_RELATIONS_SELECT);
     const { data, error, count } = await query
         .order('date', { ascending: true })
         .order('order', { ascending: true })
@@ -434,12 +450,10 @@ export async function fetchTasks(client: Client, tags: Tag[] | Promise<Tag[]>) {
     const attachmentRows: Tables['attachments']['Row'][] = [];
 
     const appendPage = (page: TaskWithRelations[]) => {
-        for (const task of page) {
-            const { task_tags: relatedTags, attachments: relatedAttachments, ...taskRow } = task;
-            taskRows.push(taskRow as Tables['tasks']['Row']);
-            taskTagRows.push(...(relatedTags ?? []));
-            attachmentRows.push(...(relatedAttachments ?? []));
-        }
+        const split = splitTaskRelations(page);
+        taskRows.push(...split.taskRows);
+        taskTagRows.push(...split.taskTagRows);
+        attachmentRows.push(...split.attachmentRows);
     };
 
     // 1ページ目でRLS適用後の正確な件数も受け取り、残りのrangeを安全に並列化する。
@@ -469,6 +483,79 @@ export async function fetchTasks(client: Client, tags: Tag[] | Promise<Tag[]>) {
 
     const resolvedTags = await tagsPromise;
     return buildTaskTags(taskRows, taskTagRows, resolvedTags, attachmentRows);
+}
+
+/**
+ * 追いつき同期用: `updated_at >= sinceIso` のタスクだけを 1 ページ取得する。
+ * フォアグラウンド復帰や Realtime 再接続のたびに全件（移行アカウントでは数千行）を
+ * 取り直さないための差分取得。`complete: false`（1 ページに収まらない）なら呼び出し側が
+ * fetchTasks で全件へフォールバックする。削除はこのクエリでは見えないので、
+ * fetchTaskIdsBetween による ID 照合と組み合わせる。
+ */
+export async function fetchTasksUpdatedSince(
+    client: Client,
+    sinceIso: string,
+    tags: Tag[] | Promise<Tag[]>
+): Promise<{ tasks: Task[]; complete: boolean }> {
+    const { data, error } = await client
+        .from('tasks')
+        .select(TASK_WITH_RELATIONS_SELECT)
+        .gte('updated_at', sinceIso)
+        .order('updated_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(0, TASK_FETCH_PAGE_SIZE - 1);
+
+    const rows = requireData(data, error) as unknown as TaskWithRelations[];
+    const { taskRows, taskTagRows, attachmentRows } = splitTaskRelations(rows);
+    const resolvedTags = await Promise.resolve(tags);
+    return {
+        tasks: buildTaskTags(taskRows, taskTagRows, resolvedTags, attachmentRows),
+        complete: rows.length < TASK_FETCH_PAGE_SIZE,
+    };
+}
+
+/**
+ * 追いつき同期の削除照合用: `date` が [fromDate, toDate] に入るタスクの ID だけを全件返す。
+ * id 列のみなので数千行でも軽い。fetchTasks と同じく 1,000 行単位で安全にページングする。
+ */
+export async function fetchTaskIdsBetween(client: Client, fromDate: string, toDate: string): Promise<string[]> {
+    const pageSize = TASK_FETCH_PAGE_SIZE;
+    const fetchPage = async (from: number, to: number, includeCount: boolean) => {
+        const query = includeCount
+            ? client.from('tasks').select('id', { count: 'exact' })
+            : client.from('tasks').select('id');
+        const { data, error, count } = await query
+            .gte('date', fromDate)
+            .lte('date', toDate)
+            .order('id', { ascending: true })
+            .range(from, to);
+        return { ids: requireData(data, error).map((row) => row.id), count };
+    };
+
+    const first = await fetchPage(0, pageSize - 1, true);
+    const ids = [...first.ids];
+    if (first.ids.length < pageSize) {
+        return ids;
+    }
+
+    if (first.count !== null) {
+        const remainingRanges = buildTaskPageRanges(first.count, pageSize).slice(1);
+        for (let index = 0; index < remainingRanges.length; index += TASK_FETCH_MAX_CONCURRENCY) {
+            const batch = remainingRanges.slice(index, index + TASK_FETCH_MAX_CONCURRENCY);
+            const results = await Promise.all(batch.map(({ from, to }) => fetchPage(from, to, false)));
+            results.forEach((result) => ids.push(...result.ids));
+        }
+        return ids;
+    }
+
+    for (let from = pageSize; ; from += pageSize) {
+        const { ids: pageIds } = await fetchPage(from, from + pageSize - 1, false);
+        ids.push(...pageIds);
+        if (pageIds.length < pageSize) {
+            break;
+        }
+    }
+    return ids;
 }
 
 export async function fetchTaskById(client: Client, taskId: string) {
@@ -758,6 +845,8 @@ export async function syncTaskTags(client: Client, taskId: string, userId: strin
     }
 }
 
+export type SubscribeStatus = 'SUBSCRIBED' | 'TIMED_OUT' | 'CLOSED' | 'CHANNEL_ERROR';
+
 export function subscribeTable(
     client: Client,
     channelName: string,
@@ -767,7 +856,10 @@ export function subscribeTable(
         new: Record<string, unknown>;
         old: Record<string, unknown>;
     }) => void,
-    filter?: string
+    filter?: string,
+    // 購読状態の通知。接続断（CHANNEL_ERROR / TIMED_OUT / CLOSED）と再購読（SUBSCRIBED）を
+    // 呼び出し側が検知し、切断中に取りこぼしたイベントを差分取得で埋めるために使う。
+    onStatus?: (status: SubscribeStatus, error?: Error) => void
 ) {
     const channel = client.channel(channelName);
     channel.on(
@@ -776,7 +868,10 @@ export function subscribeTable(
         onChange
     );
 
-    channel.subscribe();
+    channel.subscribe((status, error) => {
+        // realtime-js の列挙型（文字列 enum）を素の文字列リテラルへ正規化して渡す。
+        onStatus?.(status as string as SubscribeStatus, error);
+    });
     return channel;
 }
 

@@ -5,7 +5,9 @@ import {
     buildTaskInsertPayload,
     buildTaskPageRanges,
     buildTaskUpdatePayload,
+    fetchTaskIdsBetween,
     fetchTasks,
+    fetchTasksUpdatedSince,
     TASK_FETCH_PAGE_SIZE,
 } from './data';
 import type { Task } from '../../types';
@@ -151,6 +153,155 @@ describe('fetchTasks pagination', () => {
 
         await fetchTasks(fakeClient, []);
 
+        expect(requestedRanges).toEqual([
+            { from: 0, to: 999 },
+            { from: 1_000, to: 1_999 },
+            { from: 2_000, to: 2_999 },
+        ]);
+    });
+});
+
+// 追いつき同期（復帰 / 再接続時の差分取得）が投げるクエリの形を固定する。
+describe('fetchTasksUpdatedSince（差分取得）', () => {
+    const baseRow = {
+        id: '22222222-2222-4222-8222-222222222222',
+        user_id: USER_ID,
+        title: 'Changed on the web',
+        assignee_id: null,
+        reporter_id: null,
+        section_id: null,
+        date: '2026-10-02',
+        status: 'open' as const,
+        estimated_minutes: 30,
+        actual_minutes: 0,
+        started_at: null,
+        completed_at: null,
+        scheduled_start: null,
+        external_link: null,
+        parent_goal_id: null,
+        project_id: null,
+        milestone_id: null,
+        routine_id: null,
+        assigned_week: null,
+        assigned_month: null,
+        assigned_year: null,
+        assigned_date: null,
+        score: null,
+        order: 0,
+        memo: null,
+        checklist: [],
+        ai_tags: [],
+        ai_status: null,
+        ai_error: null,
+        ai_completed_at: null,
+        comment_count: 0,
+        created_at: '2026-10-01T00:00:00.000Z',
+        updated_at: '2026-10-02T01:00:00.000Z',
+        task_tags: [],
+        attachments: [],
+    };
+
+    function makeClient(rows: unknown[]) {
+        const calls: Array<{ method: string; args: unknown[] }> = [];
+        const query = {
+            select: (...args: unknown[]) => {
+                calls.push({ method: 'select', args });
+                return query;
+            },
+            gte: (...args: unknown[]) => {
+                calls.push({ method: 'gte', args });
+                return query;
+            },
+            order: (...args: unknown[]) => {
+                calls.push({ method: 'order', args });
+                return query;
+            },
+            range: async (...args: unknown[]) => {
+                calls.push({ method: 'range', args });
+                return { data: rows, error: null };
+            },
+        };
+        const client = { from: () => query } as unknown as SupabaseClient<Database>;
+        return { client, calls };
+    }
+
+    it('updated_at >= since で 1 ページだけ取り、ページに収まれば complete', async () => {
+        const { client, calls } = makeClient([baseRow]);
+        const result = await fetchTasksUpdatedSince(client, '2026-10-02T00:58:00.000Z', []);
+
+        expect(calls.find((call) => call.method === 'gte')?.args).toEqual(['updated_at', '2026-10-02T00:58:00.000Z']);
+        expect(calls.find((call) => call.method === 'range')?.args).toEqual([0, TASK_FETCH_PAGE_SIZE - 1]);
+        expect(result.complete).toBe(true);
+        expect(result.tasks).toHaveLength(1);
+        expect(result.tasks[0].title).toBe('Changed on the web');
+        expect(result.tasks[0].updatedAt).toBe(Date.parse('2026-10-02T01:00:00.000Z'));
+    });
+
+    it('ページが満杯なら complete: false（呼び出し側が全件取得へ切り替える）', async () => {
+        const { client } = makeClient(Array.from({ length: TASK_FETCH_PAGE_SIZE }, () => baseRow));
+        const result = await fetchTasksUpdatedSince(client, '2026-10-02T00:00:00.000Z', []);
+        expect(result.complete).toBe(false);
+        expect(result.tasks).toHaveLength(TASK_FETCH_PAGE_SIZE);
+    });
+});
+
+describe('fetchTaskIdsBetween（削除照合用の ID 一覧）', () => {
+    function makeClient(total: number) {
+        const requestedRanges: Array<{ from: number; to: number }> = [];
+        const filters: Array<{ method: string; args: unknown[] }> = [];
+        const client = {
+            from: () => {
+                const query = {
+                    select: (_columns: string, options?: { count?: string }) => {
+                        const builder = {
+                            gte: (...args: unknown[]) => {
+                                filters.push({ method: 'gte', args });
+                                return builder;
+                            },
+                            lte: (...args: unknown[]) => {
+                                filters.push({ method: 'lte', args });
+                                return builder;
+                            },
+                            order: () => builder,
+                            range: async (from: number, to: number) => {
+                                requestedRanges.push({ from, to });
+                                const ids = [];
+                                for (let index = from; index <= Math.min(to, total - 1); index += 1) {
+                                    ids.push(`id-${index}`);
+                                }
+                                return {
+                                    data: ids.map((id) => ({ id })),
+                                    error: null,
+                                    count: options?.count === 'exact' ? total : null,
+                                };
+                            },
+                        };
+                        return builder;
+                    },
+                };
+                return query;
+            },
+        } as unknown as SupabaseClient<Database>;
+        return { client, requestedRanges, filters };
+    }
+
+    it('date の範囲で絞り、1 ページに収まれば 1 リクエストで返す', async () => {
+        const { client, requestedRanges, filters } = makeClient(3);
+        const ids = await fetchTaskIdsBetween(client, '2026-09-01', '2026-10-31');
+        expect(ids).toEqual(['id-0', 'id-1', 'id-2']);
+        expect(requestedRanges).toEqual([{ from: 0, to: TASK_FETCH_PAGE_SIZE - 1 }]);
+        expect(filters).toEqual([
+            { method: 'gte', args: ['date', '2026-09-01'] },
+            { method: 'lte', args: ['date', '2026-10-31'] },
+        ]);
+    });
+
+    it('1 ページを超えたら count から残りを欠落なく取る', async () => {
+        const total = TASK_FETCH_PAGE_SIZE * 2 + 5;
+        const { client, requestedRanges } = makeClient(total);
+        const ids = await fetchTaskIdsBetween(client, '2026-09-01', '2026-10-31');
+        expect(ids).toHaveLength(total);
+        expect(new Set(ids).size).toBe(total);
         expect(requestedRanges).toEqual([
             { from: 0, to: 999 },
             { from: 1_000, to: 1_999 },
