@@ -42,6 +42,7 @@ import { UNCATEGORIZED_ID, UNCATEGORIZED_TAG } from '@/lib/analytics/types';
 import { formatYen } from '@/lib/finance/format';
 import type { FinanceEntry } from '@/lib/finance/types';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { Project, Task } from '@/types';
 
 type Breakdown =
@@ -52,22 +53,24 @@ type Breakdown =
 export default function AnalyticsDashboard() {
     const t = useTranslations('Analytics');
     const locale = useLocale();
-    const {
-        tasks,
-        projects,
-        tags,
-        financeEnabled,
-        loadFinanceBreakdown,
-        loadFinanceCategories,
-        loadPeriodAnalytics,
-        savePeriodPlan,
-        saveCategoryBudget,
-        removeCategoryBudget,
-        periodPlan,
-        categoryBudgets,
-        updateProject,
-        showToast,
-    } = useStore();
+    const { tasks, projects, tags, financeEnabled, loadFinanceBreakdown, loadFinanceCategories, loadPeriodAnalytics, savePeriodPlan, saveCategoryBudget, removeCategoryBudget, periodPlan, categoryBudgets, updateProject, showToast, } = useStore(
+        useShallow((state) => ({
+            tasks: state.tasks,
+            projects: state.projects,
+            tags: state.tags,
+            financeEnabled: state.financeEnabled,
+            loadFinanceBreakdown: state.loadFinanceBreakdown,
+            loadFinanceCategories: state.loadFinanceCategories,
+            loadPeriodAnalytics: state.loadPeriodAnalytics,
+            savePeriodPlan: state.savePeriodPlan,
+            saveCategoryBudget: state.saveCategoryBudget,
+            removeCategoryBudget: state.removeCategoryBudget,
+            periodPlan: state.periodPlan,
+            categoryBudgets: state.categoryBudgets,
+            updateProject: state.updateProject,
+            showToast: state.showToast,
+        }))
+    );
 
     const [timeRange, setTimeRange] = useState<AnalyticsTimeRange>('week');
     const [selectedProject, setSelectedProject] = useState('all');

@@ -5,6 +5,7 @@ import { ListChecks, Plus, X, BookmarkPlus } from 'lucide-react';
 import clsx from 'clsx';
 import { ChecklistItem } from '@/types';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface TaskChecklistEditorProps {
     checklist: ChecklistItem[];
@@ -15,7 +16,13 @@ interface TaskChecklistEditorProps {
 // リスト本体は親のフォーム state として保持し、保存ボタンでタスクと一緒に永続化される。
 // テンプレート（itemTemplates）からの一括追加と、現在のリストのテンプレート保存ができる。
 export function TaskChecklistEditor({ checklist, setChecklist }: TaskChecklistEditorProps) {
-    const { itemTemplates, addItemTemplate, user } = useStore();
+    const { itemTemplates, addItemTemplate, user } = useStore(
+        useShallow((state) => ({
+            itemTemplates: state.itemTemplates,
+            addItemTemplate: state.addItemTemplate,
+            user: state.user,
+        }))
+    );
 
     const [newItemName, setNewItemName] = useState('');
     const [isComposing, setIsComposing] = useState(false);

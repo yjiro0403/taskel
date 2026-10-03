@@ -14,6 +14,7 @@ import {
     type AlarmDraft,
 } from '@/lib/tasks/alarmDrafts';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Task } from '@/types';
 
 interface TaskAlarmSectionProps {
@@ -227,7 +228,16 @@ export function TaskAlarmSection({
     onDraftsChange,
 }: TaskAlarmSectionProps) {
     const t = useTranslations('Alarm');
-    const { alarms, alarmsLoaded, fetchAlarms, addAlarm, updateAlarm, deleteAlarm } = useStore();
+    const { alarms, alarmsLoaded, fetchAlarms, addAlarm, updateAlarm, deleteAlarm } = useStore(
+        useShallow((state) => ({
+            alarms: state.alarms,
+            alarmsLoaded: state.alarmsLoaded,
+            fetchAlarms: state.fetchAlarms,
+            addAlarm: state.addAlarm,
+            updateAlarm: state.updateAlarm,
+            deleteAlarm: state.deleteAlarm,
+        }))
+    );
     const [customFireAt, setCustomFireAt] = useState('');
     const [newValue, setNewValue] = useState(String(DEFAULT_OFFSET.value));
     const [newUnit, setNewUnit] = useState<OffsetUnit>(DEFAULT_OFFSET.unit);

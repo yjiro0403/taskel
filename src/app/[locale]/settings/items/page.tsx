@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { ItemTemplate } from '@/types';
 import { Plus, Trash2, Save, Loader2, ListChecks } from 'lucide-react';
 import SettingsLayout from '@/components/SettingsLayout';
@@ -31,7 +32,15 @@ function parseItemsText(text: string): string[] {
 }
 
 export default function ItemTemplateSettingsPage() {
-    const { itemTemplates, addItemTemplate, updateItemTemplate, deleteItemTemplate, user } = useStore();
+    const { itemTemplates, addItemTemplate, updateItemTemplate, deleteItemTemplate, user } = useStore(
+        useShallow((state) => ({
+            itemTemplates: state.itemTemplates,
+            addItemTemplate: state.addItemTemplate,
+            updateItemTemplate: state.updateItemTemplate,
+            deleteItemTemplate: state.deleteItemTemplate,
+            user: state.user,
+        }))
+    );
     const [localTemplates, setLocalTemplates] = useState<EditableTemplate[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [hasChanges, setHasChanges] = useState(false);

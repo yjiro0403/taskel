@@ -1,6 +1,7 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useState } from 'react';
 import Link from 'next/link';
 import { Plus, Folder, Clock, CheckCircle, Trash2, Edit2, Archive } from 'lucide-react';
@@ -15,7 +16,14 @@ import { hoursInputToMinutes, formatDurationMinutes } from '@/lib/analytics/form
 import { useLocale, useTranslations } from 'next-intl';
 
 export default function ProjectsPage() {
-    const { projects, addProject, deleteProject, updateProject } = useStore();
+    const { projects, addProject, deleteProject, updateProject } = useStore(
+        useShallow((state) => ({
+            projects: state.projects,
+            addProject: state.addProject,
+            deleteProject: state.deleteProject,
+            updateProject: state.updateProject,
+        }))
+    );
     const router = useRouter();
     const tProjects = useTranslations('Projects');
     const locale = useLocale();

@@ -1,10 +1,16 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useState, useEffect } from 'react';
 
 export default function YearlyNotePanel({ yearId }: { yearId: string }) {
-    const { yearlyNotes, saveYearlyNote } = useStore();
+    const { yearlyNotes, saveYearlyNote } = useStore(
+        useShallow((state) => ({
+            yearlyNotes: state.yearlyNotes,
+            saveYearlyNote: state.saveYearlyNote,
+        }))
+    );
     const [content, setContent] = useState('');
 
     useEffect(() => {

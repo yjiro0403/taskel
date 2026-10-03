@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import SettingsLayout from '@/components/SettingsLayout';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { PLAN_LIMITS } from '@/lib/billing/plans';
 import type { PlanId } from '@/lib/billing/types';
 import { Check, AlertTriangle, Loader2 } from 'lucide-react';
@@ -15,18 +16,20 @@ const PLAN_FEATURES: Record<PlanId, string[]> = {
 };
 
 export default function BillingSettingsPage() {
-  const {
-    billingPlan,
-    subscriptionStatus,
-    usageRequestCount,
-    usageRequestLimit,
-    billingPeriodEnd,
-    cancelAtPeriodEnd,
-    isBillingLoading,
-    fetchBillingInfo,
-    createCheckoutSession,
-    createPortalSession,
-  } = useStore();
+  const { billingPlan, subscriptionStatus, usageRequestCount, usageRequestLimit, billingPeriodEnd, cancelAtPeriodEnd, isBillingLoading, fetchBillingInfo, createCheckoutSession, createPortalSession, } = useStore(
+      useShallow((state) => ({
+          billingPlan: state.billingPlan,
+          subscriptionStatus: state.subscriptionStatus,
+          usageRequestCount: state.usageRequestCount,
+          usageRequestLimit: state.usageRequestLimit,
+          billingPeriodEnd: state.billingPeriodEnd,
+          cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+          isBillingLoading: state.isBillingLoading,
+          fetchBillingInfo: state.fetchBillingInfo,
+          createCheckoutSession: state.createCheckoutSession,
+          createPortalSession: state.createPortalSession,
+      }))
+  );
 
   useEffect(() => {
     fetchBillingInfo();

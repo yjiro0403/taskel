@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Tag } from '@/types';
 import { X } from 'lucide-react';
 
@@ -12,7 +13,13 @@ interface TagModalProps {
 }
 
 export default function TagModal({ isOpen, onClose, tagId }: TagModalProps) {
-    const { tags, updateTag, deleteTag } = useStore();
+    const { tags, updateTag, deleteTag } = useStore(
+        useShallow((state) => ({
+            tags: state.tags,
+            updateTag: state.updateTag,
+            deleteTag: state.deleteTag,
+        }))
+    );
     const tag = tags.find(t => t.id === tagId);
 
     const [name, setName] = useState('');

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useDebouncedCallback } from 'use-debounce';
 
 interface Props {
@@ -9,7 +10,12 @@ interface Props {
 }
 
 export default function MonthlyNotePanel({ monthId }: Props) {
-    const { monthlyNotes, saveMonthlyNote } = useStore();
+    const { monthlyNotes, saveMonthlyNote } = useStore(
+        useShallow((state) => ({
+            monthlyNotes: state.monthlyNotes,
+            saveMonthlyNote: state.saveMonthlyNote,
+        }))
+    );
     const [content, setContent] = useState('');
 
     // Load content when monthId changes

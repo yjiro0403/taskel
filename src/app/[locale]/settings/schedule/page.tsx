@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { SectionReferenceCounts } from '@/store/types';
 import { Section } from '@/types';
 import { Plus, Trash2, Save, Loader2, Clock, AlertTriangle } from 'lucide-react';
@@ -38,7 +39,16 @@ function toErrorMessage(error: unknown) {
 }
 
 export default function ScheduleSettingsPage() {
-    const { sections, addSection, updateSection, deleteSection, countSectionReferences, user } = useStore();
+    const { sections, addSection, updateSection, deleteSection, countSectionReferences, user } = useStore(
+        useShallow((state) => ({
+            sections: state.sections,
+            addSection: state.addSection,
+            updateSection: state.updateSection,
+            deleteSection: state.deleteSection,
+            countSectionReferences: state.countSectionReferences,
+            user: state.user,
+        }))
+    );
     const [localSections, setLocalSections] = useState<Section[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [hasChanges, setHasChanges] = useState(false);

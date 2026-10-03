@@ -6,7 +6,7 @@ import { Plus } from 'lucide-react';
 import clsx from 'clsx';
 import { useDroppable } from '@dnd-kit/core';
 
-import AddTaskModal from '@/components/AddTaskModal';
+import AddTaskModal from '@/components/LazyAddTaskModal';
 import DayTimeline from '@/components/timeline/DayTimeline';
 import { WeekTimelineDragProvider } from '@/components/timeline/WeekTimelineDragContext';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';

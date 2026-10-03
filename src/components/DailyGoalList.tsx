@@ -8,7 +8,7 @@ import clsx from 'clsx';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import AddTaskModal from './AddTaskModal';
+import AddTaskModal from './LazyAddTaskModal';
 
 interface Props {
     date: string; // YYYY-MM-DD

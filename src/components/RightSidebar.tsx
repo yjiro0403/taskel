@@ -6,7 +6,7 @@ import { Task } from '@/types';
 import { X, Calendar, Play, Square, Circle, CheckCircle2, Search, Filter, Tag as TagIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { useEffect, useState } from 'react';
-import AddTaskModal from './AddTaskModal';
+import AddTaskModal from './LazyAddTaskModal';
 import { getSectionForTime } from '@/lib/sectionUtils';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';

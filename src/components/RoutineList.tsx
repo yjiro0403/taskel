@@ -1,6 +1,7 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Routine } from '@/types';
 import { Edit2, Trash2, Calendar, Clock, Repeat } from 'lucide-react';
 
@@ -9,7 +10,13 @@ interface RoutineListProps {
 }
 
 export default function RoutineList({ onEdit }: RoutineListProps) {
-    const { routines, deleteRoutine, updateRoutine } = useStore();
+    const { routines, deleteRoutine, updateRoutine } = useStore(
+        useShallow((state) => ({
+            routines: state.routines,
+            deleteRoutine: state.deleteRoutine,
+            updateRoutine: state.updateRoutine,
+        }))
+    );
 
     if (routines.length === 0) {
         return (

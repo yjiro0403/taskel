@@ -3,6 +3,7 @@
 import React from 'react';
 import { X, Sparkles } from 'lucide-react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { PLAN_LIMITS } from '@/lib/billing/plans';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -21,7 +22,11 @@ export const QuotaExceededDialog: React.FC<QuotaExceededDialogProps> = ({
   limit,
   plan,
 }) => {
-  const { createCheckoutSession } = useStore();
+  const { createCheckoutSession } = useStore(
+      useShallow((state) => ({
+          createCheckoutSession: state.createCheckoutSession,
+      }))
+  );
 
   const handleUpgrade = async (priceId: string) => {
     const url = await createCheckoutSession(priceId);

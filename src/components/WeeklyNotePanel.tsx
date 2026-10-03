@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useDebounce } from 'use-debounce';
 
 interface Props {
@@ -9,7 +10,12 @@ interface Props {
 }
 
 export default function WeeklyNotePanel({ weekId }: Props) {
-    const { weeklyNotes, saveWeeklyNote } = useStore();
+    const { weeklyNotes, saveWeeklyNote } = useStore(
+        useShallow((state) => ({
+            weeklyNotes: state.weeklyNotes,
+            saveWeeklyNote: state.saveWeeklyNote,
+        }))
+    );
 
     // Find existing note
     const existingNote = weeklyNotes.find(n => n.id === weekId);

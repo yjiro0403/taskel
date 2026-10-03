@@ -1,6 +1,7 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Task } from '@/types';
 import { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
@@ -9,7 +10,7 @@ import clsx from 'clsx';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import AddTaskModal from './AddTaskModal';
+import AddTaskModal from './LazyAddTaskModal';
 
 interface Props {
     yearId: string; // YYYY
@@ -64,7 +65,12 @@ function SortableItem({ task, onClick, onToggle }: { task: Task; onClick: (t: Ta
 }
 
 export default function YearlyGoalList({ yearId, goals }: Props) {
-    const { updateTask, reorderTasks } = useStore();
+    const { updateTask, reorderTasks } = useStore(
+        useShallow((state) => ({
+            updateTask: state.updateTask,
+            reorderTasks: state.reorderTasks,
+        }))
+    );
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 

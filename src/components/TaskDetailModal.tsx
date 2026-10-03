@@ -6,6 +6,7 @@ import { X, Edit3, Calendar, Clock, Tag, Sparkles, MessageSquare, FolderOpen, Ti
 import clsx from 'clsx';
 import { Task } from '@/types';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { AIStatusBadge } from '@/components/ai/AIStatusBadge';
 import { AttachmentImage } from '@/components/AttachmentImage';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
@@ -24,18 +25,20 @@ export default function TaskDetailModal({
   task,
   onEdit,
 }: TaskDetailModalProps) {
-  const {
-    taskComments,
-    commentsLoading,
-    aiProcessing,
-    fetchComments,
-    addUserComment,
-    triggerAIReply,
-    subscribeToComments,
-    sections,
-    projects,
-    tags: tagsList,
-  } = useStore();
+  const { taskComments, commentsLoading, aiProcessing, fetchComments, addUserComment, triggerAIReply, subscribeToComments, sections, projects, tags: tagsList } = useStore(
+      useShallow((state) => ({
+          taskComments: state.taskComments,
+          commentsLoading: state.commentsLoading,
+          aiProcessing: state.aiProcessing,
+          fetchComments: state.fetchComments,
+          addUserComment: state.addUserComment,
+          triggerAIReply: state.triggerAIReply,
+          subscribeToComments: state.subscribeToComments,
+          sections: state.sections,
+          projects: state.projects,
+          tags: state.tags,
+      }))
+  );
 
   const comments = taskComments[task.id] || [];
   const isLoading = commentsLoading[task.id] || false;
