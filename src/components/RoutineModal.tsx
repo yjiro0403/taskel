@@ -39,6 +39,7 @@ export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineMo
     const [showSuggestions, setShowSuggestions] = useState(false); // NEW
     const [memo, setMemo] = useState(''); // NEW
     const [isComposing, setIsComposing] = useState(false); // NEW
+    const [isSaving, setIsSaving] = useState(false);
 
 
     useEffect(() => {
@@ -72,7 +73,8 @@ export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineMo
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!user) return;
+        if (!user || isSaving) return;
+        setIsSaving(true);
 
         // Handle pending tag
         let finalTags = [...tags];
@@ -102,16 +104,18 @@ export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineMo
             routineData.daysOfWeek = daysOfWeek;
         }
 
-        if (editRoutine) {
-            await updateRoutine(editRoutine.id, routineData);
-        } else {
-            await addRoutine({
-                id: crypto.randomUUID(),
-                userId: user.uid,
-                ...routineData
-            } as Routine);
+        try {
+            const saved = editRoutine
+                ? await updateRoutine(editRoutine.id, routineData)
+                : await addRoutine({
+                    id: crypto.randomUUID(),
+                    userId: user.uid,
+                    ...routineData
+                } as Routine);
+            if (saved) onClose();
+        } finally {
+            setIsSaving(false);
         }
-        onClose();
     };
 
     if (!isOpen) return null;
@@ -340,9 +344,10 @@ export default function RoutineModal({ isOpen, onClose, editRoutine }: RoutineMo
                     <div className="pt-2">
                         <button
                             type="submit"
-                            className="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg hover:bg-blue-700 transition-colors"
+                            disabled={isSaving}
+                            className="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
                         >
-                            {editRoutine ? 'Save Changes' : 'Create Routine'}
+                            {isSaving ? 'Saving...' : (editRoutine ? 'Save Changes' : 'Create Routine')}
                         </button>
                     </div>
                 </form>

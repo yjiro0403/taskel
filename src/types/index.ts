@@ -187,7 +187,7 @@ export interface Routine {
     daysOfWeek?: number[]; // 0=Sun, 1=Mon...
     interval?: number; // For custom interval
     startDate: string; // YYYY-MM-DD (When the routine begins)
-    nextRun: string; // YYYY-MM-DD (Legacy, but kept for sync logic if needed)
+    nextRun: string; // YYYY-MM-DD. DB NOT NULL。作成時のスナップショット。表示上の次回日は computeNextRun を使う
     startTime?: string; // HH:mm
     sectionId: string;
     estimatedMinutes: number;
