@@ -19,13 +19,21 @@ export interface TimelineIntervalOptions {
     nowMin?: number | null;
 }
 
+/**
+ * Length of a planned or logged block, in minutes.
+ *
+ * A positive estimate or actual is used as entered (5 and 10 stay 5 and 10).
+ * Only an unset length falls back to the minimum block, so a task with no
+ * estimate still has something to grab. Callers paint that length; they do
+ * not stretch it onto a 15-minute grid.
+ */
 export function taskDurationMinutes(task: Task): number {
     if (task.status === 'done') {
         const actual = Number(task.actualMinutes || 0);
-        if (actual > 0) return Math.max(MIN_BLOCK_MINUTES, Math.round(actual));
+        if (actual > 0) return Math.max(1, Math.round(actual));
     }
     const estimated = Number(task.estimatedMinutes || 0);
-    if (estimated > 0) return Math.max(MIN_BLOCK_MINUTES, Math.round(estimated));
+    if (estimated > 0) return Math.max(1, Math.round(estimated));
     return MIN_BLOCK_MINUTES;
 }
 
@@ -41,11 +49,11 @@ export function minutesOnDate(timestamp: number | undefined, date: string): numb
  * The block a task's recorded times define, whatever its planned time says.
  *
  * - Running (started on its own day): from the real start, at least the planned
- *   length, and growing to "now" while it keeps running.
+ *   length, and growing to "now" while it keeps running. A 5-minute plan stays
+ *   5 minutes until now passes that end.
  * - Done with logged minutes (finished on its own day): the logged minutes
  *   ending exactly at the completion time, the same reading the list view
- *   prints. No minimum length here: the label must show the real stop time,
- *   the renderer alone pads short blocks to a clickable height.
+ *   prints. The block is that long; it is not stretched to 15 minutes.
  *
  * Planned-only tasks return null so the caller falls back to scheduledStart.
  */
@@ -58,7 +66,7 @@ export function actualTaskInterval(task: Task, options: TimelineIntervalOptions 
         return {
             id: task.id,
             startMin,
-            endMin: Math.min(MINUTES_PER_DAY, Math.max(end, startMin + MIN_BLOCK_MINUTES)),
+            endMin: Math.min(MINUTES_PER_DAY, end),
         };
     }
     if (task.status === 'done') {
