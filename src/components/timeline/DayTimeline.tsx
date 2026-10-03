@@ -34,7 +34,10 @@ import { findScrollParent } from './scrolling';
 import { useTimelineDragCoordinator } from './WeekTimelineDragContext';
 import { resolveWeekDropHit } from './weekDropTarget';
 
-const DEFAULT_PIXELS_PER_MINUTE = 1.2;
+// 10 minutes is 24px, enough for one line. 5 minutes is half of that.
+// The old 1.2px/min scale made a 10-minute block 12px, so it had been
+// stretched to a 15-minute minimum just to stay readable.
+const DEFAULT_PIXELS_PER_MINUTE = 2.4;
 const DEFAULT_GUTTER = 56;
 const DEFAULT_MAX_HEIGHT = 900;
 const BLOCK_MIN_HEIGHT = 24;
@@ -198,15 +201,17 @@ export default function DayTimeline({
         })
         .filter((item): item is NonNullable<typeof item> => item != null);
 
-    // Short blocks are padded to a clickable height; lay the columns out with that
-    // padded length so a one-minute block does not sit on top of the next one.
-    const minVisualMinutes = BLOCK_MIN_HEIGHT / pixelsPerMinute;
-    const layoutIntervals = intervals.map((item) => ({
-        ...item,
-        endMin: Math.max(item.endMin, item.startMin + minVisualMinutes),
-    }));
+    // Day view paints the real length, so columns use that length too. Week
+    // columns keep a 24px floor so a title still fits; pad those columns by the
+    // same amount or the painted block covers the next task.
+    const minVisualMinutes = compact ? BLOCK_MIN_HEIGHT / pixelsPerMinute : 0;
+    const layoutIntervals = intervals.map((item) => (
+        minVisualMinutes > 0
+            ? { ...item, endMin: Math.max(item.endMin, item.startMin + minVisualMinutes) }
+            : item
+    ));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const columns = useMemo(() => assignOverlapColumns(layoutIntervals), [intervals, pixelsPerMinute]);
+    const columns = useMemo(() => assignOverlapColumns(layoutIntervals), [intervals, compact, pixelsPerMinute]);
 
     const rawMinutesFromClientY = (clientY: number) => {
         const rect = gridRef.current?.getBoundingClientRect();
@@ -349,12 +354,17 @@ export default function DayTimeline({
         const applyMove = (x: number, y: number) => {
             if (publishTarget(x, y)) return;
             if (drag.kind === 'schedule') {
-                const startMin = clampMinutes(minutesFromClientY(y), visible.startMin, visible.endMin - MIN_BLOCK_MINUTES);
                 const task = tasks.find((item) => item.id === drag.taskId);
+                const duration = task ? taskDurationMinutes(task) : MIN_BLOCK_MINUTES;
+                const startMin = clampMinutes(
+                    minutesFromClientY(y),
+                    visible.startMin,
+                    Math.max(visible.startMin, visible.endMin - duration),
+                );
                 setPreview({
                     [drag.taskId]: {
                         startMin,
-                        duration: task ? taskDurationMinutes(task) : MIN_BLOCK_MINUTES,
+                        duration,
                     },
                 });
                 movedRef.current = true;
@@ -370,7 +380,7 @@ export default function DayTimeline({
                 );
                 setPreview({ [drag.taskId]: { startMin, duration: drag.duration } });
             } else {
-                const duration = Math.max(MIN_BLOCK_MINUTES, snapMinutes(drag.originDuration + delta, SNAP_MINUTES));
+                const duration = Math.max(SNAP_MINUTES, snapMinutes(drag.originDuration + delta, SNAP_MINUTES));
                 setPreview({ [drag.taskId]: { startMin: drag.startMin, duration } });
             }
         };
@@ -740,20 +750,26 @@ export default function DayTimeline({
                         const widthPct = 100 / assignment.colCount;
                         const leftPct = widthPct * assignment.col;
                         const top = (interval.startMin - visible.startMin) * pixelsPerMinute;
-                        const height = Math.max(BLOCK_MIN_HEIGHT, (interval.endMin - interval.startMin) * pixelsPerMinute);
+                        const durationMin = Math.max(0, interval.endMin - interval.startMin);
+                        // Week columns stay at least 24px so the title fits. The day
+                        // timeline paints the estimate: 5 and 10 minutes stay that long.
+                        const height = Math.max(compact ? BLOCK_MIN_HEIGHT : 2, durationMin * pixelsPerMinute);
+                        const shortBlock = height <= BLOCK_MIN_HEIGHT;
                         const editable = canEditTask(task);
                         const lifted = drag?.taskId === task.id && drag.kind !== 'resize';
                         const running = task.status === 'in_progress';
                         const showPlay = editable && task.status !== 'done';
                         // The title comes first and takes every line the block has room for.
-                        const titleLines = Math.max(1, Math.floor((height - BLOCK_PADDING_Y) / titleLineHeight));
+                        // A 5- or 10-minute block has no vertical padding, so the line can use the whole height.
+                        const titleLines = Math.max(1, Math.floor((height - (shortBlock ? 0 : BLOCK_PADDING_Y)) / (shortBlock ? 12 : titleLineHeight)));
 
                         return (
                             <div
                                 key={task.id}
                                 data-task-id={task.id}
                                 className={clsx(
-                                    'group @container absolute rounded-lg border px-2 py-1 overflow-hidden shadow-sm select-none [-webkit-touch-callout:none]',
+                                    'group @container absolute rounded-lg border overflow-hidden shadow-sm select-none [-webkit-touch-callout:none]',
+                                    shortBlock ? 'px-1.5 py-0' : 'px-2 py-1',
                                     running
                                         ? 'bg-blue-50 border-blue-400'
                                         : task.status === 'done'
@@ -784,11 +800,11 @@ export default function DayTimeline({
                                     if (!movedRef.current) onEditTask(task);
                                 }}
                             >
-                                <div className={clsx('flex min-w-0 items-start gap-1', showPlay && 'pr-6')}>
+                                <div className={clsx('flex min-w-0 gap-1', shortBlock ? 'h-full items-center' : 'items-start', showPlay && 'pr-6')}>
                                     <div
                                         className={clsx(
                                             'min-w-0 flex-1 font-medium text-gray-900 break-words',
-                                            compact ? 'text-xs leading-4' : 'text-sm leading-5'
+                                            shortBlock ? 'text-[11px] leading-none' : compact ? 'text-xs leading-4' : 'text-sm leading-5'
                                         )}
                                         style={{
                                             display: '-webkit-box',
@@ -801,7 +817,10 @@ export default function DayTimeline({
                                         {task.title}
                                     </div>
                                     {showTimeRange && (
-                                        <div className="hidden shrink-0 whitespace-nowrap font-mono text-[11px] leading-5 text-gray-600 @min-[13rem]:block">
+                                        <div className={clsx(
+                                            'hidden shrink-0 whitespace-nowrap font-mono text-[11px] text-gray-600 @min-[13rem]:block',
+                                            shortBlock ? 'leading-none' : 'leading-5',
+                                        )}>
                                             {minutesToHHMM(interval.startMin)}–{minutesToHHMM(interval.endMin)}
                                         </div>
                                     )}
@@ -850,18 +869,22 @@ export default function DayTimeline({
                                         }}
                                         className="absolute inset-y-0 right-0 z-10 flex w-8 items-center justify-center text-blue-700 hover:bg-white/70 active:bg-white cursor-pointer touch-manipulation"
                                     >
-                                        {running ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+                                        {running ? <Square size={shortBlock ? 10 : 14} fill="currentColor" /> : <Play size={shortBlock ? 10 : 14} fill="currentColor" />}
                                     </button>
                                 )}
-                                {editable && (
+                                {editable && height >= 12 && (
                                     // Mouse: a thin strip along the bottom edge. Touch: a small grip in the
                                     // bottom-left corner (away from the ▶ / copy buttons), so the rest of a
-                                    // short block stays free to lift.
+                                    // short block stays free to lift. Blocks under 12px are the whole press
+                                    // target; a resize strip would cover a 5-minute bar completely.
                                     <button
                                         type="button"
                                         data-resize="true"
                                         aria-label={t('resize')}
-                                        className="absolute bottom-0 right-0 left-0 z-20 h-2 cursor-ns-resize pointer-coarse:right-auto pointer-coarse:h-4 pointer-coarse:w-8"
+                                        className={clsx(
+                                            'absolute bottom-0 right-0 left-0 z-20 cursor-ns-resize pointer-coarse:right-auto pointer-coarse:w-8',
+                                            shortBlock ? 'h-1' : 'h-2 pointer-coarse:h-4',
+                                        )}
                                         onPointerDown={(event) => {
                                             event.stopPropagation();
                                             beginDrag(event, {
@@ -900,7 +923,7 @@ export default function DayTimeline({
                             className="absolute z-30 rounded-lg border border-dashed border-blue-400 bg-blue-50/80 pointer-events-none px-2 py-1 overflow-hidden"
                             style={{
                                 top: (incomingStartMin - visible.startMin) * pixelsPerMinute,
-                                height: Math.max(BLOCK_MIN_HEIGHT, incoming.duration * pixelsPerMinute),
+                                height: Math.max(2, incoming.duration * pixelsPerMinute),
                                 left: 4,
                                 right: 8,
                             }}
@@ -912,7 +935,7 @@ export default function DayTimeline({
                                     WebkitBoxOrient: 'vertical',
                                     WebkitLineClamp: Math.max(
                                         1,
-                                        Math.floor((Math.max(BLOCK_MIN_HEIGHT, incoming.duration * pixelsPerMinute) - BLOCK_PADDING_Y) / titleLineHeight)
+                                        Math.floor((Math.max(2, incoming.duration * pixelsPerMinute) - BLOCK_PADDING_Y) / titleLineHeight)
                                     ),
                                     overflow: 'hidden',
                                 }}
