@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useTranslations } from 'next-intl';
 import { format } from 'date-fns';
-import { Copy, ExternalLink, Play, Plus, Square } from 'lucide-react';
+import { Copy, ExternalLink, Minus, MoreHorizontal, Play, Plus, Square, X } from 'lucide-react';
 
 import type { Section, Task } from '@/types';
 import {
@@ -30,14 +30,23 @@ import { groupUnscheduledBySection } from '@/lib/timeline/unscheduledGroups';
 import { buildTimelineDropUpdate, snapDropStart, type TimelineDropTarget } from '@/lib/timeline/weekDrag';
 import { useStore } from '@/store/useStore';
 
+import {
+    DAY_ZOOM_LEVELS,
+    DAY_ZOOM_STORAGE_KEY,
+    DEFAULT_DAY_PIXELS_PER_MINUTE,
+    DEFAULT_DAY_ZOOM_INDEX,
+    TOUCH_TARGET_PX,
+    anchoredScrollTop,
+    clampZoomIndex,
+    readDayZoomIndex,
+    zoomIndexForPinch,
+    zoomPixelsPerMinute,
+} from '@/lib/timeline/zoom';
+
 import { findScrollParent } from './scrolling';
 import { useTimelineDragCoordinator } from './WeekTimelineDragContext';
 import { resolveWeekDropHit } from './weekDropTarget';
 
-// 10 minutes is 24px, enough for one line. 5 minutes is half of that.
-// The old 1.2px/min scale made a 10-minute block 12px, so it had been
-// stretched to a 15-minute minimum just to stay readable.
-const DEFAULT_PIXELS_PER_MINUTE = 2.4;
 const DEFAULT_GUTTER = 56;
 const DEFAULT_MAX_HEIGHT = 900;
 const BLOCK_MIN_HEIGHT = 24;
@@ -137,7 +146,7 @@ export default function DayTimeline({
     showHourLabels = true,
     showUnscheduled = true,
     unscheduledPlacement = 'top',
-    pixelsPerMinute = DEFAULT_PIXELS_PER_MINUTE,
+    pixelsPerMinute: pixelsPerMinuteProp,
     maxHeight = DEFAULT_MAX_HEIGHT,
     gutter,
     className,
@@ -157,7 +166,14 @@ export default function DayTimeline({
     const [dragTravelled, setDragTravelled] = useState(false);
     const [preview, setPreview] = useState<Record<string, { startMin: number; duration: number }>>({});
     const [hoverMin, setHoverMin] = useState<number | null>(null);
+    /** Day view only. Week columns pass plainChrome and keep their own scale. */
+    const zoomable = !plainChrome;
+    const [zoomIndex, setZoomIndex] = useState(DEFAULT_DAY_ZOOM_INDEX);
+    const [actionTaskId, setActionTaskId] = useState<string | null>(null);
     const previewRef = useRef(preview);
+    const zoomIndexRef = useRef(DEFAULT_DAY_ZOOM_INDEX);
+    const pendingScrollTop = useRef<number | null>(null);
+    const dragStateRef = useRef<DragState>(null);
     const movedRef = useRef(false);
     const dragPointerTypeRef = useRef<string>('mouse');
     const lastPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -186,6 +202,10 @@ export default function DayTimeline({
         hideEmptyIntervals,
     });
     const visible = visibleRangeOverride ?? computedVisible;
+    const pixelsPerMinute = zoomable
+        ? zoomPixelsPerMinute(zoomIndex)
+        : (pixelsPerMinuteProp ?? DEFAULT_DAY_PIXELS_PER_MINUTE);
+    dragStateRef.current = drag;
     const labelGutter = gutter ?? (showHourLabels ? DEFAULT_GUTTER : 8);
     const rangeMinutes = Math.max(60, visible.endMin - visible.startMin);
     const gridHeight = rangeMinutes * pixelsPerMinute;
@@ -283,6 +303,114 @@ export default function DayTimeline({
     };
 
     useEffect(() => () => cancelPendingTouch(), []);
+
+    const commitZoom = useCallback((nextIndex: number) => {
+        if (!zoomable) return;
+        const clamped = clampZoomIndex(nextIndex);
+        const fromPpm = zoomPixelsPerMinute(zoomIndexRef.current);
+        const toPpm = zoomPixelsPerMinute(clamped);
+        if (clamped === zoomIndexRef.current) return;
+        const el = gridRef.current;
+        if (el && scrollable && fromPpm !== toPpm) {
+            pendingScrollTop.current = anchoredScrollTop({
+                scrollTop: el.scrollTop,
+                fromPpm,
+                toPpm,
+            });
+        }
+        zoomIndexRef.current = clamped;
+        setZoomIndex(clamped);
+        try {
+            window.localStorage.setItem(DAY_ZOOM_STORAGE_KEY, String(clamped));
+        } catch {
+            // Private mode keeps the scale for this visit only.
+        }
+    }, [scrollable, zoomable]);
+
+    const commitZoomRef = useRef(commitZoom);
+    commitZoomRef.current = commitZoom;
+    const cancelPendingTouchRef = useRef(cancelPendingTouch);
+    cancelPendingTouchRef.current = cancelPendingTouch;
+
+    useLayoutEffect(() => {
+        const top = pendingScrollTop.current;
+        if (top == null || !gridRef.current) return;
+        pendingScrollTop.current = null;
+        gridRef.current.scrollTop = Math.max(0, top);
+    }, [zoomIndex]);
+
+    useLayoutEffect(() => {
+        if (!zoomable) return;
+        commitZoomRef.current(readDayZoomIndex(window.localStorage));
+    }, [zoomable]);
+
+    useEffect(() => {
+        if (!actionTaskId) return;
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setActionTaskId(null);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [actionTaskId]);
+
+    useEffect(() => {
+        if (!zoomable) return;
+        const el = gridRef.current;
+        if (!el) return;
+        const pointers = new Map<number, { x: number; y: number }>();
+        let pinchStartDistance = 0;
+        let pinchStartIndex = zoomIndexRef.current;
+        let wheelAccum = 0;
+
+        const distance = () => {
+            const pts = [...pointers.values()];
+            if (pts.length < 2) return 0;
+            return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        };
+
+        const onDown = (event: PointerEvent) => {
+            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointers.size < 2) return;
+            pinchStartDistance = distance();
+            pinchStartIndex = zoomIndexRef.current;
+            movedRef.current = true;
+            cancelPendingTouchRef.current();
+        };
+        const onMove = (event: PointerEvent) => {
+            if (!pointers.has(event.pointerId)) return;
+            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointers.size < 2 || pinchStartDistance < 24 || dragStateRef.current) return;
+            event.preventDefault();
+            const next = zoomIndexForPinch(pinchStartIndex, pinchStartDistance, distance());
+            if (next !== zoomIndexRef.current) commitZoomRef.current(next);
+        };
+        const onUp = (event: PointerEvent) => {
+            pointers.delete(event.pointerId);
+            if (pointers.size < 2) pinchStartDistance = 0;
+        };
+        const onWheel = (event: WheelEvent) => {
+            if ((!event.ctrlKey && !event.metaKey) || dragStateRef.current) return;
+            event.preventDefault();
+            wheelAccum += event.deltaY;
+            if (Math.abs(wheelAccum) < 40) return;
+            const steps = wheelAccum > 0 ? -1 : 1;
+            wheelAccum = 0;
+            commitZoomRef.current(zoomIndexRef.current + steps);
+        };
+
+        el.addEventListener('pointerdown', onDown);
+        el.addEventListener('pointermove', onMove, { passive: false });
+        el.addEventListener('pointerup', onUp);
+        el.addEventListener('pointercancel', onUp);
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => {
+            el.removeEventListener('pointerdown', onDown);
+            el.removeEventListener('pointermove', onMove);
+            el.removeEventListener('pointerup', onUp);
+            el.removeEventListener('pointercancel', onUp);
+            el.removeEventListener('wheel', onWheel);
+        };
+    }, [zoomable]);
 
     useEffect(() => {
         if (!drag) return;
@@ -656,6 +784,9 @@ export default function DayTimeline({
             </section>
     ) : null;
 
+    const actionTask = actionTaskId ? scheduled.find((task) => task.id === actionTaskId) ?? null : null;
+    const actionInterval = actionTask ? intervals.find((item) => item.id === actionTask.id) ?? null : null;
+
     return (
         <div className={clsx(unscheduledPlacement === 'top' && showUnscheduled ? 'space-y-3' : 'space-y-0', className)}>
             {unscheduledPlacement === 'top' && unscheduledSection}
@@ -666,11 +797,13 @@ export default function DayTimeline({
                 data-timeline-start-min={visible.startMin}
                 data-timeline-end-min={visible.endMin}
                 data-timeline-ppm={pixelsPerMinute}
+                data-timeline-zoom-index={zoomable ? zoomIndex : undefined}
                 className={clsx(
                     'relative',
                     plainChrome ? 'bg-transparent' : 'bg-white border border-gray-200',
                     scrollable ? 'overflow-y-auto' : 'overflow-hidden',
-                    !plainChrome && (unscheduledPlacement === 'bottom' ? 'rounded-t-xl' : 'rounded-xl')
+                    !plainChrome && (unscheduledPlacement === 'bottom' ? 'rounded-t-xl' : 'rounded-xl'),
+                    zoomable && 'touch-pan-y'
                 )}
                 style={{ height: scrollable ? Math.min(gridHeight + 16, maxHeight) : gridHeight }}
             >
@@ -759,6 +892,12 @@ export default function DayTimeline({
                         const lifted = drag?.taskId === task.id && drag.kind !== 'resize';
                         const running = task.status === 'in_progress';
                         const showPlay = editable && task.status !== 'done';
+                        const showCopy = editable && Boolean(onDuplicate);
+                        // Shorter than a fingertip: buttons inside the block would cover the next
+                        // task, so a tap opens the sheet instead. Zooming past 44px puts them back.
+                        const useSheet = zoomable && height < TOUCH_TARGET_PX && (showPlay || showCopy);
+                        const touchReady = zoomable && !useSheet;
+                        const actionRail = touchReady ? (showPlay ? 44 : 0) + (showCopy ? 44 : 0) : 0;
                         // The title comes first and takes every line the block has room for.
                         // A 5- or 10-minute block has no vertical padding, so the line can use the whole height.
                         const titleLines = Math.max(1, Math.floor((height - (shortBlock ? 0 : BLOCK_PADDING_Y)) / (shortBlock ? 12 : titleLineHeight)));
@@ -797,10 +936,23 @@ export default function DayTimeline({
                                     });
                                 }}
                                 onClick={() => {
-                                    if (!movedRef.current) onEditTask(task);
+                                    if (movedRef.current) return;
+                                    if (useSheet) {
+                                        setActionTaskId(task.id);
+                                        return;
+                                    }
+                                    onEditTask(task);
                                 }}
                             >
-                                <div className={clsx('flex min-w-0 gap-1', shortBlock ? 'h-full items-center' : 'items-start', showPlay && 'pr-6')}>
+                                <div
+                                    className={clsx(
+                                        'flex min-w-0 gap-1',
+                                        shortBlock ? 'h-full items-center' : 'items-start',
+                                        !touchReady && showPlay && !useSheet && 'pr-6',
+                                        useSheet && 'pr-5',
+                                    )}
+                                    style={actionRail > 0 ? { paddingRight: actionRail } : undefined}
+                                >
                                     <div
                                         className={clsx(
                                             'min-w-0 flex-1 font-medium text-gray-900 break-words',
@@ -839,7 +991,7 @@ export default function DayTimeline({
                                                 <ExternalLink size={12} />
                                             </a>
                                         )}
-                                        {editable && onDuplicate && (
+                                        {showCopy && !useSheet && !touchReady && (
                                             <button
                                                 type="button"
                                                 title={t('duplicate')}
@@ -847,7 +999,7 @@ export default function DayTimeline({
                                                 onPointerDown={stopPointer}
                                                 onClick={(event) => {
                                                     event.stopPropagation();
-                                                    onDuplicate(task);
+                                                    onDuplicate?.(task);
                                                 }}
                                                 className="hidden rounded p-0.5 text-gray-500 hover:bg-white/70 hover:text-blue-700 cursor-pointer pointer-fine:group-hover:inline-flex pointer-fine:focus-visible:inline-flex @min-[10rem]:pointer-coarse:inline-flex"
                                             >
@@ -856,7 +1008,28 @@ export default function DayTimeline({
                                         )}
                                     </div>
                                 </div>
-                                {showPlay && (
+                                {useSheet && (
+                                    <span className="pointer-events-none absolute inset-y-0 right-0.5 flex items-center text-gray-400" aria-hidden>
+                                        <MoreHorizontal size={12} />
+                                    </span>
+                                )}
+                                {showCopy && touchReady && (
+                                    <button
+                                        type="button"
+                                        title={t('duplicate')}
+                                        aria-label={t('duplicate')}
+                                        onPointerDown={stopPointer}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            onDuplicate?.(task);
+                                        }}
+                                        className="absolute inset-y-0 z-10 flex w-11 items-center justify-center text-gray-600 hover:bg-white/80 active:bg-white cursor-pointer touch-manipulation"
+                                        style={{ right: showPlay ? 44 : 0 }}
+                                    >
+                                        <Copy size={18} />
+                                    </button>
+                                )}
+                                {showPlay && !useSheet && (
                                     <button
                                         type="button"
                                         title={running ? t('stop') : t('start')}
@@ -867,9 +1040,14 @@ export default function DayTimeline({
                                             if (running) onStop(task);
                                             else onPlay(task);
                                         }}
-                                        className="absolute inset-y-0 right-0 z-10 flex w-8 items-center justify-center text-blue-700 hover:bg-white/70 active:bg-white cursor-pointer touch-manipulation"
+                                        className={clsx(
+                                            'absolute inset-y-0 right-0 z-10 flex items-center justify-center text-blue-700 hover:bg-white/70 active:bg-white cursor-pointer touch-manipulation',
+                                            touchReady ? 'w-11' : 'w-8',
+                                        )}
                                     >
-                                        {running ? <Square size={shortBlock ? 10 : 14} fill="currentColor" /> : <Play size={shortBlock ? 10 : 14} fill="currentColor" />}
+                                        {running
+                                            ? <Square size={touchReady ? 16 : shortBlock ? 10 : 14} fill="currentColor" />
+                                            : <Play size={touchReady ? 16 : shortBlock ? 10 : 14} fill="currentColor" />}
                                     </button>
                                 )}
                                 {editable && height >= 12 && (
@@ -947,6 +1125,148 @@ export default function DayTimeline({
                 </div>
             </div>
             {unscheduledPlacement === 'bottom' && unscheduledSection}
+            {zoomable && (
+                <div
+                    role="group"
+                    aria-label={t('zoomLabel')}
+                    className="fixed left-3 z-30 inline-flex items-center rounded-full border border-gray-200 bg-white/95 shadow-md"
+                    style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+                >
+                    <button
+                        type="button"
+                        aria-label={t('zoomOut')}
+                        title={t('zoomOut')}
+                        disabled={zoomIndex <= 0}
+                        onPointerDown={stopPointer}
+                        onClick={() => commitZoom(zoomIndexRef.current - 1)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-l-full text-gray-700 hover:bg-gray-50 disabled:opacity-30 cursor-pointer touch-manipulation"
+                    >
+                        <Minus size={18} />
+                    </button>
+                    <span className="min-w-8 px-0.5 text-center text-xs font-medium text-gray-600">{t('zoomInShort')}</span>
+                    <button
+                        type="button"
+                        aria-label={t('zoomIn')}
+                        title={t('zoomIn')}
+                        disabled={zoomIndex >= DAY_ZOOM_LEVELS.length - 1}
+                        onPointerDown={stopPointer}
+                        onClick={() => commitZoom(zoomIndexRef.current + 1)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-r-full bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 cursor-pointer touch-manipulation"
+                    >
+                        <Plus size={18} />
+                    </button>
+                </div>
+            )}
+            {actionTask && (
+                <ShortBlockSheet
+                    task={actionTask}
+                    timeLabel={actionInterval
+                        ? `${minutesToHHMM(actionInterval.startMin)}–${minutesToHHMM(actionInterval.endMin)}`
+                        : null}
+                    showPlay={canEditTask(actionTask) && actionTask.status !== 'done'}
+                    showCopy={canEditTask(actionTask) && Boolean(onDuplicate)}
+                    onPlay={() => {
+                        if (actionTask.status === 'in_progress') onStop(actionTask);
+                        else onPlay(actionTask);
+                        setActionTaskId(null);
+                    }}
+                    onDuplicate={() => {
+                        onDuplicate?.(actionTask);
+                        setActionTaskId(null);
+                    }}
+                    onEdit={() => {
+                        const task = actionTask;
+                        setActionTaskId(null);
+                        onEditTask(task);
+                    }}
+                    onClose={() => setActionTaskId(null)}
+                />
+            )}
+        </div>
+    );
+}
+
+function ShortBlockSheet({
+    task,
+    timeLabel,
+    showPlay,
+    showCopy,
+    onPlay,
+    onDuplicate,
+    onEdit,
+    onClose,
+}: {
+    task: Task;
+    timeLabel: string | null;
+    showPlay: boolean;
+    showCopy: boolean;
+    onPlay: () => void;
+    onDuplicate: () => void;
+    onEdit: () => void;
+    onClose: () => void;
+}) {
+    const t = useTranslations('Timeline');
+    const running = task.status === 'in_progress';
+    const columns = 1 + (showPlay ? 1 : 0) + (showCopy ? 1 : 0);
+    return (
+        <div
+            className="fixed inset-0 z-40 flex items-end justify-center bg-black/25 px-3 pb-24"
+            onClick={onClose}
+        >
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={task.title}
+                className="mb-2 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl"
+                onClick={stopPointer}
+                onPointerDown={stopPointer}
+            >
+                <div className="mb-3 flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">{task.title}</p>
+                        {timeLabel && <p className="font-mono text-xs text-gray-500">{timeLabel}</p>}
+                    </div>
+                    <button
+                        type="button"
+                        aria-label={t('closeActions')}
+                        onClick={onClose}
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 cursor-pointer"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+                <div
+                    className={clsx('grid gap-2', columns === 3 ? 'grid-cols-3' : columns === 2 ? 'grid-cols-2' : 'grid-cols-1')}
+                >
+                    {showPlay && (
+                        <button
+                            type="button"
+                            onClick={onPlay}
+                            className="inline-flex h-12 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-2 text-sm font-medium text-white hover:bg-blue-700 cursor-pointer touch-manipulation"
+                        >
+                            {running ? <Square size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                            {running ? t('stop') : t('start')}
+                        </button>
+                    )}
+                    {showCopy && (
+                        <button
+                            type="button"
+                            onClick={onDuplicate}
+                            className="inline-flex h-12 items-center justify-center gap-1.5 rounded-xl border border-gray-200 px-2 text-sm font-medium text-gray-800 hover:bg-gray-50 cursor-pointer touch-manipulation"
+                        >
+                            <Copy size={16} />
+                            {t('duplicateShort')}
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={onEdit}
+                        className="inline-flex h-12 items-center justify-center rounded-xl border border-gray-200 px-2 text-sm font-medium text-gray-800 hover:bg-gray-50 cursor-pointer touch-manipulation"
+                    >
+                        {t('edit')}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
