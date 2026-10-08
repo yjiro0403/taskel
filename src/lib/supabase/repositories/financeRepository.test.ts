@@ -12,6 +12,25 @@ import {
 
 type Client = SupabaseClient<Database>;
 
+function clientWithDetachedRows(
+    rpc: ReturnType<typeof vi.fn>,
+    detached: Array<{ entry_type: 'expense' | 'income'; amount_yen: number }> = []
+) {
+    const range = vi.fn().mockResolvedValue({ data: detached, error: null });
+    const query = {
+        select: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(),
+        gte: vi.fn().mockReturnThis(),
+        lt: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        range,
+    };
+    return {
+        client: { rpc, from: vi.fn().mockReturnValue(query) } as unknown as Client,
+        query,
+    };
+}
+
 describe('financeRepository', () => {
     it('treats a missing preference row as disabled (default off)', async () => {
         const client = {
@@ -50,7 +69,7 @@ describe('financeRepository', () => {
             ],
             error: null,
         });
-        const client = { rpc } as unknown as Client;
+        const { client } = clientWithDetachedRows(rpc);
 
         await expect(summarizeFinanceRange(client, '2025-12-29', '2026-01-05')).resolves.toEqual({
             start: '2025-12-29',
@@ -64,6 +83,37 @@ describe('financeRepository', () => {
             p_start: '2025-12-29',
             p_end: '2026-01-05',
         });
+    });
+
+    it('leaves a deleted task out of the day and week totals', async () => {
+        const rpc = vi.fn().mockResolvedValue({
+            data: [
+                {
+                    expense_total: 11700,
+                    income_total: 0,
+                    expense_count: 3,
+                    income_count: 0,
+                },
+            ],
+            error: null,
+        });
+        const { client, query } = clientWithDetachedRows(rpc, [
+            { entry_type: 'expense', amount_yen: 10000 },
+            { entry_type: 'expense', amount_yen: 1400 },
+            { entry_type: 'expense', amount_yen: 300 },
+        ]);
+
+        await expect(summarizeFinanceRange(client, '2026-10-01', '2026-10-02')).resolves.toEqual({
+            start: '2026-10-01',
+            end: '2026-10-02',
+            expenseTotal: 0,
+            incomeTotal: 0,
+            expenseCount: 0,
+            incomeCount: 0,
+        });
+        expect(query.is).toHaveBeenCalledWith('task_id', null);
+        expect(query.gte).toHaveBeenCalledWith('occurred_on', '2026-10-01');
+        expect(query.lt).toHaveBeenCalledWith('occurred_on', '2026-10-02');
     });
 
     it('returns a cached summary without calling the RPC', async () => {
@@ -161,5 +211,45 @@ describe('financeRepository', () => {
             p_offset: 1000,
             p_limit: 1000,
         });
+    });
+
+    it('omits a finance row whose task was deleted from the breakdown', async () => {
+        const rpc = vi.fn().mockResolvedValue({
+            data: [
+                {
+                    id: 'kept',
+                    user_id: 'user-1',
+                    task_id: 'task-1',
+                    task_title_snapshot: 'Kept',
+                    occurred_on: '2026-10-01',
+                    entry_type: 'expense',
+                    amount_yen: 500,
+                    category_id: 'category-1',
+                    category_label_snapshot: '交通',
+                    memo: null,
+                    created_at: '2026-10-01T00:00:00.000Z',
+                    updated_at: '2026-10-01T00:00:00.000Z',
+                },
+                {
+                    id: 'detached',
+                    user_id: 'user-1',
+                    task_id: null,
+                    task_title_snapshot: 'Remake easy 新宿店',
+                    occurred_on: '2026-10-01',
+                    entry_type: 'expense',
+                    amount_yen: 10000,
+                    category_id: 'category-1',
+                    category_label_snapshot: '交通',
+                    memo: null,
+                    created_at: '2026-10-01T00:00:01.000Z',
+                    updated_at: '2026-10-01T00:00:01.000Z',
+                },
+            ],
+            error: null,
+        });
+        const client = { rpc } as unknown as Client;
+
+        const entries = await listFinanceEntriesInRange(client, '2026-10-01', '2026-10-02');
+        expect(entries.map((entry) => entry.id)).toEqual(['kept']);
     });
 });

@@ -181,7 +181,7 @@ export type Database = {
                     id: string;
                     memo: string | null;
                     occurred_on: string;
-                    task_id: string;
+                    task_id: string | null;
                     task_title_snapshot: string;
                     updated_at: string;
                     user_id: string;
@@ -195,7 +195,7 @@ export type Database = {
                     id?: string;
                     memo?: string | null;
                     occurred_on: string;
-                    task_id: string;
+                    task_id?: string | null;
                     task_title_snapshot: string;
                     updated_at?: string;
                     user_id: string;
@@ -209,7 +209,7 @@ export type Database = {
                     id?: string;
                     memo?: string | null;
                     occurred_on?: string;
-                    task_id?: string;
+                    task_id?: string | null;
                     task_title_snapshot?: string;
                     updated_at?: string;
                     user_id?: string;
