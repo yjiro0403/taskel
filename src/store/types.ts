@@ -202,7 +202,8 @@ export interface UISlice {
 export interface CalendarSlice {
     syncGoogleCalendar: (
         accessToken: string,
-        targetDateStr?: string
+        targetDateStr?: string,
+        rangeEndDateStr?: string
     ) => Promise<CalendarSyncResult>;
 }
 

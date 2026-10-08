@@ -3,7 +3,7 @@
 import { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { Link } from '@/i18n/routing';
-import { Menu, Settings, Calendar, User, ArrowLeft, CreditCard, ListChecks, Plug } from 'lucide-react';
+import { Menu, Settings, Calendar, User, ArrowLeft, CreditCard, ListChecks, Plug, ImagePlus } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import LeftSidebar from './LeftSidebar';
@@ -20,6 +20,7 @@ const settingsNav = [
     { href: '/settings/items', label: '持ち物テンプレート', icon: ListChecks },
     { href: '/settings/billing', label: 'プラン・請求', icon: CreditCard },
     { href: '/settings/integrations', label: '連携', icon: Plug },
+    { href: '/settings/capture', label: '予定の取り込み', icon: ImagePlus },
 ];
 
 export default function SettingsLayout({ children }: SettingsLayoutProps) {

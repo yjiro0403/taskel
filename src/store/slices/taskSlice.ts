@@ -7,6 +7,8 @@ import {
     writeStoredCurrentDate,
 } from '../../lib/calendarService';
 import { createVirtualRoutineTaskId } from '../../lib/tasks/virtualTask';
+import { tasksOnDate } from '../../lib/tasks/taskDateIndex';
+import { reuseVirtualTask } from '../../lib/tasks/reuseVirtualTask';
 import { withClearedNullables } from '../../lib/tasks/clearedUpdates';
 import { routineOccursOn } from '../../lib/routineUtils';
 import {
@@ -466,7 +468,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
     getMergedTasks: (dateStr: string) => {
         const { tasks, routines, tasksLoaded } = get();
-        const dbTasks = tasks.filter((task) => task.date === dateStr);
+        const dbTasks = tasksOnDate(tasks, dateStr);
         const virtualTasks: Task[] = [];
 
         // 【データ破壊防止】tasks のロードが完了するまでは仮想ルーチンタスクを合成しない。
@@ -503,7 +505,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 ? Math.max(...sectionPeers.map((task) => task.order ?? 0))
                 : 0;
 
-            virtualTasks.push({
+            virtualTasks.push(reuseVirtualTask({
                 id: deterministicId,
                 userId: routine.userId,
                 title: routine.title,
@@ -519,7 +521,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 tags: routine.tags,
                 memo: routine.memo,
                 isVirtual: true,
-            });
+            }));
         });
 
         return [...dbTasks, ...virtualTasks].filter((task) => task.status !== 'skipped');

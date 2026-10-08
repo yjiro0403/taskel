@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent } from './calendarService';
 import {
   buildGoogleCalendarDayRequest,
+  buildGoogleCalendarRangeRequest,
   calendarEventLinkKey,
+  clearPendingGoogleCalendarSync,
   duplicateCalendarImportIds,
   fetchCalendarEventsForDate,
+  fetchCalendarEventsForRange,
   findAlreadyImportedTask,
   resolveEventReminderMinutes,
   formatLocalDate,
@@ -14,10 +17,14 @@ import {
   GoogleCalendarAuthorizationError,
   isGoogleCalendarSyncDataReady,
   peekStoredCurrentDate,
+  PENDING_GOOGLE_CALENDAR_SYNC_KEY,
   readGoogleCalendarProviderToken,
+  readPendingGoogleCalendarSync,
   resolveCalendarSyncDate,
+  resolveGoogleCalendarSyncReturnPath,
   clearGoogleCalendarProviderToken,
   storeGoogleCalendarProviderToken,
+  writePendingGoogleCalendarSync,
 } from './calendarService';
 
 describe('getLocalDayRange', () => {
@@ -253,6 +260,45 @@ describe('Google Calendar API range integration (chosen local day)', () => {
     expect(url.searchParams.get('timeMax')).toBe(expected.timeMax);
   });
 
+  it('follows nextPageToken and keeps the first day request free of pageToken', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [{ id: 'page-1', summary: 'First', start: { date: '2026-07-18' } }],
+          nextPageToken: 'page-2',
+          defaultReminders: [{ method: 'popup', minutes: 10 }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [{ id: 'page-2', summary: 'Second', start: { date: '2026-07-18' } }],
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const expected = buildGoogleCalendarDayRequest('2026-07-18');
+    const { events, defaultReminders } = await fetchCalendarEventsForDate('tok', '2026-07-18', '2026-07-14');
+
+    expect(events.map((event) => event.summary)).toEqual(['First', 'Second']);
+    expect(defaultReminders).toEqual([{ method: 'popup', minutes: 10 }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const firstUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(firstUrl.toString().startsWith(expected.urlPathWithQuery.split('?')[0])).toBe(true);
+    expect(firstUrl.searchParams.get('timeMin')).toBe(expected.timeMin);
+    expect(firstUrl.searchParams.get('timeMax')).toBe(expected.timeMax);
+    expect(firstUrl.searchParams.has('pageToken')).toBe(false);
+
+    const secondUrl = new URL(fetchMock.mock.calls[1][0] as string);
+    expect(secondUrl.searchParams.get('pageToken')).toBe('page-2');
+    expect(secondUrl.searchParams.get('timeMin')).toBe(expected.timeMin);
+    expect(secondUrl.searchParams.get('timeMax')).toBe(expected.timeMax);
+  });
+
   it.each([401, 403])(
     'reports status %s as a reconnectable Google authorization error',
     async (status) => {
@@ -474,5 +520,104 @@ describe('resolveEventReminderMinutes', () => {
       overrides: [{ method: 'popup', minutes: 0 }],
     });
     expect(resolveEventReminderMinutes(event, [])).toEqual([0]);
+  });
+});
+
+describe('Google Calendar range request', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('covers the inclusive local week and stops at the next midnight', () => {
+    const request = buildGoogleCalendarRangeRequest('2026-07-27', '2026-08-02');
+    expect(request.startDateStr).toBe('2026-07-27');
+    expect(request.endDateStr).toBe('2026-08-02');
+    expect(request.timeMin).toBe(getLocalDayRange('2026-07-27').start.toISOString());
+    expect(request.timeMax).toBe(getLocalDayRange('2026-08-02').end.toISOString());
+    expect(formatLocalDate(new Date(request.timeMin))).toBe('2026-07-27');
+    expect(formatLocalDate(new Date(request.timeMax))).toBe('2026-08-03');
+  });
+
+  it('orders a reversed range and fetches that window', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ items: [], defaultReminders: [] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const expected = buildGoogleCalendarRangeRequest('2026-08-01', '2026-08-31');
+    const result = await fetchCalendarEventsForRange('tok', '2026-08-31', '2026-08-01', '2026-07-14');
+
+    expect(result.startDateStr).toBe('2026-08-01');
+    expect(result.endDateStr).toBe('2026-08-31');
+    expect(result.defaultReminders).toEqual([]);
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get('timeMin')).toBe(expected.timeMin);
+    expect(url.searchParams.get('timeMax')).toBe(expected.timeMax);
+    expect(url.searchParams.get('singleEvents')).toBe('true');
+  });
+});
+
+describe('pending Google Calendar sync', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubLocalStorage() {
+    const values = new Map<string, string>();
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    return values;
+  }
+
+  it('reads a legacy one-day tasks-screen value', () => {
+    const values = stubLocalStorage();
+    values.set(PENDING_GOOGLE_CALENDAR_SYNC_KEY, '2026-07-18');
+
+    expect(readPendingGoogleCalendarSync()).toEqual({
+      start: '2026-07-18',
+      end: '2026-07-18',
+      returnTo: '/tasks',
+    });
+  });
+
+  it('round-trips a week import and ignores unknown return paths', () => {
+    stubLocalStorage();
+    writePendingGoogleCalendarSync({
+      start: '2026-07-27',
+      end: '2026-08-02',
+      returnTo: '/weekly',
+    });
+    expect(readPendingGoogleCalendarSync()).toEqual({
+      start: '2026-07-27',
+      end: '2026-08-02',
+      returnTo: '/weekly',
+    });
+
+    localStorage.setItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY, JSON.stringify({
+      start: '2026-08-01',
+      end: '2026-08-31',
+      returnTo: 'https://evil.example',
+    }));
+    expect(readPendingGoogleCalendarSync()).toEqual({
+      start: '2026-08-01',
+      end: '2026-08-31',
+      returnTo: '/tasks',
+    });
+
+    clearPendingGoogleCalendarSync();
+    expect(readPendingGoogleCalendarSync()).toBeNull();
+  });
+
+  it('sends OAuth back to the screen that started the import', () => {
+    expect(resolveGoogleCalendarSyncReturnPath('/ja/planning', '/weekly')).toBe('/planning');
+    expect(resolveGoogleCalendarSyncReturnPath('/en/monthly/', '/tasks')).toBe('/monthly');
+    expect(resolveGoogleCalendarSyncReturnPath('/ja/login', '/weekly')).toBe('/weekly');
   });
 });

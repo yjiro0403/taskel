@@ -1,8 +1,9 @@
 'use client';
 
+import { memo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
-import { X, Calendar, Repeat, LogOut, Trash2, Settings, Briefcase, BarChart, ListTodo, CalendarRange, CalendarDays, Search } from 'lucide-react';
+import { X, Calendar, Repeat, LogOut, Trash2, Settings, Briefcase, BarChart, ListTodo, CalendarRange, CalendarDays, Search, ImagePlus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import clsx from 'clsx';
@@ -11,7 +12,7 @@ import ProductSwitcher from './ProductSwitcher';
 
 import { useTranslations } from 'next-intl';
 
-export default function LeftSidebar() {
+function LeftSidebar() {
     const t = useTranslations('Sidebar');
     const tNav = useTranslations('Navigation');
     const tSearch = useTranslations('Search');
@@ -88,6 +89,14 @@ export default function LeftSidebar() {
                             <span>{t('task_list')}</span>
                         </Link>
                         <Link
+                            href="/intake"
+                            className={getLinkClass('/intake')}
+                            onClick={toggleLeftSidebar}
+                        >
+                            <ImagePlus size={18} />
+                            <span>予定の受信</span>
+                        </Link>
+                        <Link
                             href="/projects"
                             className={getLinkClass('/projects')}
                             onClick={toggleLeftSidebar}
@@ -156,3 +165,5 @@ export default function LeftSidebar() {
         </>
     );
 }
+
+export default memo(LeftSidebar);

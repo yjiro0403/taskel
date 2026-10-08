@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { ListChecks, Plus, X, BookmarkPlus } from 'lucide-react';
 import clsx from 'clsx';
 import { ChecklistItem } from '@/types';
@@ -15,7 +15,7 @@ interface TaskChecklistEditorProps {
 // タスクの「持ち物リスト」編集セクション（AddTaskModal 内で使用）。
 // リスト本体は親のフォーム state として保持し、保存ボタンでタスクと一緒に永続化される。
 // テンプレート（itemTemplates）からの一括追加と、現在のリストのテンプレート保存ができる。
-export function TaskChecklistEditor({ checklist, setChecklist }: TaskChecklistEditorProps) {
+export const TaskChecklistEditor = memo(function TaskChecklistEditor({ checklist, setChecklist }: TaskChecklistEditorProps) {
     const { itemTemplates, addItemTemplate, user } = useStore(
         useShallow((state) => ({
             itemTemplates: state.itemTemplates,
@@ -220,4 +220,4 @@ export function TaskChecklistEditor({ checklist, setChecklist }: TaskChecklistEd
             </div>
         </div>
     );
-}
+});

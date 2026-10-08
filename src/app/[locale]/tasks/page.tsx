@@ -10,6 +10,7 @@ import SelectionHeader from '@/components/SelectionHeader'; // NEW
 import TasksDnDWrapper from '@/components/TasksDnDWrapper'; // NEW
 import TaskDeepLinkHandler from '@/components/TaskDeepLinkHandler';
 import NowNextWidget from '@/components/NowNextWidget';
+import { ScheduleCaptureButton } from '@/components/schedule/ScheduleCaptureButton';
 import { Plus, Clock, PanelRight, Menu, Search } from 'lucide-react'; // Added Menu
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
@@ -150,6 +151,8 @@ export default function Home() {
       <Suspense fallback={null}>
         <TaskDeepLinkHandler />
       </Suspense>
+
+      <ScheduleCaptureButton />
 
       <button
         id="tour-add-task-btn"

@@ -1,6 +1,6 @@
 'use client';
 
-import type { Dispatch, SetStateAction } from 'react';
+import { memo, type Dispatch, type SetStateAction } from 'react';
 
 import clsx from 'clsx';
 import { useTranslations } from 'next-intl';
@@ -39,7 +39,7 @@ interface TaskDatePickerProps {
     isTimeSectionInconsistent: boolean;
 }
 
-export function TaskDatePicker({
+export const TaskDatePicker = memo(function TaskDatePicker({
     activeType,
     date,
     setDate,
@@ -263,4 +263,4 @@ export function TaskDatePicker({
             )}
         </>
     );
-}
+});

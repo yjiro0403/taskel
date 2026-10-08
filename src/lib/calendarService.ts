@@ -11,7 +11,9 @@ export interface CalendarEvent {
     summary: string;
     htmlLink?: string;
     start: { dateTime?: string; date?: string };
-    end: { dateTime?: string; date?: string };
+    end?: { dateTime?: string; date?: string };
+    /** Google が cancelled を返した予定は取り込まない。 */
+    status?: string;
     /**
      * useDefault=true のときはイベント固有の設定を持たず、カレンダー既定の通知
      * （events.list レスポンス最上位の defaultReminders）が適用される。
@@ -273,6 +275,38 @@ export function buildGoogleCalendarDayRequest(dateStr: string): {
     };
 }
 
+/**
+ * Inclusive local dates. timeMax is the next local midnight after the end date,
+ * matching a one-day request when start and end are the same.
+ */
+export function buildGoogleCalendarRangeRequest(startDateStr: string, endDateStr: string): {
+    startDateStr: string;
+    endDateStr: string;
+    timeMin: string;
+    timeMax: string;
+    urlPathWithQuery: string;
+} {
+    const start = resolveCalendarSyncDate(startDateStr, startDateStr);
+    const end = resolveCalendarSyncDate(endDateStr, endDateStr);
+    const [from, to] = start <= end ? [start, end] : [end, start];
+    const timeMin = getLocalDayRange(from).start.toISOString();
+    const timeMax = getLocalDayRange(to).end.toISOString();
+    const params = new URLSearchParams({
+        timeMin,
+        timeMax,
+        singleEvents: 'true',
+        orderBy: 'startTime',
+    });
+
+    return {
+        startDateStr: from,
+        endDateStr: to,
+        timeMin,
+        timeMax,
+        urlPathWithQuery: `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+    };
+}
+
 /** Returns stored UI date, or null when nothing valid is stored (does not invent today). */
 export function peekStoredCurrentDate(): string | null {
     if (typeof window === 'undefined') {
@@ -299,6 +333,88 @@ export function writeStoredCurrentDate(date: string): void {
     }
     try {
         sessionStorage.setItem(CURRENT_DATE_STORAGE_KEY, date);
+    } catch {
+        // ignore
+    }
+}
+
+export const GOOGLE_CALENDAR_SYNC_RETURN_PATHS = ['/tasks', '/weekly', '/monthly', '/yearly', '/planning'] as const;
+export type GoogleCalendarSyncReturnPath = (typeof GOOGLE_CALENDAR_SYNC_RETURN_PATHS)[number];
+
+export interface PendingGoogleCalendarSync {
+    start: string;
+    end: string;
+    returnTo: GoogleCalendarSyncReturnPath;
+}
+
+function isGoogleCalendarSyncReturnPath(value: unknown): value is GoogleCalendarSyncReturnPath {
+    return typeof value === 'string'
+        && (GOOGLE_CALENDAR_SYNC_RETURN_PATHS as readonly string[]).includes(value);
+}
+
+/** OAuth must come back to the screen the user was on, including a locale prefix. */
+export function resolveGoogleCalendarSyncReturnPath(
+    pathname: string,
+    fallback: GoogleCalendarSyncReturnPath
+): GoogleCalendarSyncReturnPath {
+    const stripped = pathname.replace(/^\/(en|ja)(?=\/|$)/, '') || '/';
+    const normalized = stripped.length > 1 && stripped.endsWith('/') ? stripped.slice(0, -1) : stripped;
+    return isGoogleCalendarSyncReturnPath(normalized) ? normalized : fallback;
+}
+
+/**
+ * OAuth leaves the page. Pending sync is JSON `{ start, end, returnTo }`.
+ * A legacy plain yyyy-MM-dd value is the one-day tasks-screen import.
+ */
+export function readPendingGoogleCalendarSync(): PendingGoogleCalendarSync | null {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+    try {
+        const raw = localStorage.getItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
+        if (!raw) {
+            return null;
+        }
+        if (DATE_ONLY_RE.test(raw)) {
+            return { start: raw, end: raw, returnTo: '/tasks' };
+        }
+        const parsed = JSON.parse(raw) as { start?: unknown; end?: unknown; returnTo?: unknown };
+        if (
+            typeof parsed.start === 'string' && DATE_ONLY_RE.test(parsed.start)
+            && typeof parsed.end === 'string' && DATE_ONLY_RE.test(parsed.end)
+        ) {
+            return {
+                start: parsed.start,
+                end: parsed.end,
+                returnTo: isGoogleCalendarSyncReturnPath(parsed.returnTo) ? parsed.returnTo : '/tasks',
+            };
+        }
+    } catch {
+        // ignore malformed pending sync
+    }
+    return null;
+}
+
+export function writePendingGoogleCalendarSync(pending: PendingGoogleCalendarSync): void {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    localStorage.setItem(
+        PENDING_GOOGLE_CALENDAR_SYNC_KEY,
+        JSON.stringify({
+            start: pending.start,
+            end: pending.end,
+            returnTo: pending.returnTo,
+        })
+    );
+}
+
+export function clearPendingGoogleCalendarSync(): void {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    try {
+        localStorage.removeItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY);
     } catch {
         // ignore
     }
@@ -386,17 +502,11 @@ export async function fetchCalendarEvents(accessToken: string, timeMin: Date, ti
         orderBy: 'startTime',
     });
 
-    const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-    });
-
-    assertCalendarResponseAuthorized(response);
-
-    const data = await response.json();
-    return data.items || [];
+    const page = await fetchCalendarEventPages(
+        accessToken,
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`
+    );
+    return page.events;
 }
 
 /** Fetch events for a UI-selected yyyy-MM-dd using local-day bounds (not system today). */
@@ -411,22 +521,86 @@ export async function fetchCalendarEventsForDate(
 }> {
     const dateStr = resolveCalendarSyncDate(targetDateStr, uiCurrentDate);
     const request = buildGoogleCalendarDayRequest(dateStr);
-    const response = await fetch(request.urlPathWithQuery, {
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-    });
-
-    assertCalendarResponseAuthorized(response);
-
-    const data = await response.json();
+    const page = await fetchCalendarEventPages(accessToken, request.urlPathWithQuery);
     return {
         dateStr,
-        events: data.items || [],
-        // useDefault のイベント用。events.list は最上位でカレンダー既定の通知を返す。
-        defaultReminders: data.defaultReminders || [],
+        events: page.events,
+        defaultReminders: page.defaultReminders,
     };
+}
+
+/** Fetch events for an inclusive local date range. timeMax is the next midnight after the end date. */
+export async function fetchCalendarEventsForRange(
+    accessToken: string,
+    startDateStr: string | undefined,
+    endDateStr: string | undefined,
+    uiCurrentDate: string
+): Promise<{
+    startDateStr: string;
+    endDateStr: string;
+    events: CalendarEvent[];
+    defaultReminders: CalendarReminderOverride[];
+}> {
+    const request = buildGoogleCalendarRangeRequest(
+        resolveCalendarSyncDate(startDateStr, uiCurrentDate),
+        resolveCalendarSyncDate(endDateStr, uiCurrentDate)
+    );
+    const page = await fetchCalendarEventPages(accessToken, request.urlPathWithQuery);
+    return {
+        startDateStr: request.startDateStr,
+        endDateStr: request.endDateStr,
+        events: page.events,
+        defaultReminders: page.defaultReminders,
+    };
+}
+
+const MAX_CALENDAR_EVENT_PAGES = 20;
+
+/** Follow nextPageToken. The first request URL is unchanged so one-day callers stay stable. */
+async function fetchCalendarEventPages(
+    accessToken: string,
+    firstUrl: string
+): Promise<{ events: CalendarEvent[]; defaultReminders: CalendarReminderOverride[] }> {
+    const events: CalendarEvent[] = [];
+    let defaultReminders: CalendarReminderOverride[] = [];
+    const seenPageTokens = new Set<string>();
+    let url: string | null = firstUrl;
+
+    for (let page = 0; page < MAX_CALENDAR_EVENT_PAGES && url; page += 1) {
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        assertCalendarResponseAuthorized(response);
+
+        const data = await response.json() as {
+            items?: CalendarEvent[];
+            nextPageToken?: unknown;
+            defaultReminders?: CalendarReminderOverride[];
+        };
+        if (Array.isArray(data.items)) {
+            events.push(...data.items);
+        }
+        if (page === 0) {
+            // useDefault のイベント用。events.list は最上位でカレンダー既定の通知を返す。
+            defaultReminders = data.defaultReminders || [];
+        }
+
+        const token = typeof data.nextPageToken === 'string' ? data.nextPageToken : '';
+        if (!token || seenPageTokens.has(token)) {
+            break;
+        }
+        seenPageTokens.add(token);
+        const requestUrl: string = url;
+        const next = new URL(requestUrl);
+        next.searchParams.set('pageToken', token);
+        url = next.toString();
+    }
+
+    return { events, defaultReminders };
 }
 
 function assertCalendarResponseAuthorized(response: Response): void {

@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { memo, useRef, useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useChat } from '@ai-sdk/react';
 import { useStore } from '@/store/useStore';
-import { useShallow } from 'zustand/react/shallow';
 import { X, Sparkles, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslations } from 'next-intl';
@@ -12,12 +12,18 @@ import { ChatInput } from './ai/ChatInput';
 import { ModelSelector } from './ai/ModelSelector';
 import { QuotaExceededDialog } from './ai/QuotaExceededDialog';
 import { TaskCandidate } from '@/lib/ai/types';
+import type { Goal, Task } from '@/types';
 
-export const AIChatPanel: React.FC = () => {
+const EMPTY_TASKS: Task[] = [];
+const EMPTY_GOALS: Goal[] = [];
+
+export const AIChatPanel = memo(function AIChatPanel() {
+    const isAIPanelOpen = useStore((state) => state.isAIPanelOpen);
+    // A closed panel keeps its chat history, but must not scan tasks on every edit.
+    const tasks = useStore((state) => (state.isAIPanelOpen ? state.tasks : EMPTY_TASKS));
+    const goals = useStore((state) => (state.isAIPanelOpen ? state.goals : EMPTY_GOALS));
     const {
-        isAIPanelOpen,
         toggleAIPanel,
-        user,
         currentDate,
         sections,
         taskCandidates,
@@ -25,50 +31,38 @@ export const AIChatPanel: React.FC = () => {
         confirmTaskCandidate,
         dismissTaskCandidate,
         updateTaskCandidate,
-        // Phase 2追加
         cachedGoalSummaries,
         setCachedGoalSummaries,
         cachedCalibrationHint,
         setCachedCalibrationHint,
         confirmMultipleCandidates,
         dismissMultipleCandidates,
-        // A1追加
         confirmAndStartTask,
-        // Goals情報取得用
-        goals,
-        tasks,
-        // Billing
         billingPlan,
         usageRequestCount,
         usageRequestLimit,
         fetchBillingInfo,
-    } = useStore(
-        useShallow((state) => ({
-            isAIPanelOpen: state.isAIPanelOpen,
-            toggleAIPanel: state.toggleAIPanel,
-            user: state.user,
-            currentDate: state.currentDate,
-            sections: state.sections,
-            taskCandidates: state.taskCandidates,
-            addTaskCandidate: state.addTaskCandidate,
-            confirmTaskCandidate: state.confirmTaskCandidate,
-            dismissTaskCandidate: state.dismissTaskCandidate,
-            updateTaskCandidate: state.updateTaskCandidate,
-            cachedGoalSummaries: state.cachedGoalSummaries,
-            setCachedGoalSummaries: state.setCachedGoalSummaries,
-            cachedCalibrationHint: state.cachedCalibrationHint,
-            setCachedCalibrationHint: state.setCachedCalibrationHint,
-            confirmMultipleCandidates: state.confirmMultipleCandidates,
-            dismissMultipleCandidates: state.dismissMultipleCandidates,
-            confirmAndStartTask: state.confirmAndStartTask,
-            goals: state.goals,
-            tasks: state.tasks,
-            billingPlan: state.billingPlan,
-            usageRequestCount: state.usageRequestCount,
-            usageRequestLimit: state.usageRequestLimit,
-            fetchBillingInfo: state.fetchBillingInfo,
-        }))
-    );
+    } = useStore(useShallow((state) => ({
+        toggleAIPanel: state.toggleAIPanel,
+        currentDate: state.currentDate,
+        sections: state.sections,
+        taskCandidates: state.taskCandidates,
+        addTaskCandidate: state.addTaskCandidate,
+        confirmTaskCandidate: state.confirmTaskCandidate,
+        dismissTaskCandidate: state.dismissTaskCandidate,
+        updateTaskCandidate: state.updateTaskCandidate,
+        cachedGoalSummaries: state.cachedGoalSummaries,
+        setCachedGoalSummaries: state.setCachedGoalSummaries,
+        cachedCalibrationHint: state.cachedCalibrationHint,
+        setCachedCalibrationHint: state.setCachedCalibrationHint,
+        confirmMultipleCandidates: state.confirmMultipleCandidates,
+        dismissMultipleCandidates: state.dismissMultipleCandidates,
+        confirmAndStartTask: state.confirmAndStartTask,
+        billingPlan: state.billingPlan,
+        usageRequestCount: state.usageRequestCount,
+        usageRequestLimit: state.usageRequestLimit,
+        fetchBillingInfo: state.fetchBillingInfo,
+    })));
     const t = useTranslations('AIChatPanel');
     // Fallback if translation is missing
     const t_placeholder = t('inputPlaceholder') === 'AIChatPanel.inputPlaceholder'
@@ -357,4 +351,4 @@ export const AIChatPanel: React.FC = () => {
             />
         </>
     );
-};
+});

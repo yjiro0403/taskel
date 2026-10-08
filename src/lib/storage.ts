@@ -100,6 +100,7 @@ export const uploadTaskAttachment = async (file: File, userId: string): Promise<
 
 // private 化した attachments バケットの storage_path から、短命（既定1時間）の署名付きURLを生成する。
 // 描画時に呼び、公開URLの代わりに <img src> へ渡す。失敗時は null を返し、呼び出し側でフォールバックする。
+// リストの再マウントごとに署名を取り直すと今日画面が固まるので、期限の少し前まで使い回す。
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1時間
 // 失効の少し手前までは同じ URL を使い回す。日付を行き来するたびに全画像の署名を
 // 取り直し、しかも URL が毎回変わってブラウザの画像キャッシュが効かなかったため。
