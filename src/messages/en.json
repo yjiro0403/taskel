@@ -316,7 +316,14 @@
     "startNow": "Start now",
     "stop": "Stop",
     "unscheduledOther": "No section",
-    "holdToDrag": "Hold to drag"
+    "holdToDrag": "Hold to drag",
+    "zoomIn": "Zoom in the time axis so a short block is tall enough to tap start and duplicate",
+    "zoomOut": "Zoom out the time axis",
+    "zoomLabel": "Timeline zoom",
+    "zoomInShort": "Zoom",
+    "duplicateShort": "Copy",
+    "edit": "Edit",
+    "closeActions": "Close"
   },
   "Projects": {
     "expectedHours": "Expected hours",

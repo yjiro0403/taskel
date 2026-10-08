@@ -65,7 +65,8 @@
 ### 2.5 ブロックの操作ボタン
 `[タイトル] [時刻(日次のみ)] [Google カレンダー ↗] [複製 ⧉] [▶ / ■]`
 - ↗ は `task.externalLink` があるときだけ表示（`target="_blank"`）。
-- ⧉ はマウスではホバー時、タッチ端末では常時表示。`duplicateTask`（通常表示と同じ）。
+- ⧉ は週次ではマウスはホバー時、タッチ端末は幅が足りる列だけ常時表示。日次でブロックが 44px 以上のときは複製と再生をそれぞれ幅 44px・ブロック全高で常時出す。
+- 日次でブロックが 44px 未満（標準の 2.4px/分だと 5 分は 12px）のときは、枠の中にボタンを置かない。タップで下シート（開始 / 複製 / 編集）を開く。短い枠を 44px に伸ばすと隣の予定に被るため。
 - いずれも `pointerdown` / `click` を止め、ドラッグや編集を誤って始めない。
 
 ### 2.6 実稼働との連動（`lib/timeline/actuals.ts`, `lib/timeline/layout.ts`）
@@ -117,7 +118,8 @@
 ## 3. データ構造
 - `types/index.ts` / DB の変更なし。`Task.scheduledStart` / `sectionId` / `date` / `status` / `startedAt` / `actualMinutes` / `completedAt` の更新のみ。
 - `TimelineDropTarget`（unscheduled）に `sectionId?: string | null` を追加。
-- i18n `Timeline`: `createAt`, `duplicate`, `openInCalendar`, `start`, `startNow`, `stop`, `unscheduledOther`, `holdToDrag`。
+- i18n `Timeline`: `createAt`, `duplicate`, `openInCalendar`, `start`, `startNow`, `stop`, `unscheduledOther`, `holdToDrag`, `zoomIn`, `zoomOut`, `zoomLabel`, `zoomInShort`, `duplicateShort`, `edit`, `closeActions`。
+- 日次の拡大率は `localStorage` の `taskel.timeline.dayZoomIndex`（端末ごと。DB 列は増やさない）。
 
 ## 4. 主要な判断
 - **長押し方式**: `touch-action: none` を常時付けるとブロック上からのスクロールが不能になるため、
@@ -126,3 +128,4 @@
 - **セクション未設定グループへのドロップは `sectionId` を消さない**: 一覧表示はセクション単位のため、`sectionId` が無いタスクは
   通常表示で見えなくなる。既存の不正データを表示するためだけのグループにする。
 - **ウィジェットの修正はタップ対象の縮小のみ**: 「タイトルをタップしてジャンプ」は残し、余白の誤タップだけを無くす。
+- **短い予定は描画上伸ばさない**: 5 分は 5 分のまま。見たい・押したいときは画面左下に固定した − / ＋ で縦軸を拡大する（ピンチ、Ctrl+ホイールも同じ段）。スクロールしてもボタンは残る。44px 未満の枠に 44px のボタンを被せると連続した短い予定で隣に重なるため、その高さ未満は下シートに出す。

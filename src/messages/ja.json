@@ -316,7 +316,14 @@
     "startNow": "いま開始",
     "stop": "停止",
     "unscheduledOther": "セクション未設定",
-    "holdToDrag": "長押しでドラッグ"
+    "holdToDrag": "長押しでドラッグ",
+    "zoomIn": "時間軸を拡大。5分や2分の予定も、開始と複製が押しやすい高さになります",
+    "zoomOut": "時間軸を縮小",
+    "zoomLabel": "時間軸の拡大",
+    "zoomInShort": "拡大",
+    "duplicateShort": "複製",
+    "edit": "編集",
+    "closeActions": "閉じる"
   },
   "Projects": {
     "expectedHours": "予想時間（時間）",
