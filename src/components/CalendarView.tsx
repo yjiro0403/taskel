@@ -1,20 +1,45 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Calendar from 'react-calendar';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import 'react-calendar/dist/Calendar.css'; // Import default styles
 import { ChevronLeft } from 'lucide-react';
+import type { Task } from '@/types';
 
 // Custom styling wrapper if needed
 import '@/app/calendar.css';
 
 export default function CalendarView() {
-    const { tasks, setCurrentDate, getMergedTasks } = useStore();
+    const { tasks, routines, tasksLoaded, setCurrentDate, getMergedTasks } = useStore(
+        useShallow((state) => ({
+            tasks: state.tasks,
+            routines: state.routines,
+            tasksLoaded: state.tasksLoaded,
+            setCurrentDate: state.setCurrentDate,
+            getMergedTasks: state.getMergedTasks,
+        }))
+    );
     const router = useRouter();
     const [value, setValue] = useState<any>(new Date());
+
+    // 1 か月分（約 42 マス）の getMergedTasks は毎回全タスクを走査する。再描画のたびに
+    // やり直さないよう、タスク / ルーチンが変わるまで日付ごとの結果を持ち回す。
+    const mergedByDate = useMemo(() => {
+        const cache = new Map<string, Task[]>();
+        return (dateStr: string) => {
+            const cached = cache.get(dateStr);
+            if (cached) return cached;
+            const merged = getMergedTasks(dateStr);
+            cache.set(dateStr, merged);
+            return merged;
+        };
+        // tasks / routines / tasksLoaded は getMergedTasks の入力なので依存に含める
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [getMergedTasks, tasks, routines, tasksLoaded]);
 
     const handleDayClick = (value: Date) => {
         const dateStr = format(value, 'yyyy-MM-dd');
@@ -27,7 +52,7 @@ export default function CalendarView() {
         if (view !== 'month') return null;
 
         const dateStr = format(date, 'yyyy-MM-dd');
-        const dayTasks = getMergedTasks(dateStr);
+        const dayTasks = mergedByDate(dateStr);
 
         if (dayTasks.length === 0) return null;
 

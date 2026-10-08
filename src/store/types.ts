@@ -3,6 +3,7 @@
 
 import { Task, Section, Routine, Tag, DailyNote, Project, HubRole, ItemTemplate, WeeklyNote, MonthlyNote, YearlyNote } from '@/types';
 import type { AppUser } from '@/types/auth';
+import type { ResyncReason } from '@/lib/sync/resync';
 import type { AISlice } from './slices/aiSlice';
 import type { GoalSlice } from './slices/goalSlice';
 import type { BillingSlice } from './slices/billingSlice';
@@ -82,8 +83,8 @@ export interface ProjectSlice {
 
 export interface RoutineSlice {
     routines: Routine[];
-    addRoutine: (routine: Routine) => void;
-    updateRoutine: (routineId: string, updates: Partial<Routine>) => void;
+    addRoutine: (routine: Routine) => Promise<boolean>;
+    updateRoutine: (routineId: string, updates: Partial<Routine>) => Promise<boolean>;
     deleteRoutine: (routineId: string) => void;
     resetRoutineSlice: () => void;
 }
@@ -124,6 +125,17 @@ export interface AuthSlice {
     unsubscribe: (() => void) | null;
     /** Bootstrap lifecycle for task/profile data load — enables failed-fetch retry. */
     initialDataStatus: InitialDataStatus;
+    /**
+     * When the last catch-up resync (foreground return / realtime reconnect) finished.
+     * null until the first one. Useful for QA ("did the app refetch when I came back?").
+     */
+    lastResyncAt: number | null;
+    /**
+     * Catch-up fetch after the app was backgrounded, came back online, or a realtime
+     * channel reconnected: light collections in full, tasks incrementally by updated_at,
+     * deletions reconciled around today / the viewed date. No-op before bootstrap is ready.
+     */
+    resyncFromServer: (reason: ResyncReason) => Promise<void>;
     setUser: (user: AppUser | null) => void;
     signOut: () => Promise<void>;
     resetStore: () => void;

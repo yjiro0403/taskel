@@ -1,15 +1,38 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Routine } from '@/types';
+import { formatLocalDate } from '@/lib/calendarService';
+import { computeNextRun } from '@/lib/routineUtils';
 import { Edit2, Trash2, Calendar, Clock, Repeat } from 'lucide-react';
+
+function upcomingRunLabel(routine: Routine): string {
+    // ルーチンはクライアント取得後にだけ描画される。保存済み next_run は
+    // 作成時のまま進まないので、一覧の Next は毎回計算する。
+    return computeNextRun(
+        {
+            frequency: routine.frequency,
+            daysOfWeek: routine.daysOfWeek,
+            interval: routine.interval,
+            startDate: routine.startDate || routine.nextRun,
+        },
+        formatLocalDate(),
+    );
+}
 
 interface RoutineListProps {
     onEdit: (routine: Routine) => void;
 }
 
 export default function RoutineList({ onEdit }: RoutineListProps) {
-    const { routines, deleteRoutine, updateRoutine } = useStore();
+    const { routines, deleteRoutine, updateRoutine } = useStore(
+        useShallow((state) => ({
+            routines: state.routines,
+            deleteRoutine: state.deleteRoutine,
+            updateRoutine: state.updateRoutine,
+        }))
+    );
 
     if (routines.length === 0) {
         return (
@@ -51,7 +74,7 @@ export default function RoutineList({ onEdit }: RoutineListProps) {
                                 </span>
                                 <span className="flex items-center gap-1">
                                     <Calendar size={12} />
-                                    Next: {routine.nextRun}
+                                    Next: {upcomingRunLabel(routine)}
                                 </span>
                                 <span className="flex items-center gap-1">
                                     <Clock size={12} />

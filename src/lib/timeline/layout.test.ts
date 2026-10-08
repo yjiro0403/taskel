@@ -39,6 +39,24 @@ describe('timeline layout', () => {
         expect(layout.b.col).toBe(0);
     });
 
+    it('draws a planned block at its estimate, including 5 and 10 minutes', () => {
+        expect(scheduledTaskInterval(task({ id: 'study', scheduledStart: '07:35', estimatedMinutes: 10 }))).toEqual({
+            id: 'study',
+            startMin: 7 * 60 + 35,
+            endMin: 7 * 60 + 45,
+        });
+        expect(scheduledTaskInterval(task({ id: 'water', scheduledStart: '07:30', estimatedMinutes: 5 }))).toEqual({
+            id: 'water',
+            startMin: 7 * 60 + 30,
+            endMin: 7 * 60 + 35,
+        });
+        expect(scheduledTaskInterval(task({ id: 'blank', scheduledStart: '09:00', estimatedMinutes: 0 }))).toEqual({
+            id: 'blank',
+            startMin: 9 * 60,
+            endMin: 9 * 60 + 15,
+        });
+    });
+
     it('treats missing scheduledStart as unscheduled', () => {
         expect(isUnscheduledTask(task({ id: 'u' }))).toBe(true);
         expect(isUnscheduledTask(task({ id: 's', scheduledStart: '10:00' }))).toBe(false);
@@ -58,6 +76,13 @@ describe('actual-time intervals', () => {
         expect(scheduledTaskInterval(running, { nowMin: 15 * 60 + 30 })).toEqual({ id: 'run', startMin: 15 * 60 + 25, endMin: 15 * 60 + 40 });
         expect(scheduledTaskInterval(running, { nowMin: 16 * 60 })).toEqual({ id: 'run', startMin: 15 * 60 + 25, endMin: 16 * 60 });
         expect(isUnscheduledTask(task({ id: 'r2', status: 'in_progress', startedAt: at(9, 0) }))).toBe(false);
+        // A 10-minute plan is not stretched to 15 while it is still inside that window.
+        const short = task({ id: 'short', status: 'in_progress', scheduledStart: '07:35', estimatedMinutes: 10, startedAt: at(7, 35) });
+        expect(scheduledTaskInterval(short, { nowMin: 7 * 60 + 38 })).toEqual({
+            id: 'short',
+            startMin: 7 * 60 + 35,
+            endMin: 7 * 60 + 45,
+        });
     });
 
     it('draws a finished task by its logged minutes ending at the completion time', () => {

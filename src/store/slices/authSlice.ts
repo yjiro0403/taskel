@@ -1,5 +1,6 @@
 import { StateCreator } from 'zustand';
 
+import { formatLocalDate } from '@/lib/calendarService';
 import { createClient } from '@/lib/supabase/client';
 import {
     fetchGoals,
@@ -11,11 +12,26 @@ import {
     fetchSections,
     fetchTags,
     fetchTaskById,
+    fetchTaskIdsBetween,
     fetchTasks,
+    fetchTasksUpdatedSince,
     subscribeTable,
     unsubscribeChannels,
+    type SubscribeStatus,
 } from '@/lib/supabase/data';
 import { mapGoal, mapItemTemplate, mapRoutine, mapSection, mapTag } from '@/lib/supabase/mappers';
+import {
+    createRealtimeHealth,
+    mergeResyncedTasks,
+    reconcileMissingTasks,
+    replaceWithFullTaskList,
+    resyncDateWindow,
+    shouldResyncOnVisible,
+    taskWatermarkFrom,
+    watchForegroundReturns,
+    watermarkQueryBound,
+    type ResyncReason,
+} from '@/lib/sync/resync';
 import type { DailyNote, Goal, ItemTemplate, MonthlyNote, Routine, Section, Tag, WeeklyNote, YearlyNote } from '@/types';
 import type { Database } from '@/types/supabase';
 import { StoreState, AuthSlice } from '../types';
@@ -67,10 +83,25 @@ function buildInFilter(column: string, ids: string[]) {
 // 前クロージャの teardown 待ちチャンネルとトピックが衝突しないようにするため。
 let channelTopicGeneration = 0;
 
+// 現在ログイン中ユーザーの追いつき同期（resync）関数。setUser のクロージャが所有する
+// ウォーターマーク・購読状態に依存するため、スライスの公開メソッドからはここ経由で呼ぶ。
+let activeResync: ((reason: ResyncReason) => Promise<void>) | null = null;
+
+// 複数チャンネルがほぼ同時に再購読したときに差分取得を 1 回にまとめる待ち時間。
+const RESYNC_DEBOUNCE_MS = 750;
+// 1 回の保存で tasks の UPDATE と task_tags の DELETE/INSERT（タグ数×2 件）が連続して届く。
+// 同一 ID のイベントを短くまとめ、fetchTaskById を 1 回にする。
+const TASK_SYNC_COALESCE_MS = 150;
+// サーバー側で閉じられた（CLOSED）チャンネルを張り直すまでの待ち時間（試行回数ごと）。
+const CHANNEL_RECREATE_DELAYS_MS = [1_000, 2_000, 5_000, 10_000];
+
 export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set, get) => ({
     user: null,
     unsubscribe: null,
     initialDataStatus: 'idle',
+    lastResyncAt: null,
+
+    resyncFromServer: (reason) => (activeResync ? activeResync(reason) : Promise.resolve()),
 
     resetStore: () => {
         get().resetTaskSlice();
@@ -98,7 +129,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         }
 
         await createClient().auth.signOut();
-        set({ user: null, unsubscribe: null, initialDataStatus: 'idle' });
+        set({ user: null, unsubscribe: null, initialDataStatus: 'idle', lastResyncAt: null });
         get().resetStore();
     },
 
@@ -121,7 +152,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         }
 
         if (!user) {
-            set({ user: null, unsubscribe: null, initialDataStatus: 'idle' });
+            set({ user: null, unsubscribe: null, initialDataStatus: 'idle', lastResyncAt: null });
             get().resetStore();
             return;
         }
@@ -146,6 +177,20 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
         // 直近の購読対象IDシグネチャ。集合が同一なら rebuild を丸ごとスキップする（チャーン抑制）。
         let lastSubscriptionSignature: string | null = null;
         let membershipChannel: ReturnType<typeof subscribeTable> | null = null;
+
+        // ---- 追いつき同期（resync）の状態 ----
+        // 論理チャンネルごとの購読状態。「切断→再購読」を検出して差分取得を起動する。
+        const realtimeHealth = createRealtimeHealth();
+        // 直近の完全同期（初期ロード / resync）で受け取った tasks の最大 updated_at。
+        // Realtime 経由の行では前進させない（lib/sync/resync.ts の taskWatermarkFrom を参照）。
+        let taskWatermark: string | null = null;
+        let lastResyncAt = 0;
+        let resyncInFlight: Promise<void> | null = null;
+        let resyncQueued = false;
+        let resyncDebounce: ReturnType<typeof setTimeout> | null = null;
+        const channelRecreateTimers = new Map<string, ReturnType<typeof setTimeout>>();
+        const channelRecreateAttempts = new Map<string, number>();
+        const pendingTaskSyncs = new Map<string, ReturnType<typeof setTimeout>>();
 
         const refreshInitialState = async () => {
             // ロード開始時点で必ず未ロード状態にする。ユーザー切替時は resetStore を経由しない
@@ -237,19 +282,18 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     return;
                 }
 
-                set((state) => {
-                    const localPendingTasks = state.tasks.filter((task) => isPendingTask(task.id));
-                    const taskMap = new Map(tasks.map((task) => [task.id, task]));
-                    localPendingTasks.forEach((task) => taskMap.set(task.id, task));
+                set((state) => ({
+                    tasks: replaceWithFullTaskList(state.tasks, tasks, isPendingTask),
+                    // tasks が実際に着弾したこの set() でのみ true にする。
+                    // 以降 getMergedTasks は仮想ルーチンタスクの合成を再開する。
+                    tasksLoaded: true,
+                    initialDataStatus: 'ready',
+                }));
 
-                    return {
-                        tasks: Array.from(taskMap.values()),
-                        // tasks が実際に着弾したこの set() でのみ true にする。
-                        // 以降 getMergedTasks は仮想ルーチンタスクの合成を再開する。
-                        tasksLoaded: true,
-                        initialDataStatus: 'ready',
-                    };
-                });
+                // 初期ロードは完全同期なので、以降の差分取得の起点にする。
+                taskWatermark = taskWatermarkFrom(tasks, null);
+                lastResyncAt = Date.now();
+                realtimeHealth.settle();
             } catch (error) {
                 console.error('Failed to refresh Supabase state:', error);
                 if (!disposed) {
@@ -271,6 +315,9 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                 set((state) => ({
                     tasks: state.tasks.filter((task) => task.id !== taskId),
                 }));
+                // Task deletion cascades finance rows. Another device's delete still
+                // has to drop the amounts from the open day and week totals.
+                get().markFinanceSummariesStale();
                 rebuildDataSubscriptions(
                     get().projects.map((project) => project.id)
                 );
@@ -296,6 +343,30 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             } catch (error) {
                 console.error('Failed to sync task:', error);
             }
+        };
+
+        // Realtime のタスクイベントを ID ごとに短くまとめてから syncTask へ渡す。
+        // 削除は即時（取り消す対象のタイマーがあれば捨てる）。INSERT/UPDATE は最後のイベント種別で 1 回だけ取得する。
+        const queueTaskSync = (taskId: string, eventType: 'INSERT' | 'UPDATE' | 'DELETE') => {
+            if (disposed) {
+                return;
+            }
+            const pending = pendingTaskSyncs.get(taskId);
+            if (pending) {
+                clearTimeout(pending);
+                pendingTaskSyncs.delete(taskId);
+            }
+            if (eventType === 'DELETE') {
+                void syncTask(taskId, 'DELETE');
+                return;
+            }
+            pendingTaskSyncs.set(
+                taskId,
+                setTimeout(() => {
+                    pendingTaskSyncs.delete(taskId);
+                    void syncTask(taskId, eventType);
+                }, TASK_SYNC_COALESCE_MS)
+            );
         };
 
         const syncProject = async (projectId: string, eventType: 'INSERT' | 'UPDATE' | 'DELETE') => {
@@ -478,13 +549,28 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     staleChannels.push(existing.channel);
                 }
                 channelTopicGeneration += 1;
+                // 購読状態は「このチャンネルが今も現役か」を確認してから扱う。張り替えで破棄した
+                // 旧チャンネルの CLOSED を切断と誤認しないため（参照比較で判定する）。
+                let handle: ReturnType<typeof subscribeTable> | null = null;
                 const channel = subscribeTable(
                     supabase,
                     `${key}:g${channelTopicGeneration}`,
                     table,
                     onChange,
-                    filter
+                    filter,
+                    (status, error) => {
+                        if (disposed || dataChannels.get(key)?.channel !== handle) {
+                            return;
+                        }
+                        handleChannelStatus(key, status, error, () => {
+                            // 待っている間に通常の張り替えで新しいチャンネルになっていたら何もしない
+                            if (dataChannels.get(key)?.channel === handle) {
+                                recreateDataChannel(key);
+                            }
+                        });
+                    }
                 );
+                handle = channel;
                 nextChannels.set(key, { channel, filter });
             };
 
@@ -503,14 +589,14 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             ensureChannel(
                 `tasks:personal:${user.uid}`,
                 'tasks',
-                (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                (payload) => queueTaskSync((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
                 `user_id=eq.${user.uid}`
             );
             if (projectScopedFilter) {
                 ensureChannel(
                     `tasks:projects:${user.uid}`,
                     'tasks',
-                    (payload) => void syncTask((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
+                    (payload) => queueTaskSync((payload.new?.id ?? payload.old?.id) as string, payload.eventType),
                     projectScopedFilter
                 );
             }
@@ -570,7 +656,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
                     if (!taskId) {
                         return;
                     }
-                    void syncTask(taskId, payload.eventType === 'DELETE' ? 'UPDATE' : payload.eventType);
+                    queueTaskSync(taskId, payload.eventType === 'DELETE' ? 'UPDATE' : payload.eventType);
                 },
                 // RLS on task_tags already limits events to accessible tasks.
                 // Avoid a multi-thousand-UUID Realtime filter, which exceeds
@@ -582,6 +668,7 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             for (const [key, entry] of previousChannels) {
                 if (!nextChannels.has(key)) {
                     staleChannels.push(entry.channel);
+                    realtimeHealth.forget(key);
                 }
             }
 
@@ -597,47 +684,297 @@ export const createAuthSlice: StateCreator<StoreState, [], [], AuthSlice> = (set
             }
         };
 
+        // サーバー側で閉じられた（CLOSED）データチャンネルを、同じ論理キーで張り直す。
+        // realtime-js は CLOSED になったチャンネルを socket から外し自動では再参加しないため、
+        // 放置するとそのテーブルの Realtime だけが静かに止まる。
+        const recreateDataChannel = (key: string) => {
+            if (disposed) {
+                return;
+            }
+            const entry = dataChannels.get(key);
+            if (!entry) {
+                return;
+            }
+            dataChannels.delete(key);
+            void unsubscribeChannels(supabase, [entry.channel]);
+            // シグネチャ短絡を外し、欠けたキーだけを ensureChannel に新規生成させる
+            // （フィルタが同じ他のチャンネルはそのまま引き継がれる）。
+            lastSubscriptionSignature = null;
+            rebuildDataSubscriptions(get().projects.map((project) => project.id));
+        };
+
+        const handleChannelStatus = (
+            key: string,
+            status: SubscribeStatus,
+            error: Error | undefined,
+            recreate: () => void
+        ) => {
+            if (disposed) {
+                return;
+            }
+            const outcome = realtimeHealth.report(key, status);
+            if (status === 'SUBSCRIBED') {
+                channelRecreateAttempts.delete(key);
+                if (outcome === 'recovered') {
+                    // 切断中のイベントは再送されないので、差分を取りに行って埋める。
+                    scheduleResync('realtime-reconnect');
+                }
+                return;
+            }
+            if (status === 'CLOSED') {
+                const attempt = channelRecreateAttempts.get(key) ?? 0;
+                channelRecreateAttempts.set(key, attempt + 1);
+                const delay = CHANNEL_RECREATE_DELAYS_MS[Math.min(attempt, CHANNEL_RECREATE_DELAYS_MS.length - 1)];
+                const existingTimer = channelRecreateTimers.get(key);
+                if (existingTimer) {
+                    clearTimeout(existingTimer);
+                }
+                channelRecreateTimers.set(
+                    key,
+                    setTimeout(() => {
+                        channelRecreateTimers.delete(key);
+                        recreate();
+                    }, delay)
+                );
+                return;
+            }
+            // CHANNEL_ERROR / TIMED_OUT: realtime-js が自動で再参加を試みる。成功すれば SUBSCRIBED
+            // （recovered）が届いて差分取得が走る。ここではログだけ残す。
+            if (error) {
+                console.warn(`[realtime] ${key}: ${status}`, error);
+            }
+        };
+
+        const scheduleResync = (reason: ResyncReason) => {
+            if (resyncDebounce) {
+                clearTimeout(resyncDebounce);
+            }
+            resyncDebounce = setTimeout(() => {
+                resyncDebounce = null;
+                void resyncFromServer(reason);
+            }, RESYNC_DEBOUNCE_MS);
+        };
+
+        // 追いつき同期の本体。軽いコレクションは全件、tasks はウォーターマーク以降の差分だけを取る。
+        const runResync = async (reason: ResyncReason) => {
+            try {
+                // 期限切れトークンのまま PostgREST を叩くと anon 扱いで「0 行」が返り、
+                // それを削除照合に使うとローカルのタスクを全部落としてしまう。
+                // getSession() はリフレッシュ完了まで待つので、ここでセッションを確定させる。
+                const {
+                    data: { session },
+                } = await supabase.auth.getSession();
+                if (disposed || !session || session.user.id !== user.uid) {
+                    return;
+                }
+
+                const tagsPromise = fetchTags(supabase);
+                const [tags, routines, sections, projects, goals, notes, itemTemplates] = await Promise.all([
+                    tagsPromise,
+                    fetchRoutines(supabase),
+                    fetchSections(supabase),
+                    fetchProjects(supabase),
+                    fetchGoals(supabase),
+                    fetchNotes(supabase),
+                    fetchItemTemplates(supabase),
+                ]);
+                if (disposed) {
+                    return;
+                }
+
+                rebuildDataSubscriptions(projects.map((project) => project.id));
+                set({
+                    tags,
+                    routines,
+                    sections: sortSections(sections),
+                    projects,
+                    goals,
+                    itemTemplates,
+                    dailyNotes: notes.dailyNotes,
+                    weeklyNotes: notes.weeklyNotes,
+                    monthlyNotes: notes.monthlyNotes,
+                    yearlyNotes: notes.yearlyNotes,
+                });
+
+                let changed = 0;
+                let removed = 0;
+                const watermark = taskWatermark;
+                const delta = watermark
+                    ? await fetchTasksUpdatedSince(supabase, watermarkQueryBound(watermark), tags)
+                    : null;
+                if (disposed) {
+                    return;
+                }
+
+                if (!delta || !delta.complete) {
+                    // 起点が無い（初回ロードが 0 件だった）か、差分が 1 ページに収まらない: 全件取り直す。
+                    const tasks = await fetchTasks(supabase, tags);
+                    if (disposed) {
+                        return;
+                    }
+                    set((state) => ({ tasks: replaceWithFullTaskList(state.tasks, tasks, isPendingTask) }));
+                    taskWatermark = taskWatermarkFrom(tasks, watermark);
+                    changed = tasks.length;
+                } else {
+                    // 削除は差分クエリに現れないので、今日と表示日付の周辺について ID を突き合わせる。
+                    const window = resyncDateWindow(formatLocalDate(), get().currentDate);
+                    let presentIds: Set<string> | null = null;
+                    try {
+                        presentIds = new Set(await fetchTaskIdsBetween(supabase, window.from, window.to));
+                    } catch (error) {
+                        console.warn('[resync] task id reconciliation skipped:', error);
+                    }
+                    if (disposed) {
+                        return;
+                    }
+                    set((state) => {
+                        const merged = mergeResyncedTasks(state.tasks, delta.tasks, isPendingTask);
+                        if (!presentIds) {
+                            return { tasks: merged };
+                        }
+                        const reconciled = reconcileMissingTasks(merged, presentIds, window, isPendingTask);
+                        removed = reconciled.removed;
+                        return { tasks: reconciled.tasks };
+                    });
+                    taskWatermark = taskWatermarkFrom(delta.tasks, watermark);
+                    changed = delta.tasks.length;
+                }
+
+                if (changed > 0 || removed > 0) {
+                    // 金額の合計は DB 側で集計しているので、タスクが動いたら取り直させる。
+                    get().markFinanceSummariesStale();
+                }
+                lastResyncAt = Date.now();
+                realtimeHealth.settle();
+                set({ lastResyncAt });
+            } catch (error) {
+                // 失敗しても手元のデータは保ち、次の復帰 / 再接続でまた試す。
+                console.warn(`[resync:${reason}] failed:`, error);
+            }
+        };
+
+        const resyncFromServer = async (reason: ResyncReason): Promise<void> => {
+            if (disposed || get().user?.uid !== user.uid) {
+                return;
+            }
+            const status = get().initialDataStatus;
+            if (status === 'error') {
+                // 初期ロードに失敗したまま復帰した: 差分ではなく最初からやり直す。
+                await refreshInitialState();
+                return;
+            }
+            if (status !== 'ready') {
+                // 初期ロード中 / 未開始。ロード自体が最新を持ってくる。
+                return;
+            }
+            if (resyncInFlight) {
+                // 実行中に別のトリガが来たら、終わった後にもう 1 回だけ回す（取りこぼし防止）。
+                resyncQueued = true;
+                return resyncInFlight;
+            }
+            resyncInFlight = runResync(reason).finally(() => {
+                resyncInFlight = null;
+                if (resyncQueued && !disposed) {
+                    resyncQueued = false;
+                    void resyncFromServer('queued');
+                }
+            });
+            return resyncInFlight;
+        };
+
+        const subscribeMembership = () => {
+            channelTopicGeneration += 1;
+            let handle: ReturnType<typeof subscribeTable> | null = null;
+            const channel = subscribeTable(
+                supabase,
+                // データチャンネルと同様、世代番号でトピックを一意化する。
+                // サインアウト→同一ユーザーで再サインイン時に、前回チャンネルの teardown 待ちと
+                // 同名トピックが衝突して subscribe() が no-op になるのを防ぐ。
+                `project-members:${user.uid}:g${channelTopicGeneration}`,
+                'project_members',
+                async (payload) => {
+                    const projectId = (payload.new?.project_id ?? payload.old?.project_id) as string | undefined;
+                    if (!projectId) {
+                        return;
+                    }
+
+                    if (payload.eventType === 'DELETE') {
+                        set((state) => ({
+                            projects: state.projects.filter((project) => project.id !== projectId),
+                            tasks: state.tasks.filter((task) => task.projectId !== projectId),
+                            routines: state.routines.filter((routine) => routine.projectId !== projectId),
+                            goals: state.goals.filter((goal) => goal.projectId !== projectId),
+                        }));
+                    } else {
+                        await syncProject(projectId, 'UPDATE');
+                    }
+
+                    rebuildDataSubscriptions(
+                        get().projects.map((project) => project.id)
+                    );
+                },
+                `user_id=eq.${user.uid}`,
+                (status, error) => {
+                    if (disposed || membershipChannel !== handle) {
+                        return;
+                    }
+                    handleChannelStatus('project-members', status, error, () => {
+                        if (disposed || membershipChannel !== handle) {
+                            return;
+                        }
+                        membershipChannel = null;
+                        void unsubscribeChannels(supabase, [channel]);
+                        subscribeMembership();
+                    });
+                }
+            );
+            handle = channel;
+            membershipChannel = channel;
+        };
+
         void refreshInitialState();
         void get().fetchBillingInfo();
         rebuildDataSubscriptions(
             get().projects.map((project) => project.id)
         );
+        subscribeMembership();
 
-        channelTopicGeneration += 1;
-        membershipChannel = subscribeTable(
-            supabase,
-            // データチャンネルと同様、世代番号でトピックを一意化する。
-            // サインアウト→同一ユーザーで再サインイン時に、前回チャンネルの teardown 待ちと
-            // 同名トピックが衝突して subscribe() が no-op になるのを防ぐ。
-            `project-members:${user.uid}:g${channelTopicGeneration}`,
-            'project_members',
-            async (payload) => {
-                const projectId = (payload.new?.project_id ?? payload.old?.project_id) as string | undefined;
-                if (!projectId) {
+        // フォアグラウンド復帰 / オンライン復帰 / bfcache 復元で差分を取りに行く。
+        // Android アプリ（WebView）がバックグラウンドで WebSocket を失っても、
+        // 戻ってきた瞬間に Web 側の変更が反映されるようにする。
+        const stopForegroundWatch = watchForegroundReturns({
+            onVisible: (hiddenForMs) => {
+                if (
+                    !shouldResyncOnVisible({
+                        hiddenForMs,
+                        interrupted: realtimeHealth.interrupted,
+                        sinceLastResyncMs: Date.now() - lastResyncAt,
+                    })
+                ) {
                     return;
                 }
-
-                if (payload.eventType === 'DELETE') {
-                    set((state) => ({
-                        projects: state.projects.filter((project) => project.id !== projectId),
-                        tasks: state.tasks.filter((task) => task.projectId !== projectId),
-                        routines: state.routines.filter((routine) => routine.projectId !== projectId),
-                        goals: state.goals.filter((goal) => goal.projectId !== projectId),
-                    }));
-                } else {
-                    await syncProject(projectId, 'UPDATE');
-                }
-
-                rebuildDataSubscriptions(
-                    get().projects.map((project) => project.id)
-                );
+                void resyncFromServer('foreground');
             },
-            `user_id=eq.${user.uid}`
-        );
+            onOnline: () => void resyncFromServer('online'),
+            onRestore: () => void resyncFromServer('pageshow'),
+        });
+        activeResync = resyncFromServer;
 
         set({
             unsubscribe: () => {
                 disposed = true;
+                if (activeResync === resyncFromServer) {
+                    activeResync = null;
+                }
+                stopForegroundWatch();
+                if (resyncDebounce) {
+                    clearTimeout(resyncDebounce);
+                    resyncDebounce = null;
+                }
+                channelRecreateTimers.forEach((timer) => clearTimeout(timer));
+                channelRecreateTimers.clear();
+                pendingTaskSyncs.forEach((timer) => clearTimeout(timer));
+                pendingTaskSyncs.clear();
                 // サインアウト／ユーザー切替時は全チャンネル（データ＋メンバーシップ）を確実に破棄する。
                 // 参照を先に切り離してから破棄することで、破棄途中に再度 rebuild が走っても
                 // 既に手放したチャンネルへ触れないようにする（購読解除漏れ＝リーク防止）。

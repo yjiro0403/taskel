@@ -2,13 +2,19 @@
 
 import { useEffect, useState, use, Suspense } from 'react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Users, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import LeftSidebar from '@/components/LeftSidebar';
 
 function JoinContent() {
-    const { user, joinProjectWithToken } = useStore();
+    const { user, joinProjectWithToken } = useStore(
+        useShallow((state) => ({
+            user: state.user,
+            joinProjectWithToken: state.joinProjectWithToken,
+        }))
+    );
     const router = useRouter();
     const searchParams = useSearchParams();
     const token = searchParams.get('token');

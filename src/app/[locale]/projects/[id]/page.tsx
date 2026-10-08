@@ -1,6 +1,7 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useRouter } from 'next/navigation';
 import { use, useState, useMemo } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -8,7 +9,7 @@ import { formatDurationMinutes, hoursInputToMinutes, minutesToHoursInput } from 
 import { ArrowLeft, Plus, Trash2, Edit2, Square, CheckSquare, Users, Link as LinkIcon, Copy, Loader2, Check, X, Calendar, BarChart2, Filter, LayoutList, Kanban, CheckCircle2, Clock } from 'lucide-react';
 import { Task, HubRole, Milestone } from '@/types';
 import clsx from 'clsx';
-import AddTaskModal from '@/components/AddTaskModal';
+import AddTaskModal from '@/components/LazyAddTaskModal';
 import MilestoneModal from '@/components/MilestoneModal';
 import MilestoneBoard from '@/components/MilestoneBoard'; // NEW
 import LeftSidebar from '@/components/LeftSidebar';
@@ -25,7 +26,17 @@ export default function ProjectDetailsPage({ params }: PageProps) {
 
     const { id: projectId } = use(params);
     const router = useRouter();
-    const { user, projects, tasks, updateProject, deleteProject, updateTask, deleteTask } = useStore();
+    const { user, projects, tasks, updateProject, deleteProject, updateTask, deleteTask } = useStore(
+        useShallow((state) => ({
+            user: state.user,
+            projects: state.projects,
+            tasks: state.tasks,
+            updateProject: state.updateProject,
+            deleteProject: state.deleteProject,
+            updateTask: state.updateTask,
+            deleteTask: state.deleteTask,
+        }))
+    );
     const tProjects = useTranslations('Projects');
     const locale = useLocale();
 

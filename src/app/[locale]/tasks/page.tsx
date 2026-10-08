@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useEffect, useMemo } from 'react';
 import TaskList from '@/components/TaskList';
-import AddTaskModal from '@/components/AddTaskModal';
+import AddTaskModal from '@/components/LazyAddTaskModal';
 import RightSidebar from '@/components/RightSidebar';
 import LeftSidebar from '@/components/LeftSidebar'; // NEW
 import DailyNoteModal from '@/components/DailyNoteModal'; // NEW
@@ -15,15 +15,19 @@ import { Plus, Clock, PanelRight, Menu, Search } from 'lucide-react'; // Added M
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { calculateTaskSchedule, formatTime } from '@/lib/timeUtils';
+import { sortTasksForDisplay } from '@/lib/tasks/taskOrder';
 import Image from 'next/image';
 import { useTranslations } from 'next-intl';
 
 export default function Home() {
   const t = useTranslations('TaskList');
   const tSearch = useTranslations('Search');
-  const { tasks, sections, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal, openSearchModal, timelineEnabled } = useStore(useShallow((state) => ({
+  const { tasks, routines, sections, currentDate, getMergedTasks, currentTime, setCurrentTime, isRightSidebarOpen, toggleRightSidebar, toggleLeftSidebar, isAddTaskModalOpen, openAddTaskModal, closeAddTaskModal, openSearchModal, timelineEnabled } = useStore(useShallow((state) => ({
     tasks: state.tasks,
+    routines: state.routines,
     sections: state.sections,
+    currentDate: state.currentDate,
+    getMergedTasks: state.getMergedTasks,
     currentTime: state.currentTime,
     setCurrentTime: state.setCurrentTime,
     isRightSidebarOpen: state.isRightSidebarOpen,
@@ -35,41 +39,27 @@ export default function Home() {
     openSearchModal: state.openSearchModal,
     timelineEnabled: state.timelineEnabled,
   })));
-  const [finishTime, setFinishTime] = useState<Date | null>(null);
 
   useEffect(() => {
     // Initial time set
     setCurrentTime(new Date());
   }, [setCurrentTime]);
 
-  useEffect(() => {
-    // Calculate total finish time
-    if (tasks.length === 0) {
-      setFinishTime(null);
-      return;
-    }
-
-    // Sort all tasks
-    const sortedSections = [...sections].sort((a, b) => a.order - b.order);
-    let allTasks: any[] = [];
-    sortedSections.forEach(section => {
-      const sectionTasks = tasks
-        .filter(t => t.sectionId === section.id)
-        .sort((a, b) => a.order - b.order);
-      allTasks = [...allTasks, ...sectionTasks];
+  // 「終了予定」: 表示中の日のタスク（ルーチンの仮想タスク含む）を TaskList と同じ順序で
+  // 並べたときの最後の終了時刻。以前は全日付のタスクを毎分フィルタ・ソートし直し、
+  // 結果を state に書き戻して 2 回描画していたため、派生値として useMemo で求める。
+  // tasks / routines は getMergedTasks の入力なので依存に含める。
+  const finishTime = useMemo(() => {
+    const dayTasks = getMergedTasks(currentDate);
+    if (dayTasks.length === 0) return null;
+    const schedule = calculateTaskSchedule(sortTasksForDisplay(dayTasks, sections), currentTime);
+    let latest: Date | null = null;
+    schedule.forEach((slot) => {
+      if (!latest || slot.end > latest) latest = slot.end;
     });
-
-    const schedule = calculateTaskSchedule(allTasks, currentTime);
-
-    // Find the very last task's end time
-    if (schedule.size > 0) {
-      const lastTask = allTasks.reverse().find(t => schedule.has(t.id));
-      if (lastTask) {
-        const slot = schedule.get(lastTask.id);
-        setFinishTime(slot ? slot.end : null);
-      }
-    }
-  }, [tasks, sections, currentTime]);
+    return latest;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tasks / routines feed getMergedTasks
+  }, [getMergedTasks, currentDate, tasks, routines, sections, currentTime]);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">

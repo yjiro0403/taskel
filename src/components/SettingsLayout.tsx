@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Link } from '@/i18n/routing';
 import { Menu, Settings, Calendar, User, ArrowLeft, CreditCard, ListChecks, Plug, ImagePlus } from 'lucide-react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import LeftSidebar from './LeftSidebar';
 import clsx from 'clsx';
 
@@ -24,7 +25,11 @@ const settingsNav = [
 
 export default function SettingsLayout({ children }: SettingsLayoutProps) {
     const pathname = usePathname();
-    const { toggleLeftSidebar } = useStore();
+    const { toggleLeftSidebar } = useStore(
+        useShallow((state) => ({
+            toggleLeftSidebar: state.toggleLeftSidebar,
+        }))
+    );
 
     // ロケールを除去したパスを取得
     const normalizedPath = pathname.replace(/^\/(en|ja)/, '') || '/';

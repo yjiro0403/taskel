@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
 import { createClient } from '@/lib/supabase/client';
@@ -23,16 +23,24 @@ function isPublicPath(normalizedPath: string) {
     return publicRoutes.includes(normalizedPath) || normalizedPath.startsWith('/join');
 }
 
+function normalizePath(pathname: string) {
+    return pathname.replace(/^\/(en|ja)/, '') || '/';
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const setUser = useStore((state) => state.setUser);
     const router = useRouter();
     const pathname = usePathname();
+    // 認証イベント時のリダイレクト判定にだけ現在のパスを使う。effect の依存に pathname を
+    // 入れると画面遷移のたびに getUser + profiles upsert + sections select が走り、
+    // user オブジェクトも差し替わって購読コンポーネントが再描画されていた。
+    const pathnameRef = useRef(pathname);
+    pathnameRef.current = pathname;
 
     useKeyboardShortcuts();
 
     useEffect(() => {
         let subscription: { unsubscribe: () => void } | null = null;
-        const normalizedPath = pathname.replace(/^\/(en|ja)/, '') || '/';
 
         try {
             const supabase = createClient();
@@ -81,6 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setUser(mapSupabaseUser(session.user));
                 }
 
+                const normalizedPath = normalizePath(pathnameRef.current);
                 if (!session?.user && !isPublicPath(normalizedPath)) {
                     if (normalizedPath === '/intake') {
                         try {
@@ -98,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // protected routes accessible without auth either.
             console.error('Failed to initialize auth client:', error);
             setUser(null);
-            if (!isPublicPath(normalizedPath)) {
+            if (!isPublicPath(normalizePath(pathnameRef.current))) {
                 router.push('/login');
             }
         }
@@ -106,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => {
             subscription?.unsubscribe();
         };
-    }, [pathname, router, setUser]);
+    }, [router, setUser]);
 
     return (
         <>

@@ -2,11 +2,16 @@
 
 import { Menu } from 'lucide-react';
 import { useStore } from '@/store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import Image from 'next/image';
 import Link from 'next/link';
 
 export default function PageHeader() {
-    const { toggleLeftSidebar } = useStore();
+    const { toggleLeftSidebar } = useStore(
+        useShallow((state) => ({
+            toggleLeftSidebar: state.toggleLeftSidebar,
+        }))
+    );
 
     return (
         <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm h-16 flex items-center justify-between px-4 md:px-8">
