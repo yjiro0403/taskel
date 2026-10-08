@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { assignOverlapColumns, isUnscheduledTask, scheduledTaskInterval } from './layout';
+import { assignOverlapColumns, blockFitsInlineActions, isUnscheduledTask, overlapBlockWidth, scheduledTaskInterval } from './layout';
 import type { Task } from '../../types';
 
 function task(partial: Partial<Task> & Pick<Task, 'id'>): Task {
@@ -98,5 +98,32 @@ describe('actual-time intervals', () => {
         expect(scheduledTaskInterval(task({ id: 'a', status: 'in_progress', scheduledStart: '09:00', startedAt: yesterday }))).toEqual({ id: 'a', startMin: 9 * 60, endMin: 10 * 60 });
         expect(scheduledTaskInterval(task({ id: 'b', status: 'done', scheduledStart: '09:00', actualMinutes: 0, completedAt: at(15, 0) }))).toEqual({ id: 'b', startMin: 9 * 60, endMin: 10 * 60 });
         expect(isUnscheduledTask(task({ id: 'c', status: 'done', completedAt: at(15, 0), actualMinutes: 0 }))).toBe(true);
+    });
+});
+
+describe('inline actions on a narrow overlap column', () => {
+    // Day track on a 390px phone: page padding 32, 1px border, 56px hour gutter.
+    const phoneTrack = 390 - 32 - 2 - 56;
+
+    it('keeps play and copy when the column still has room for a title', () => {
+        expect(overlapBlockWidth(phoneTrack, 1)).toBe(292);
+        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 1), 2)).toBe(true);
+        expect(overlapBlockWidth(phoneTrack, 2)).toBe(142);
+        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 2), 2)).toBe(true);
+    });
+
+    it('drops the controls once three tasks share a phone slot', () => {
+        expect(overlapBlockWidth(phoneTrack, 3)).toBe(92);
+        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 3), 2)).toBe(false);
+        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 4), 2)).toBe(false);
+    });
+
+    it('keeps the controls when the same three tasks have a wide track', () => {
+        expect(blockFitsInlineActions(overlapBlockWidth(900, 3), 2)).toBe(true);
+    });
+
+    it('has nothing to collapse when the block has no inline actions', () => {
+        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 3), 0)).toBe(true);
+        expect(blockFitsInlineActions(Number.NaN, 2)).toBe(false);
     });
 });
