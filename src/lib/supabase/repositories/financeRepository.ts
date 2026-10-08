@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { getCachedFinanceSummary, putCachedFinanceSummary } from '../../finance/cache';
-import { mapFinanceCategory, mapFinanceEntry, mapFinanceSummary } from '../../finance/mapping';
+import { coerceYen, mapFinanceCategory, mapFinanceEntry, mapFinanceSummary } from '../../finance/mapping';
 import type {
     FinanceCategory,
     FinanceEntry,
@@ -88,6 +88,59 @@ export async function fetchTaskFinanceEntries(
     return (data ?? []).map(mapFinanceEntry);
 }
 
+async function listDetachedAmounts(
+    client: Client,
+    start: string,
+    end: string
+): Promise<Array<{ entry_type: 'expense' | 'income'; amount_yen: number | string }>> {
+    // Task deletion used to leave the money row in place with task_id cleared.
+    // The range RPC still counts those rows. Read them back and remove them from
+    // the total until the database cascade migration is applied.
+    const rows: Array<{ entry_type: 'expense' | 'income'; amount_yen: number | string }> = [];
+    for (let offset = 0; ; offset += FINANCE_PAGE_SIZE) {
+        const { data, error } = await client
+            .from('finance_entries')
+            .select('entry_type, amount_yen')
+            .is('task_id', null)
+            .gte('occurred_on', start)
+            .lt('occurred_on', end)
+            .order('id', { ascending: true })
+            .range(offset, offset + FINANCE_PAGE_SIZE - 1);
+        requireNoError(error);
+        rows.push(...(data ?? []));
+        if ((data?.length ?? 0) < FINANCE_PAGE_SIZE) {
+            return rows;
+        }
+    }
+}
+
+function withoutDetachedRows(
+    summary: FinanceSummary,
+    detached: Array<{ entry_type: 'expense' | 'income'; amount_yen: number | string }>
+): FinanceSummary {
+    let expenseTotal = summary.expenseTotal;
+    let incomeTotal = summary.incomeTotal;
+    let expenseCount = summary.expenseCount;
+    let incomeCount = summary.incomeCount;
+    for (const row of detached) {
+        const amount = coerceYen(row.amount_yen);
+        if (row.entry_type === 'expense') {
+            expenseTotal -= amount;
+            expenseCount -= 1;
+        } else if (row.entry_type === 'income') {
+            incomeTotal -= amount;
+            incomeCount -= 1;
+        }
+    }
+    return {
+        ...summary,
+        expenseTotal,
+        incomeTotal,
+        expenseCount,
+        incomeCount,
+    };
+}
+
 export async function summarizeFinanceRange(
     client: Client,
     start: string,
@@ -100,10 +153,8 @@ export async function summarizeFinanceRange(
     requireNoError(error);
 
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row) {
-        return emptyFinanceSummary(start, end);
-    }
-    return mapFinanceSummary(start, end, row);
+    const summary = row ? mapFinanceSummary(start, end, row) : emptyFinanceSummary(start, end);
+    return withoutDetachedRows(summary, await listDetachedAmounts(client, start, end));
 }
 
 export async function listFinanceEntriesInRange(
@@ -120,7 +171,7 @@ export async function listFinanceEntriesInRange(
             p_limit: FINANCE_PAGE_SIZE,
         });
         requireNoError(error);
-        entries.push(...(data ?? []).map(mapFinanceEntry));
+        entries.push(...(data ?? []).map(mapFinanceEntry).filter((entry) => entry.taskId));
         if ((data?.length ?? 0) < FINANCE_PAGE_SIZE) {
             return entries;
         }
