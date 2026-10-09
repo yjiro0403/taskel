@@ -916,10 +916,10 @@ export default function DayTimeline({
                         const showCopy = editable && Boolean(onDuplicate);
                         const inlineActionCount = (showPlay ? 1 : 0) + (showCopy ? 1 : 0);
                         const blockWidth = trackWidth > 0 ? overlapBlockWidth(trackWidth, assignment.colCount) : 0;
-                        // Shorter than a fingertip, or too narrow for the title beside the
-                        // 44px controls (three tasks in one slot on a phone): buttons would
-                        // cover the task, so a tap opens the sheet. Zooming past 44px, or a
-                        // wider column, puts the controls back.
+                        // Shorter than a fingertip, or too narrow for a readable title beside
+                        // the 44px controls (two or more tasks in one phone slot): buttons
+                        // would cover the task, so a tap opens the sheet. Zooming past 44px,
+                        // or a wider column, puts the controls back.
                         const useSheet = zoomable && inlineActionCount > 0 && (
                             height < TOUCH_TARGET_PX
                             || (trackWidth > 0 && !blockFitsInlineActions(blockWidth, inlineActionCount))

@@ -157,11 +157,11 @@ export const BLOCK_COLUMN_INSET_PX = 8;
 export const BLOCK_INLINE_CHROME_X_PX = 18;
 /**
  * Title width that has to stay visible beside the controls.
- * Two 44px controls plus chrome leave none of the title once a phone column
- * is split three ways. Below this, the block uses the same ellipsis sheet as
- * a block shorter than a fingertip.
+ * Two 44px controls need about six characters of title. A phone column split
+ * two or three ways is narrower than that, so the block uses the same ellipsis
+ * sheet as a block shorter than a fingertip. One task across the phone still fits.
  */
-export const MIN_TITLE_BESIDE_ACTIONS_PX = 32;
+export const MIN_TITLE_BESIDE_ACTIONS_PX = 96;
 
 /** Width of one overlap column's block inside a track of `trackWidthPx`. */
 export function overlapBlockWidth(trackWidthPx: number, colCount: number): number {

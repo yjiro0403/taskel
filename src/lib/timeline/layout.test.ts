@@ -105,14 +105,14 @@ describe('inline actions on a narrow overlap column', () => {
     // Day track on a 390px phone: page padding 32, 1px border, 56px hour gutter.
     const phoneTrack = 390 - 32 - 2 - 56;
 
-    it('keeps play and copy when the column still has room for a title', () => {
+    it('keeps play and copy when one task has the whole phone column', () => {
         expect(overlapBlockWidth(phoneTrack, 1)).toBe(292);
         expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 1), 2)).toBe(true);
-        expect(overlapBlockWidth(phoneTrack, 2)).toBe(142);
-        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 2), 2)).toBe(true);
     });
 
-    it('drops the controls once three tasks share a phone slot', () => {
+    it('drops the controls when two or more tasks share a phone slot', () => {
+        expect(overlapBlockWidth(phoneTrack, 2)).toBe(142);
+        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 2), 2)).toBe(false);
         expect(overlapBlockWidth(phoneTrack, 3)).toBe(92);
         expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 3), 2)).toBe(false);
         expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 4), 2)).toBe(false);
