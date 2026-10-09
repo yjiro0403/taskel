@@ -145,3 +145,37 @@ export function assignOverlapColumns(items: TimelineInterval[]): Record<string, 
 
     return result;
 }
+
+/** One play or copy control pinned to the right of a day-timeline block (`w-11`). */
+export const INLINE_ACTION_PX = 44;
+/** `width: calc(n% - 8px)` — the gap between neighbouring overlap columns. */
+export const BLOCK_COLUMN_INSET_PX = 8;
+/**
+ * Horizontal chrome of a block tall enough to host those controls:
+ * 1px border on each side plus `px-2`.
+ */
+export const BLOCK_INLINE_CHROME_X_PX = 18;
+/**
+ * Title width that has to stay visible beside the controls.
+ * Two 44px controls need about six characters of title. A phone column split
+ * two or three ways is narrower than that, so the block uses the same ellipsis
+ * sheet as a block shorter than a fingertip. One task across the phone still fits.
+ */
+export const MIN_TITLE_BESIDE_ACTIONS_PX = 96;
+
+/** Width of one overlap column's block inside a track of `trackWidthPx`. */
+export function overlapBlockWidth(trackWidthPx: number, colCount: number): number {
+    const cols = Math.max(1, colCount);
+    return trackWidthPx / cols - BLOCK_COLUMN_INSET_PX;
+}
+
+/**
+ * Whether play / copy can sit inside the block without covering the title.
+ * `actionCount` is how many 44px controls would be pinned (play, copy).
+ */
+export function blockFitsInlineActions(blockWidthPx: number, actionCount: number): boolean {
+    if (actionCount <= 0) return true;
+    if (!(blockWidthPx > 0) || !Number.isFinite(blockWidthPx)) return false;
+    const needed = BLOCK_INLINE_CHROME_X_PX + actionCount * INLINE_ACTION_PX + MIN_TITLE_BESIDE_ACTIONS_PX;
+    return blockWidthPx >= needed;
+}

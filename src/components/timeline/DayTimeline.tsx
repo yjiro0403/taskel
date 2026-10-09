@@ -10,7 +10,10 @@ import type { Section, Task } from '@/types';
 import {
     actualTaskInterval,
     assignOverlapColumns,
+    blockFitsInlineActions,
+    INLINE_ACTION_PX,
     isUnscheduledTask,
+    overlapBlockWidth,
     scheduledTaskInterval,
     taskDurationMinutes,
 } from '@/lib/timeline/layout';
@@ -161,6 +164,9 @@ export default function DayTimeline({
     const { setDrag: setSharedDrag, clearDrag: clearSharedDrag, dragRef: sharedDragRef } = coordinator;
     const sharedDrag = coordinator.drag;
     const gridRef = useRef<HTMLDivElement>(null);
+    /** The hour-gutter is outside this node, so its width is the block track. */
+    const trackRef = useRef<HTMLDivElement>(null);
+    const [trackWidth, setTrackWidth] = useState(0);
     const [drag, setDrag] = useState<DragState>(null);
     /** The pointer has travelled since the drag was lifted: it is a drag, not a press. */
     const [dragTravelled, setDragTravelled] = useState(false);
@@ -342,6 +348,20 @@ export default function DayTimeline({
     useLayoutEffect(() => {
         if (!zoomable) return;
         commitZoomRef.current(readDayZoomIndex(window.localStorage));
+    }, [zoomable]);
+
+    useLayoutEffect(() => {
+        if (!zoomable) return;
+        const node = trackRef.current;
+        if (!node || typeof ResizeObserver === 'undefined') return;
+        const measure = () => {
+            const next = node.clientWidth;
+            setTrackWidth((prev) => (prev === next ? prev : next));
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(node);
+        return () => observer.disconnect();
     }, [zoomable]);
 
     useEffect(() => {
@@ -808,6 +828,7 @@ export default function DayTimeline({
                 style={{ height: scrollable ? Math.min(gridHeight + 16, maxHeight) : gridHeight }}
             >
                 <div
+                    ref={trackRef}
                     className="relative"
                     style={{ height: gridHeight, marginLeft: labelGutter }}
                     onPointerDown={(event) => {
@@ -893,11 +914,18 @@ export default function DayTimeline({
                         const running = task.status === 'in_progress';
                         const showPlay = editable && task.status !== 'done';
                         const showCopy = editable && Boolean(onDuplicate);
-                        // Shorter than a fingertip: buttons inside the block would cover the next
-                        // task, so a tap opens the sheet instead. Zooming past 44px puts them back.
-                        const useSheet = zoomable && height < TOUCH_TARGET_PX && (showPlay || showCopy);
+                        const inlineActionCount = (showPlay ? 1 : 0) + (showCopy ? 1 : 0);
+                        const blockWidth = trackWidth > 0 ? overlapBlockWidth(trackWidth, assignment.colCount) : 0;
+                        // Shorter than a fingertip, or too narrow for a readable title beside
+                        // the 44px controls (two or more tasks in one phone slot): buttons
+                        // would cover the task, so a tap opens the sheet. Zooming past 44px,
+                        // or a wider column, puts the controls back.
+                        const useSheet = zoomable && inlineActionCount > 0 && (
+                            height < TOUCH_TARGET_PX
+                            || (trackWidth > 0 && !blockFitsInlineActions(blockWidth, inlineActionCount))
+                        );
                         const touchReady = zoomable && !useSheet;
-                        const actionRail = touchReady ? (showPlay ? 44 : 0) + (showCopy ? 44 : 0) : 0;
+                        const actionRail = touchReady ? inlineActionCount * INLINE_ACTION_PX : 0;
                         // The title comes first and takes every line the block has room for.
                         // A 5- or 10-minute block has no vertical padding, so the line can use the whole height.
                         const titleLines = Math.max(1, Math.floor((height - (shortBlock ? 0 : BLOCK_PADDING_Y)) / (shortBlock ? 12 : titleLineHeight)));
@@ -1009,7 +1037,15 @@ export default function DayTimeline({
                                     </div>
                                 </div>
                                 {useSheet && (
-                                    <span className="pointer-events-none absolute inset-y-0 right-0.5 flex items-center text-gray-400" aria-hidden>
+                                    <span
+                                        className={clsx(
+                                            'pointer-events-none absolute right-0.5 flex text-gray-400',
+                                            // A short bar is one line, so the mark sits in the middle of it.
+                                            // A tall narrow column keeps the mark beside the title.
+                                            height < TOUCH_TARGET_PX ? 'inset-y-0 items-center' : 'top-1.5',
+                                        )}
+                                        aria-hidden
+                                    >
                                         <MoreHorizontal size={12} />
                                     </span>
                                 )}
@@ -1024,7 +1060,7 @@ export default function DayTimeline({
                                             onDuplicate?.(task);
                                         }}
                                         className="absolute inset-y-0 z-10 flex w-11 items-center justify-center text-gray-600 hover:bg-white/80 active:bg-white cursor-pointer touch-manipulation"
-                                        style={{ right: showPlay ? 44 : 0 }}
+                                        style={{ right: showPlay ? INLINE_ACTION_PX : 0 }}
                                     >
                                         <Copy size={18} />
                                     </button>
