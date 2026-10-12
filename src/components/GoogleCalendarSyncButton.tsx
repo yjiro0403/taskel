@@ -7,6 +7,7 @@ import {
     clearGoogleCalendarProviderToken,
     clearPendingGoogleCalendarSync,
     isGoogleCalendarSyncDataReady,
+    isPendingGoogleCalendarSyncFresh,
     readGoogleCalendarProviderToken,
     readPendingGoogleCalendarSync,
     resolveGoogleCalendarSyncReturnPath,
@@ -133,6 +134,12 @@ export function GoogleCalendarSyncButton({
 
 type ResumeLock = { started: boolean };
 let resumeLock: ResumeLock | null = null;
+/** One date restore per pending import, so a later Back to Today is not overwritten. */
+let restoredPendingSyncKey: string | null = null;
+
+function pendingSyncKey(pending: { savedAt?: number; start: string; end: string; returnTo: string }): string {
+    return `${pending.savedAt ?? 'legacy'}:${pending.start}:${pending.end}:${pending.returnTo}`;
+}
 
 /** One resume for the whole app, so OAuth can return on /weekly or /monthly. */
 export function GoogleCalendarSyncResume() {
@@ -145,10 +152,23 @@ export function GoogleCalendarSyncResume() {
 
     useEffect(() => {
         const pending = readPendingGoogleCalendarSync();
-        if (!pending || !user) return;
+        if (!pending) return;
 
-        // Single-day imports restore the day. A range must not jump the UI to one date.
-        if (pending.start === pending.end && pending.start !== useStore.getState().currentDate) {
+        // Android keeps localStorage across launches. A sync that never received a
+        // Google token used to force its day on every open, including after Back to Today.
+        if (!isPendingGoogleCalendarSyncFresh(pending)) {
+            clearPendingGoogleCalendarSync();
+            return;
+        }
+        if (!user) return;
+
+        // Single-day imports restore the day once. A range must not jump the UI to one date.
+        const key = pendingSyncKey(pending);
+        const shouldRestoreDay = pending.start === pending.end
+            && restoredPendingSyncKey !== key
+            && pending.start !== useStore.getState().currentDate;
+        restoredPendingSyncKey = key;
+        if (shouldRestoreDay) {
             setCurrentDate(pending.start);
         }
 

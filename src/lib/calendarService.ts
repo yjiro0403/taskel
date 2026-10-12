@@ -345,7 +345,15 @@ export interface PendingGoogleCalendarSync {
     start: string;
     end: string;
     returnTo: GoogleCalendarSyncReturnPath;
+    /**
+     * Epoch ms when the user started this OAuth import.
+     * Missing on legacy values written before the stamp existed.
+     */
+    savedAt?: number;
 }
+
+/** How long a pending import may keep pulling the UI back to its day. */
+export const PENDING_GOOGLE_CALENDAR_SYNC_MAX_AGE_MS = 15 * 60 * 1000;
 
 function isGoogleCalendarSyncReturnPath(value: unknown): value is GoogleCalendarSyncReturnPath {
     return typeof value === 'string'
@@ -363,7 +371,7 @@ export function resolveGoogleCalendarSyncReturnPath(
 }
 
 /**
- * OAuth leaves the page. Pending sync is JSON `{ start, end, returnTo }`.
+ * OAuth leaves the page. Pending sync is JSON `{ start, end, returnTo, savedAt }`.
  * A legacy plain yyyy-MM-dd value is the one-day tasks-screen import.
  */
 export function readPendingGoogleCalendarSync(): PendingGoogleCalendarSync | null {
@@ -378,21 +386,46 @@ export function readPendingGoogleCalendarSync(): PendingGoogleCalendarSync | nul
         if (DATE_ONLY_RE.test(raw)) {
             return { start: raw, end: raw, returnTo: '/tasks' };
         }
-        const parsed = JSON.parse(raw) as { start?: unknown; end?: unknown; returnTo?: unknown };
+        const parsed = JSON.parse(raw) as {
+            start?: unknown;
+            end?: unknown;
+            returnTo?: unknown;
+            savedAt?: unknown;
+        };
         if (
             typeof parsed.start === 'string' && DATE_ONLY_RE.test(parsed.start)
             && typeof parsed.end === 'string' && DATE_ONLY_RE.test(parsed.end)
         ) {
+            const savedAt = typeof parsed.savedAt === 'number' && Number.isFinite(parsed.savedAt)
+                ? parsed.savedAt
+                : undefined;
             return {
                 start: parsed.start,
                 end: parsed.end,
                 returnTo: isGoogleCalendarSyncReturnPath(parsed.returnTo) ? parsed.returnTo : '/tasks',
+                ...(savedAt !== undefined ? { savedAt } : {}),
             };
         }
     } catch {
         // ignore malformed pending sync
     }
     return null;
+}
+
+/**
+ * A pending import may restore its day only during the OAuth round trip.
+ * Legacy rows have no savedAt. Those are the stuck Android values that kept
+ * reopening a day from days ago, so they are not fresh.
+ */
+export function isPendingGoogleCalendarSyncFresh(
+    pending: PendingGoogleCalendarSync,
+    now = Date.now()
+): boolean {
+    if (typeof pending.savedAt !== 'number' || !Number.isFinite(pending.savedAt)) {
+        return false;
+    }
+    const age = now - pending.savedAt;
+    return age >= 0 && age <= PENDING_GOOGLE_CALENDAR_SYNC_MAX_AGE_MS;
 }
 
 export function writePendingGoogleCalendarSync(pending: PendingGoogleCalendarSync): void {
@@ -405,6 +438,7 @@ export function writePendingGoogleCalendarSync(pending: PendingGoogleCalendarSyn
             start: pending.start,
             end: pending.end,
             returnTo: pending.returnTo,
+            savedAt: Date.now(),
         })
     );
 }

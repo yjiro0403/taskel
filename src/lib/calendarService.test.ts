@@ -16,8 +16,10 @@ import {
   GOOGLE_CALENDAR_PROVIDER_TOKEN_STORAGE_KEY,
   GoogleCalendarAuthorizationError,
   isGoogleCalendarSyncDataReady,
+  isPendingGoogleCalendarSyncFresh,
   peekStoredCurrentDate,
   PENDING_GOOGLE_CALENDAR_SYNC_KEY,
+  PENDING_GOOGLE_CALENDAR_SYNC_MAX_AGE_MS,
   readGoogleCalendarProviderToken,
   readPendingGoogleCalendarSync,
   resolveCalendarSyncDate,
@@ -576,43 +578,67 @@ describe('pending Google Calendar sync', () => {
     return values;
   }
 
-  it('reads a legacy one-day tasks-screen value', () => {
+  it('reads a legacy one-day tasks-screen value as stale', () => {
     const values = stubLocalStorage();
     values.set(PENDING_GOOGLE_CALENDAR_SYNC_KEY, '2026-07-18');
 
-    expect(readPendingGoogleCalendarSync()).toEqual({
+    const pending = readPendingGoogleCalendarSync();
+    expect(pending).toEqual({
       start: '2026-07-18',
       end: '2026-07-18',
       returnTo: '/tasks',
     });
+    expect(isPendingGoogleCalendarSyncFresh(pending!)).toBe(false);
   });
 
   it('round-trips a week import and ignores unknown return paths', () => {
     stubLocalStorage();
+    const before = Date.now();
     writePendingGoogleCalendarSync({
       start: '2026-07-27',
       end: '2026-08-02',
       returnTo: '/weekly',
     });
-    expect(readPendingGoogleCalendarSync()).toEqual({
+    const pending = readPendingGoogleCalendarSync();
+    expect(pending).toMatchObject({
       start: '2026-07-27',
       end: '2026-08-02',
       returnTo: '/weekly',
     });
+    expect(pending?.savedAt).toBeGreaterThanOrEqual(before);
+    expect(isPendingGoogleCalendarSyncFresh(pending!)).toBe(true);
 
     localStorage.setItem(PENDING_GOOGLE_CALENDAR_SYNC_KEY, JSON.stringify({
       start: '2026-08-01',
       end: '2026-08-31',
       returnTo: 'https://evil.example',
     }));
-    expect(readPendingGoogleCalendarSync()).toEqual({
+    const unstamped = readPendingGoogleCalendarSync();
+    expect(unstamped).toEqual({
       start: '2026-08-01',
       end: '2026-08-31',
       returnTo: '/tasks',
     });
+    expect(isPendingGoogleCalendarSyncFresh(unstamped!)).toBe(false);
 
     clearPendingGoogleCalendarSync();
     expect(readPendingGoogleCalendarSync()).toBeNull();
+  });
+
+  it('expires a pending import after the OAuth window', () => {
+    const now = Date.parse('2026-10-12T00:00:00Z');
+    const fresh = {
+      start: '2026-10-12',
+      end: '2026-10-12',
+      returnTo: '/tasks' as const,
+      savedAt: now - PENDING_GOOGLE_CALENDAR_SYNC_MAX_AGE_MS,
+    };
+    expect(isPendingGoogleCalendarSyncFresh(fresh, now)).toBe(true);
+    expect(isPendingGoogleCalendarSyncFresh(
+      { ...fresh, savedAt: now - PENDING_GOOGLE_CALENDAR_SYNC_MAX_AGE_MS - 1 },
+      now
+    )).toBe(false);
+    expect(isPendingGoogleCalendarSyncFresh({ ...fresh, savedAt: now + 1 }, now)).toBe(false);
   });
 
   it('sends OAuth back to the screen that started the import', () => {
