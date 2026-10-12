@@ -4,8 +4,9 @@ import { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/useStore';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, FileText } from 'lucide-react';
-import { addDays, format, parseISO, isSameDay } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import { FinancePeriodSummary } from '@/components/finance/FinancePeriodSummary';
+import { clearPendingGoogleCalendarSync, formatLocalDate, getLocalDayRange } from '@/lib/calendarService';
 import { dayRange } from '@/lib/finance/dateRange';
 
 export default function DateNavigation() {
@@ -22,23 +23,23 @@ export default function DateNavigation() {
     }, [hydrateCurrentDateFromStorage]);
 
     const handlePrevDay = () => {
-        const date = parseISO(currentDate);
-        const prevDay = addDays(date, -1);
-        setCurrentDate(format(prevDay, 'yyyy-MM-dd'));
+        const date = getLocalDayRange(currentDate).start;
+        setCurrentDate(formatLocalDate(addDays(date, -1)));
     };
 
     const handleNextDay = () => {
-        const date = parseISO(currentDate);
-        const nextDay = addDays(date, 1);
-        setCurrentDate(format(nextDay, 'yyyy-MM-dd'));
+        const date = getLocalDayRange(currentDate).start;
+        setCurrentDate(formatLocalDate(addDays(date, 1)));
     };
 
     const handleToday = () => {
-        setCurrentDate(format(new Date(), 'yyyy-MM-dd'));
+        // A stuck calendar-import day must not write itself back over this click.
+        clearPendingGoogleCalendarSync();
+        setCurrentDate(formatLocalDate());
     };
 
-    const displayDate = parseISO(currentDate);
-    const isToday = isSameDay(displayDate, new Date());
+    const displayDate = getLocalDayRange(currentDate).start;
+    const isToday = currentDate === formatLocalDate();
     const financeRange = dayRange(currentDate);
 
     return (
