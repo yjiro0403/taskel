@@ -164,6 +164,12 @@
     "pick_offset_unit": "通知の単位",
     "save_failed": "タスクは保存しましたが、アラームの保存に失敗しました。もう一度保存してください。"
   },
+  "AlarmAttention": {
+    "title": "アラームが鳴っています",
+    "untitled": "アラーム",
+    "stop": "停止",
+    "stopping": "停止しています…"
+  },
   "NativeAlarm": {
     "permission_title": "アラームの権限が必要です",
     "permission_description": "指定時刻にアラームを鳴らすには、通知と正確なアラームの権限を許可してください。",

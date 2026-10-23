@@ -16,6 +16,7 @@ export type Database = {
                     id: string;
                     label: string | null;
                     offset_minutes: number | null;
+                    ringing_at: string | null;
                     snooze_minutes: number;
                     status: string;
                     task_id: string | null;
@@ -28,6 +29,7 @@ export type Database = {
                     id?: string;
                     label?: string | null;
                     offset_minutes?: number | null;
+                    ringing_at?: string | null;
                     snooze_minutes?: number;
                     status?: string;
                     task_id?: string | null;
@@ -40,6 +42,7 @@ export type Database = {
                     id?: string;
                     label?: string | null;
                     offset_minutes?: number | null;
+                    ringing_at?: string | null;
                     snooze_minutes?: number;
                     status?: string;
                     task_id?: string | null;
@@ -51,6 +54,7 @@ export type Database = {
             device_tokens: {
                 Row: {
                     device_name: string | null;
+                    device_secret_hash: string | null;
                     fcm_token: string;
                     id: string;
                     updated_at: string;
@@ -58,6 +62,7 @@ export type Database = {
                 };
                 Insert: {
                     device_name?: string | null;
+                    device_secret_hash?: string | null;
                     fcm_token: string;
                     id?: string;
                     updated_at?: string;
@@ -65,6 +70,7 @@ export type Database = {
                 };
                 Update: {
                     device_name?: string | null;
+                    device_secret_hash?: string | null;
                     fcm_token?: string;
                     id?: string;
                     updated_at?: string;

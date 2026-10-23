@@ -18,7 +18,7 @@ import com.getcapacitor.annotation.PermissionCallback
  * Web(WebView) から呼ばれるローカル Capacitor プラグイン。
  *
  * 責務: Web が Supabase から取得したアラーム全件を受け取り、端末の
- * AlarmManager へリコンサイルする。ネイティブは Supabase に直接アクセスしない。
+ * AlarmManager へリコンサイルする。鳴動の報告は端末秘密で Taskel API へ送る。
  *
  * 権限まわり（Android 12-14 の差分）:
  * - POST_NOTIFICATIONS: API 33+ のみ実行時権限。full-screen intent 通知に必要。
@@ -81,14 +81,28 @@ class TaskelAlarmPlugin : Plugin() {
      * google-services.json 未配置で FirebaseApp が初期化されていない場合は
      * クラッシュせず token: null を返す（起動時同期のみで動作する Phase B 挙動）。
      */
+    /** 鳴動報告の送信先。WebView の origin を保存し、アプリが閉じていても同じホストへ送る。 */
+    @PluginMethod
+    fun setApiBase(call: PluginCall) {
+        val apiBase = call.getString("apiBase")
+        if (apiBase.isNullOrBlank()) {
+            call.reject("apiBase is required")
+            return
+        }
+        AlarmStore.saveApiBase(context, apiBase)
+        call.resolve()
+    }
+
     @PluginMethod
     fun getFcmToken(call: PluginCall) {
         val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+        val deviceSecret = AlarmStore.deviceSecret(context)
         val resolveWith = { token: String? ->
             call.resolve(
                 JSObject()
                     .put("token", token)
                     .put("deviceName", deviceName)
+                    .put("deviceSecret", deviceSecret)
             )
         }
 

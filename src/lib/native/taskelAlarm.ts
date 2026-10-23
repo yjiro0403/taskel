@@ -33,6 +33,8 @@ export interface NativeAlarmEvent {
 export interface NativeFcmTokenResult {
     token: string | null; // Firebase 未設定（google-services.json 無し）なら null
     deviceName: string;
+    /** 鳴動報告用の端末秘密。古い APK では欠ける。 */
+    deviceSecret?: string | null;
 }
 
 interface TaskelAlarmPlugin {
@@ -41,6 +43,7 @@ interface TaskelAlarmPlugin {
     requestPermissions(): Promise<NativeAlarmPermissionStatus>;
     getFcmToken(): Promise<NativeFcmTokenResult>;
     drainEvents(): Promise<{ events: NativeAlarmEvent[] }>;
+    setApiBase?(options: { apiBase: string }): Promise<void>;
 }
 
 // プラグイン参照の取得（bridged → 動的 import フォールバック、失敗は再試行可）は
@@ -91,6 +94,14 @@ export function hasRequiredAlarmPermissions(status: NativeAlarmPermissionStatus)
  * Firebase 未設定（google-services.json 無しビルド）では token が null になる。
  * Web 環境では null を返す。
  */
+/** 端末が鳴動をサーバーへ直接報告するときの API 基点。Web 環境では何もしない。 */
+export async function configureNativeAlarmEndpoint(apiBase: string): Promise<void> {
+    if (!isNativePlatform()) return;
+    const plugin = await getPlugin();
+    if (typeof plugin.setApiBase !== 'function') return;
+    await plugin.setApiBase({ apiBase });
+}
+
 export async function getNativeFcmToken(): Promise<NativeFcmTokenResult | null> {
     if (!isNativePlatform()) return null;
     const plugin = await getPlugin();

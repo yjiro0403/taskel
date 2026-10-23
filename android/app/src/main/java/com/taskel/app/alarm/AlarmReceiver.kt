@@ -34,6 +34,10 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.w(TAG, "Fired unknown alarm $alarmId (already removed?)")
             return
         }
+        if (!AlarmFeedback.isCurrentlyDue(alarm.fireAt)) {
+            Log.i(TAG, "Ignore fire for $alarmId; stored fireAt is still in the future")
+            return
+        }
 
         ensureChannel(context)
 
@@ -77,6 +81,8 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.w(TAG, "POST_NOTIFICATIONS not granted; trying direct activity start")
             runCatching { context.startActivity(fullScreenIntent) }
         }
+        // 画面を出したあとに報告する。プロセスは AlarmActivity が生かす。
+        AlarmReporter.reportAsync(context, alarm.id, "ring")
     }
 
     private fun ensureChannel(context: Context) {

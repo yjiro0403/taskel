@@ -164,6 +164,12 @@
     "pick_offset_unit": "Reminder unit",
     "save_failed": "The task was saved, but saving alarms failed. Please try saving again."
   },
+  "AlarmAttention": {
+    "title": "An alarm is ringing",
+    "untitled": "Alarm",
+    "stop": "Stop",
+    "stopping": "Stopping…"
+  },
   "NativeAlarm": {
     "permission_title": "Alarm permissions needed",
     "permission_description": "To ring alarms at the exact time, please allow notifications and exact alarms.",

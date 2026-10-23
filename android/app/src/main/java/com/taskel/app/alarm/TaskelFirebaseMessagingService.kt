@@ -33,9 +33,14 @@ class TaskelFirebaseMessagingService : FirebaseMessagingService() {
                 val status = data["status"] ?: "scheduled"
                 val fireAt = data["fireAt"]?.toLongOrNull()
                 if (status != "scheduled" || fireAt == null) {
-                    // scheduled 以外（dismissed / fired）や不正 payload はキャンセル扱い
+                    // scheduled 以外（dismissed / fired）や不正 payload はキャンセル扱い。
+                    // すでに鳴っている音と全画面もここで止める。
                     cancelAlarm(id)
                     return
+                }
+                // 未来時刻への更新はスヌーズか時刻変更。鳴っている音を止めてから予約し直す。
+                if (fireAt > System.currentTimeMillis()) {
+                    AlarmFeedback.stopRinging(this, id)
                 }
                 val alarm = StoredAlarm(
                     id = id,
@@ -57,6 +62,7 @@ class TaskelFirebaseMessagingService : FirebaseMessagingService() {
     private fun cancelAlarm(id: String) {
         AlarmScheduler.cancel(this, id)
         AlarmStore.removeAlarm(this, id)
+        AlarmFeedback.stopRinging(this, id)
         Log.i(TAG, "FCM cancel alarm $id")
     }
 

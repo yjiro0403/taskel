@@ -231,6 +231,8 @@ export interface Alarm {
     offsetMinutes?: number;
     snoozeMinutes: number;
     status: AlarmStatus;
+    /** Set while a device is sounding this alarm. Absent means it is not ringing. */
+    ringingAt?: number;
     createdAt: number;
     updatedAt: number;
 }

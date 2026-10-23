@@ -1,8 +1,10 @@
 package com.taskel.app.alarm
 
 import android.content.Context
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.SecureRandom
 
 /**
  * ネイティブ側のアラーム永続化（SharedPreferences + JSON）。
@@ -40,6 +42,9 @@ object AlarmStore {
     private const val KEY_ALARMS = "alarms"
     private const val KEY_EVENTS = "events"
     private const val KEY_FCM_TOKEN = "fcm_token"
+    private const val KEY_DEVICE_SECRET = "device_secret"
+    private const val KEY_API_BASE = "api_base"
+    private const val DEFAULT_API_BASE = "https://taskel.vercel.app"
     private const val MAX_EVENTS = 200
 
     private fun prefs(context: Context) =
@@ -117,4 +122,31 @@ object AlarmStore {
     @Synchronized
     fun loadFcmToken(context: Context): String? =
         prefs(context).getString(KEY_FCM_TOKEN, null)
+
+    /** 鳴動報告の認可に使う秘密。端末内だけで生成し、サーバーにはハッシュだけが残る。 */
+    @Synchronized
+    fun deviceSecret(context: Context): String {
+        val existing = prefs(context).getString(KEY_DEVICE_SECRET, null)
+        if (!existing.isNullOrBlank()) return existing
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        val secret = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        prefs(context).edit().putString(KEY_DEVICE_SECRET, secret).apply()
+        return secret
+    }
+
+    @Synchronized
+    fun saveApiBase(context: Context, raw: String) {
+        val url = raw.trim().trimEnd('/')
+        val allowed = url.startsWith("https://") ||
+            url.startsWith("http://localhost") ||
+            url.startsWith("http://127.0.0.1") ||
+            url.startsWith("http://10.0.2.2")
+        if (!allowed || url.length > 200) return
+        prefs(context).edit().putString(KEY_API_BASE, url).apply()
+    }
+
+    @Synchronized
+    fun apiBase(context: Context): String =
+        prefs(context).getString(KEY_API_BASE, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_API_BASE
 }

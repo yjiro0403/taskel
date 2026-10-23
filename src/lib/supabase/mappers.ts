@@ -222,6 +222,7 @@ export function mapAlarm(row: Tables['alarms']['Row']): Alarm {
         snoozeMinutes: row.snooze_minutes,
         // check 制約で3値に制限されているが、型上は text のためここで絞り込む
         status: row.status as AlarmStatus,
+        ringingAt: row.ringing_at ? new Date(row.ringing_at).getTime() : undefined,
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
     };
