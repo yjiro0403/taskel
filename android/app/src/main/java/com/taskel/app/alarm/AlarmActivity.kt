@@ -3,8 +3,10 @@ package com.taskel.app.alarm
 import android.app.Activity
 import android.app.KeyguardManager
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -28,13 +30,31 @@ class AlarmActivity : Activity() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var alarmId: String = ""
+    private var receiverRegistered = false
+    private var closing = false
+
+    private val stopReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != AlarmFeedback.ACTION_STOP) return
+            val id = intent.getStringExtra(AlarmReceiver.EXTRA_ALARM_ID) ?: return
+            if (id != alarmId) return
+            closing = true
+            finishAlarmUi()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         alarmId = intent.getStringExtra(AlarmReceiver.EXTRA_ALARM_ID) ?: ""
+        registerStopReceiver()
         val alarm = AlarmStore.findAlarm(this, alarmId)
-            ?: StoredAlarm(alarmId, System.currentTimeMillis(), "", DEFAULT_SNOOZE_MINUTES)
+        if (closing || alarm == null || !AlarmFeedback.isCurrentlyDue(alarm.fireAt)) {
+            // 別の場所で止めた直後や、スヌーズで未来時刻に差し替わったあとは鳴らさない。
+            cancelFiringNotification()
+            finish()
+            return
+        }
 
         showOverLockScreen()
         setContentView(R.layout.activity_alarm)
@@ -52,7 +72,21 @@ class AlarmActivity : Activity() {
         cancelFiringNotification()
         startSound()
         startVibration()
+        if (closing) {
+            stopFeedback()
+            return
+        }
         Log.i(TAG, "AlarmActivity shown for $alarmId; took over sound from notification")
+    }
+
+    private fun registerStopReceiver() {
+        val filter = IntentFilter(AlarmFeedback.ACTION_STOP)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(stopReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(stopReceiver, filter)
+        }
+        receiverRegistered = true
     }
 
     /** 発火通知を消す（= FLAG_INSISTENT のループ音を停止する）。 */
@@ -122,6 +156,7 @@ class AlarmActivity : Activity() {
     private fun stopAlarm(alarm: StoredAlarm) {
         AlarmStore.recordEvent(this, alarm.id, "dismissed")
         AlarmStore.removeAlarm(this, alarm.id)
+        AlarmReporter.reportAsync(this, alarm.id, "dismiss")
         finishAlarmUi()
     }
 
@@ -132,6 +167,7 @@ class AlarmActivity : Activity() {
         AlarmScheduler.schedule(this, next)
         // 新しい fireAt を含めて記録し、Web が PATCH で Supabase の fire_at を更新できるようにする
         AlarmStore.recordEvent(this, alarm.id, "snoozed", next.fireAt)
+        AlarmReporter.reportAsync(this, alarm.id, "snooze", next.fireAt)
         finishAlarmUi()
     }
 
@@ -152,6 +188,10 @@ class AlarmActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (receiverRegistered) {
+            runCatching { unregisterReceiver(stopReceiver) }
+            receiverRegistered = false
+        }
         stopFeedback()
         super.onDestroy()
     }

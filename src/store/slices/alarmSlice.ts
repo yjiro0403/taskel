@@ -26,6 +26,9 @@ export interface AlarmSlice {
     addAlarm: (input: AlarmCreateInput) => Promise<Alarm | null>;
     updateAlarm: (alarmId: string, updates: AlarmUpdateInput) => Promise<boolean>;
     deleteAlarm: (alarmId: string) => Promise<boolean>;
+    /** Realtime で届いた1件を反映する。バナーの停止対象に載せるため。 */
+    applyRemoteAlarm: (alarm: Alarm) => void;
+    removeRemoteAlarm: (alarmId: string) => void;
     resetAlarmSlice: () => void;
 }
 
@@ -84,6 +87,17 @@ export const createAlarmSlice: StateCreator<StoreState, [], [], AlarmSlice> = (s
             ...rest,
             ...(offsetMinutes !== undefined ? { offsetMinutes: offsetMinutes ?? undefined } : {}),
         };
+        // 解除・再予約・再アームは、鳴動中表示をすぐ消す。
+        if (
+            updates.status === 'dismissed' ||
+            updates.status === 'fired' ||
+            updates.status === 'scheduled' ||
+            updates.fireAt !== undefined
+        ) {
+            optimistic.ringingAt = undefined;
+            // 遅れて届く「鳴動中」の Realtime より新しい印にして、バナーが復活しないようにする。
+            optimistic.updatedAt = Date.now();
+        }
 
         // 楽観的更新。失敗時は対象 id のみ元へ戻す（taskSlice と同じ方針）。
         set((state) => ({
@@ -132,6 +146,28 @@ export const createAlarmSlice: StateCreator<StoreState, [], [], AlarmSlice> = (s
             get().showToast('アラームの削除に失敗しました。通信環境を確認してください。', 'error');
             return false;
         }
+    },
+
+    applyRemoteAlarm: (alarm) => {
+        set((state) => {
+            const index = state.alarms.findIndex((entry) => entry.id === alarm.id);
+            if (index === -1) {
+                return { alarms: [...state.alarms, alarm], alarmsLoaded: true };
+            }
+            const current = state.alarms[index];
+            if (current.updatedAt > alarm.updatedAt) {
+                return state;
+            }
+            const next = state.alarms.slice();
+            next[index] = alarm;
+            return { alarms: next, alarmsLoaded: true };
+        });
+    },
+
+    removeRemoteAlarm: (alarmId) => {
+        set((state) => ({
+            alarms: state.alarms.filter((alarm) => alarm.id !== alarmId),
+        }));
     },
 
     resetAlarmSlice: () => set({ alarms: [], alarmsLoaded: false }),

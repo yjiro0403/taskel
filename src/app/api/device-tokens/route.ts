@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/api/auth';
 import { handleApiError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
 import { createClient } from '@/lib/supabase/server';
+import { hashDeviceSecret } from '@/lib/alarms/deviceReport';
 import { mapDeviceToken } from '@/lib/supabase/mappers';
 import { deviceTokenUpsertSchema } from '@/lib/validations/alarm';
 
@@ -14,8 +15,22 @@ import { deviceTokenUpsertSchema } from '@/lib/validations/alarm';
 export async function POST(req: Request) {
     try {
         const user = await requireAuth();
-        const { fcmToken, deviceName } = await parseJsonBody(req, deviceTokenUpsertSchema);
+        const { fcmToken, deviceName, deviceSecret } = await parseJsonBody(req, deviceTokenUpsertSchema);
         const supabase = await createClient();
+
+        const deviceSecretHash = deviceSecret ? hashDeviceSecret(deviceSecret) : null;
+        if (deviceSecretHash) {
+            // トークンがローテーションしても、同じ端末秘密は1行に保つ。
+            const { error: rotateError } = await supabase
+                .from('device_tokens')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('device_secret_hash', deviceSecretHash)
+                .neq('fcm_token', fcmToken);
+            if (rotateError) {
+                throw rotateError;
+            }
+        }
 
         const { data: upsertedToken, error: upsertError } = await supabase
             .from('device_tokens')
@@ -24,6 +39,7 @@ export async function POST(req: Request) {
                     user_id: user.id,
                     fcm_token: fcmToken,
                     device_name: deviceName ?? null,
+                    ...(deviceSecretHash ? { device_secret_hash: deviceSecretHash } : {}),
                 },
                 { onConflict: 'fcm_token' }
             )

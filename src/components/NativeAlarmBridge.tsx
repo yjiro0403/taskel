@@ -8,6 +8,7 @@ import { useStore } from '@/store/useStore';
 import {
     checkNativeAlarmPermissions,
     drainNativeAlarmEvents,
+    configureNativeAlarmEndpoint,
     getNativeFcmToken,
     hasRequiredAlarmPermissions,
     isNativePlatform,
@@ -78,7 +79,9 @@ async function writeBackAlarmEvent(event: NativeAlarmEvent): Promise<void> {
             ? { status: 'dismissed' as const }
             : event.action === 'snoozed' && typeof event.fireAt === 'number'
               ? { fireAt: event.fireAt }
-              : null;
+              : event.action === 'ring'
+                ? { ringing: true as const }
+                : null;
     if (!updates) return;
 
     try {
@@ -134,6 +137,16 @@ export function NativeAlarmBridge() {
             return;
         }
         syncStartedAtRef.current = Date.now();
+        try {
+            await withTimeout(
+                configureNativeAlarmEndpoint(window.location.origin),
+                STEP_TIMEOUT_MS,
+                'setApiBase'
+            );
+        } catch (error) {
+            console.error('setApiBase failed:', error);
+            debugAlarm({ lastError: `setApiBase: ${String(error)}` });
+        }
         debugAlarm({
             lastRunNativeSyncAt: new Date().toISOString(),
             lockHeldSince: new Date().toISOString(),
@@ -176,6 +189,7 @@ export function NativeAlarmBridge() {
                     // token が null = Firebase 未設定ビルド or 取得前。次回の同期で再試行する。
                     if (result?.token) {
                         const deviceName = result.deviceName?.trim();
+                        const deviceSecret = result.deviceSecret?.trim();
                         const res = await withTimeout(
                             fetch('/api/device-tokens', {
                                 method: 'POST',
@@ -183,6 +197,7 @@ export function NativeAlarmBridge() {
                                 body: JSON.stringify({
                                     fcmToken: result.token,
                                     deviceName: deviceName ? deviceName.slice(0, 200) : null,
+                                    ...(deviceSecret ? { deviceSecret } : {}),
                                 }),
                             }),
                             STEP_TIMEOUT_MS,

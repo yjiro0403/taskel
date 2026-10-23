@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
+import { AlarmAttention } from "@/components/AlarmAttention";
 import { NativeAlarmBridge } from "@/components/NativeAlarmBridge";
 import { NativeWidgetBridge } from "@/components/NativeWidgetBridge";
 import { ScheduleRuntime } from "@/components/schedule/ScheduleRuntime";
@@ -56,6 +57,8 @@ export default async function RootLayout({
             {children}
             {/* トースト通知はアプリ全体で1度だけマウントする */}
             <Toaster />
+            {/* 鳴動中のアラームを Web を含む開いている画面に出し、そこから止められるようにする */}
+            <AlarmAttention />
             {/* Capacitor(Android) 環境でのみ動くアラーム同期ブリッジ。Web では何もしない */}
             <NativeAlarmBridge />
             {/* 同じく Android 環境のみ: ホーム画面ウィジェット（今 / 次）への同期 */}
