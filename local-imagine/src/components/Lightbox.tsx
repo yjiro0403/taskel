@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { ChevronLeft, ChevronRight, Download, Shuffle, UserPlus, Video, X } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { fileUrl } from "@/lib/api";
+import { useBackdropClose } from "./ui";
 
 export function Lightbox() {
   const lightbox = useAppStore((s) => s.lightbox);
@@ -12,6 +13,7 @@ export function Lightbox() {
   const settings = useAppStore((s) => s.settings);
   const catalog = useAppStore((s) => s.catalog);
   const { setLightbox, promoteRef, generateDirect } = useAppStore();
+  const backdrop = useBackdropClose(() => setLightbox(null));
 
   const message = chat?.messages.find((m) => m.id === lightbox?.messageId);
   const batch = message?.generations?.find((g) => g.id === lightbox?.batchId);
@@ -56,7 +58,7 @@ export function Lightbox() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-black/90" onClick={() => setLightbox(null)}>
+    <div className="fixed inset-0 z-50 flex bg-black/90" {...backdrop}>
       <div className="relative flex flex-1 items-center justify-center p-6" onClick={(e) => e.stopPropagation()}>
         {image.kind === "video" ? (
           <video src={fileUrl(image.file)} controls autoPlay loop className="max-h-full max-w-full rounded-lg" />

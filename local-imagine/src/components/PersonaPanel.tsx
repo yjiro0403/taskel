@@ -1,17 +1,27 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Trash2, Upload, X } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { fileUrl } from "@/lib/api";
 import { Persona } from "@/lib/types";
+import { PersonaPatch } from "@/lib/api";
 import { Field, Select, Toggle } from "./ui";
 
 function useDebouncedSave(persona: Persona | undefined) {
   const updatePersona = useAppStore((s) => s.updatePersona);
   const timer = useRef<NodeJS.Timeout | null>(null);
-  const pending = useRef<Partial<Persona>>({});
+  const pending = useRef<{ id: string; patch: PersonaPatch } | null>(null);
   const [draft, setDraft] = useState<Persona | undefined>(persona);
+
+  const flush = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    const p = pending.current;
+    pending.current = null;
+    if (p && Object.keys(p.patch).length) void updatePersona(p.id, p.patch);
+  };
+
   // Reset the draft when the selected persona (or its reference images) changes, without an effect.
   const key = persona ? `${persona.id}:${persona.referenceImages.join("|")}` : "";
   const [prevKey, setPrevKey] = useState(key);
@@ -19,18 +29,22 @@ function useDebouncedSave(persona: Persona | undefined) {
     setPrevKey(key);
     setDraft(persona);
   }
+  // Save what was typed for the previous persona when switching away (or unmounting).
+  // The pending patch carries its own persona id, so it never leaks into the new persona.
+  const personaId = persona?.id;
+  useEffect(() => () => flush(), [personaId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const patch = (p: Partial<Persona>) => {
+  const patch = (p: PersonaPatch) => {
     if (!draft) return;
-    const next = { ...draft, ...p };
-    setDraft(next);
-    pending.current = { ...pending.current, ...p };
+    // null clears optional fields on the server; locally drop the key
+    const local = { ...draft, ...p } as Persona;
+    if (p.lora === null) delete local.lora;
+    if (p.checkpoint === null) delete local.checkpoint;
+    setDraft(local);
+    const prev = pending.current && pending.current.id === draft.id ? pending.current.patch : {};
+    pending.current = { id: draft.id, patch: { ...prev, ...p } };
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      const payload = pending.current;
-      pending.current = {};
-      void updatePersona(next.id, payload);
-    }, 500);
+    timer.current = setTimeout(flush, 500);
   };
   return { draft, patch };
 }
@@ -40,6 +54,7 @@ export function PersonaPanel() {
   const currentPersonaId = useAppStore((s) => s.currentPersonaId);
   const catalog = useAppStore((s) => s.catalog);
   const settings = useAppStore((s) => s.settings);
+  const busy = useAppStore((s) => s.busy);
   const { setPersonaPanelOpen, uploadRefs, removeRef, deletePersona, showToast } = useAppStore();
   const persona = personas.find((p) => p.id === currentPersonaId);
   const { draft, patch } = useDebouncedSave(persona);
@@ -124,7 +139,7 @@ export function PersonaPanel() {
               value={draft.lora?.name ?? ""}
               placeholder="なし"
               options={catalog?.loras ?? []}
-              onChange={(v) => patch({ lora: v ? { name: v, strength: draft.lora?.strength ?? 0.8 } : undefined })}
+              onChange={(v) => patch({ lora: v ? { name: v, strength: draft.lora?.strength ?? 0.8 } : null })}
             />
             <input
               type="number"
@@ -142,13 +157,15 @@ export function PersonaPanel() {
           <input className="input" value={draft.triggerWords} onChange={(e) => patch({ triggerWords: e.target.value })} />
         </Field>
         <Field label="この人物専用の checkpoint (任意)">
-          <Select value={draft.checkpoint ?? ""} placeholder={`全体設定を使う (${settings?.checkpoint || "未設定"})`} options={catalog?.checkpoints ?? []} onChange={(v) => patch({ checkpoint: v || undefined })} />
+          <Select value={draft.checkpoint ?? ""} placeholder={`全体設定を使う (${settings?.checkpoint || "未設定"})`} options={catalog?.checkpoints ?? []} onChange={(v) => patch({ checkpoint: v || null })} />
         </Field>
         <Toggle checked={draft.nsfw} onChange={(v) => patch({ nsfw: v })} label="この人物で NSFW を許可 (18+)" />
         {draft.nsfw && !settings?.nsfwAllowed && <p className="-mt-2 text-[11px] text-warn">全体設定の「NSFW を許可」もオンにする必要があります。</p>}
 
         <button
           className="btn btn-danger mt-4 justify-center"
+          disabled={busy}
+          title={busy ? "生成中は削除できません" : undefined}
           onClick={() => {
             if (confirm(`「${draft.name}」とそのチャット・画像をすべて削除しますか？`)) void deletePersona(draft.id).then(() => setPersonaPanelOpen(false));
           }}

@@ -15,6 +15,7 @@ import { newId, nowIso, randomSeed } from "@/lib/ids";
 import * as comfy from "./comfy";
 import { buildAnimateDiffWorkflow, buildImageWorkflow, buildWanVideoWorkflow } from "./workflows";
 import { mutateChat, readBinary, saveBinary } from "./store";
+import { markBatchActive } from "./jobs";
 
 /**
  * Turns a GenerationBatch into files on disk, streaming progress events.
@@ -100,14 +101,25 @@ export async function runBatch(ctx: RunBatchContext, batch: GenerationBatch): Pr
   const started = Date.now();
   const update = async (patch: Partial<GenerationBatch>) => {
     Object.assign(batch, patch);
-    await mutateChat(chatId, (chat) => {
-      const m = chat.messages.find((x) => x.id === messageId);
+    const chat = await mutateChat(chatId, (c) => {
+      const m = c.messages.find((x) => x.id === messageId);
       const g = m?.generations?.find((x) => x.id === batch.id);
       if (g) Object.assign(g, patch);
     });
+    // The chat was deleted while we were rendering: stop instead of recreating its folder.
+    if (!chat) throw new comfy.ComfyError("Chat was deleted during generation");
   };
 
-  await update({ status: "running" });
+  markBatchActive(batch.id, true);
+  try {
+    await update({ status: "running" });
+  } catch (err) {
+    markBatchActive(batch.id, false);
+    batch.status = "error";
+    batch.error = (err as Error).message;
+    send({ type: "batch_end", messageId, batch });
+    return batch;
+  }
   send({ type: "batch_start", messageId, batch });
 
   try {
@@ -206,7 +218,13 @@ export async function runBatch(ctx: RunBatchContext, batch: GenerationBatch): Pr
     await update({ status: "done", durationMs: Date.now() - started });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await update({ status: signal?.aborted ? "cancelled" : "error", error: msg, durationMs: Date.now() - started });
+    try {
+      await update({ status: signal?.aborted ? "cancelled" : "error", error: msg, durationMs: Date.now() - started });
+    } catch {
+      Object.assign(batch, { status: "error", error: msg });
+    }
+  } finally {
+    markBatchActive(batch.id, false);
   }
   send({ type: "batch_end", messageId, batch });
   return batch;

@@ -207,10 +207,12 @@ export function buildWanVideoWorkflow(input: VideoWorkflowInput): ApiWorkflow {
   const pos = b.add("CLIPTextEncode", { text: prompt, clip: [clip, 0] }, "Positive");
   const neg = b.add("CLIPTextEncode", { text: negativePrompt, clip: [clip, 0] }, "Negative");
 
+  // Wan22ImageToVideoLatent: length must be 4n+1 and width/height multiples of 32 (ComfyUI only validates min/max).
+  const snap = (v: number, step: number) => Math.max(step, Math.round(v / step) * step);
   const latentInputs: Record<string, unknown> = {
-    width: video.width,
-    height: video.height,
-    length: video.frames,
+    width: snap(video.width, 32),
+    height: snap(video.height, 32),
+    length: Math.max(1, Math.floor((video.frames - 1) / 4) * 4 + 1),
     batch_size: 1,
     vae: [vae, 0],
   };

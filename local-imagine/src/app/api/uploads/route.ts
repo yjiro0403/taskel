@@ -1,7 +1,8 @@
-import path from "path";
 import { getChat, saveBinary } from "@/lib/server/store";
-import { badRequest, json, notFound, safeFileName, serverError } from "@/lib/server/http";
+import { badRequest, json, notFound, serverError } from "@/lib/server/http";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES, sniffImageExt } from "@/lib/server/validation";
 import { newId } from "@/lib/ids";
+import { isValidId } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -10,16 +11,20 @@ export async function POST(req: Request) {
   try {
     const form = await req.formData();
     const chatId = String(form.get("chatId") ?? "");
-    if (!chatId || !(await getChat(chatId))) return notFound("Chat not found");
+    if (!isValidId(chatId)) return badRequest("Invalid chatId");
+    if (!(await getChat(chatId))) return notFound("Chat not found");
     const files: string[] = [];
-    for (const entry of form.getAll("files")) {
-      if (!(entry instanceof File) || !entry.type.startsWith("image/")) continue;
-      const ext = path.extname(safeFileName(entry.name)) || ".png";
+    const entries = form.getAll("files").filter((e): e is File => e instanceof File).slice(0, MAX_UPLOAD_FILES);
+    for (const entry of entries) {
+      if (entry.size > MAX_UPLOAD_BYTES) return badRequest(`${entry.name}: file too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB)`);
+      const data = Buffer.from(await entry.arrayBuffer());
+      const ext = sniffImageExt(data);
+      if (!ext) continue;
       const rel = `uploads/${chatId}/${newId("u_")}${ext}`;
-      await saveBinary(rel, Buffer.from(await entry.arrayBuffer()));
+      await saveBinary(rel, data);
       files.push(rel);
     }
-    if (!files.length) return badRequest("No image files received");
+    if (!files.length) return badRequest("No image files received (png / jpeg / webp / gif)");
     return json({ files });
   } catch (err) {
     return serverError(err);

@@ -13,6 +13,8 @@ import {
 
 /** Thin fetch wrappers for the app's own API; all client-side. */
 
+export type PersonaPatch = Partial<Omit<Persona, "lora" | "checkpoint">> & { lora?: Persona["lora"] | null; checkpoint?: string | null };
+
 async function j<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, { ...init, headers: { ...(init?.body instanceof FormData ? {} : { "content-type": "application/json" }), ...(init?.headers ?? {}) } });
   if (!res.ok) {
@@ -37,7 +39,8 @@ export const api = {
 
   personas: () => j<{ personas: Persona[] }>("/api/personas"),
   createPersona: (input: Partial<Persona>) => j<Persona>("/api/personas", { method: "POST", body: JSON.stringify(input) }),
-  updatePersona: (id: string, patch: Partial<Persona>) => j<Persona>(`/api/personas/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  /** `lora: null` / `checkpoint: null` clear the field (undefined would be dropped by JSON.stringify). */
+  updatePersona: (id: string, patch: PersonaPatch) => j<Persona>(`/api/personas/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deletePersona: (id: string) => j<{ ok: true }>(`/api/personas/${id}`, { method: "DELETE" }),
   uploadRefs: (id: string, files: File[]) => {
     const form = new FormData();
@@ -52,6 +55,7 @@ export const api = {
   createChat: (personaId: string, title?: string) => j<Chat>("/api/chats", { method: "POST", body: JSON.stringify({ personaId, title }) }),
   renameChat: (id: string, title: string) => j<Chat>(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   deleteChat: (id: string) => j<{ ok: true }>(`/api/chats/${id}`, { method: "DELETE" }),
+  cancelChat: (id: string) => j<{ cancelled: boolean }>(`/api/chats/${id}/cancel`, { method: "POST" }),
 
   uploadAttachments: (chatId: string, files: File[]) => {
     const form = new FormData();

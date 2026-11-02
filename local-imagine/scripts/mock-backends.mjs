@@ -187,13 +187,17 @@ const comfy = http.createServer(async (req, res) => {
       }
       const filename = `${(saveNode?.[1].inputs.filename_prefix ?? "mock").split("/").pop()}_${seed}_.${isVideo ? "mp4" : "png"}`;
       outputs.set(filename, isVideo ? Buffer.from("not-a-real-mp4") : makePng(width, height, seed));
-      history.set(promptId, {
-        outputs: { [saveNode?.[0] ?? "9"]: { images: [{ filename, subfolder: "", type: "output" }], ...(isVideo ? { animated: [true] } : {}) } },
-        status: { status_str: "success", completed: true, messages: [] },
-      });
-      emit("executed", { node: saveNode?.[0], prompt_id: promptId, output: {} });
-      emit("executing", { node: null, prompt_id: promptId });
+      const isVhs = saveNode?.[1].class_type === "VHS_VideoCombine";
+      // Real shapes: SaveImage/SaveVideo -> images[] (+animated for video); VHS_VideoCombine -> gifs[] with format/frame_rate
+      const output = isVhs
+        ? { gifs: [{ filename, subfolder: "", type: "output", format: "video/h264-mp4", frame_rate: 8 }] }
+        : { images: [{ filename, subfolder: "", type: "output" }], ...(isVideo ? { animated: [true] } : {}) };
+      emit("executed", { node: saveNode?.[0], prompt_id: promptId, output });
+      // Real ordering: execution_success is sent before history is written; executing{node:null} after.
       emit("execution_success", { prompt_id: promptId });
+      await new Promise((r) => setTimeout(r, 30));
+      history.set(promptId, { outputs: { [saveNode?.[0] ?? "9"]: output }, status: { status_str: "success", completed: true, messages: [] } });
+      emit("executing", { node: null, prompt_id: promptId });
     });
     return;
   }

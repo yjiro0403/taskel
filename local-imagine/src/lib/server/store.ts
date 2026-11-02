@@ -41,6 +41,7 @@ async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 /** Resolve a data-relative path and refuse anything that escapes DATA_DIR. */
 export function resolveDataPath(rel: string): string {
+  if (rel.split(/[\\/]/).some((seg) => seg === "..")) throw new Error(`Path escapes data dir: ${rel}`);
   const abs = path.resolve(DATA_DIR, rel);
   if (abs !== DATA_DIR && !abs.startsWith(DATA_DIR + path.sep)) {
     throw new Error(`Path escapes data dir: ${rel}`);
@@ -53,7 +54,8 @@ async function readJson<T>(rel: string): Promise<T | null> {
     const raw = await fs.readFile(resolveDataPath(rel), "utf8");
     return JSON.parse(raw) as T;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
     throw err;
   }
 }
@@ -118,13 +120,20 @@ export async function listPersonas(): Promise<Persona[]> {
   const dir = resolveDataPath("personas");
   let entries: string[] = [];
   try {
-    entries = await fs.readdir(dir);
+    // Directories only: Finder drops .DS_Store files next to them.
+    entries = (await fs.readdir(dir, { withFileTypes: true })).filter((d) => d.isDirectory() && !d.name.startsWith(".")).map((d) => d.name);
   } catch {
     return [];
   }
-  const personas = await Promise.all(entries.map((id) => readJson<Persona>(`personas/${id}/persona.json`)));
+  const personas = await Promise.allSettled(entries.map((id) => readJson<Persona>(`personas/${id}/persona.json`)));
   return personas
-    .filter((p): p is Persona => !!p)
+    .flatMap((r, i) => {
+      if (r.status === "rejected") {
+        console.warn(`[store] skipping unreadable persona ${entries[i]}:`, (r.reason as Error).message);
+        return [];
+      }
+      return r.value && typeof r.value.name === "string" ? [r.value] : [];
+    })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
@@ -154,17 +163,26 @@ export async function createPersona(input: Partial<Persona>): Promise<Persona> {
 }
 
 export async function updatePersona(id: string, patch: Partial<Persona>): Promise<Persona | null> {
-  const current = await getPersona(id);
-  if (!current) return null;
-  const next: Persona = {
-    ...current,
-    ...patch,
-    id: current.id,
-    createdAt: current.createdAt,
-    updatedAt: nowIso(),
-  };
-  await writeJson(`personas/${id}/persona.json`, next);
-  return next;
+  return mutatePersona(id, (p) => {
+    Object.assign(p, patch);
+  });
+}
+
+/** Read-modify-write a persona under a lock (text edits and reference uploads can interleave). */
+export async function mutatePersona(id: string, fn: (persona: Persona) => void | Promise<void>): Promise<Persona | null> {
+  return withLock(`persona:${id}`, async () => {
+    const current = await getPersona(id);
+    if (!current) return null;
+    const draft: Persona = { ...current };
+    await fn(draft);
+    // `null` from the client means "clear this optional field"
+    for (const key of ["lora", "checkpoint"] as const) {
+      if ((draft as unknown as Record<string, unknown>)[key] === null) delete draft[key];
+    }
+    const next: Persona = { ...draft, id: current.id, createdAt: current.createdAt, updatedAt: nowIso() };
+    await writeJson(`personas/${id}/persona.json`, next);
+    return next;
+  });
 }
 
 export async function deletePersona(id: string): Promise<void> {
@@ -206,9 +224,17 @@ export async function listChats(personaId?: string): Promise<ChatSummary[]> {
   } catch {
     return [];
   }
-  const chats = await Promise.all(entries.map((f) => readJson<Chat>(`chats/${f}`)));
+  const results = await Promise.allSettled(entries.map((f) => readJson<Chat>(`chats/${f}`)));
+  const chats: Chat[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      console.warn(`[store] skipping unreadable chat ${entries[i]}:`, (r.reason as Error).message);
+    } else if (r.value && Array.isArray(r.value.messages)) {
+      chats.push(r.value);
+    }
+  });
   return chats
-    .filter((c): c is Chat => !!c && (!personaId || c.personaId === personaId))
+    .filter((c) => !personaId || c.personaId === personaId)
     .map(summarise)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }

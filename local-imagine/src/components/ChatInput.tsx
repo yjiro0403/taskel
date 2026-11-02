@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, Send, Square, X } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -22,6 +22,18 @@ export function ChatInput() {
   const [files, setFiles] = useState<File[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+
+  // One object URL per attached file, revoked when the file list changes.
+  const previews = useMemo(() => files.map((f) => ({ file: f, url: URL.createObjectURL(f) })), [files]);
+  useEffect(() => () => previews.forEach((p) => URL.revokeObjectURL(p.url)), [previews]);
+
+  // Keep the textarea height in sync when text changes programmatically (submit, quick chips).
+  useEffect(() => {
+    const el = textarea.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(160, el.scrollHeight)}px`;
+  }, [text]);
 
   const submit = async () => {
     const content = text.trim();
@@ -47,10 +59,10 @@ export function ChatInput() {
         </div>
         {files.length > 0 && (
           <div className="mb-2 flex gap-2">
-            {files.map((f, i) => (
-              <div key={i} className="relative">
+            {previews.map((p, i) => (
+              <div key={p.url} className="relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={URL.createObjectURL(f)} alt="" className="h-16 w-16 rounded-md object-cover" />
+                <img src={p.url} alt="" className="h-16 w-16 rounded-md object-cover" />
                 <button className="absolute -right-1.5 -top-1.5 rounded-full bg-panel-2 p-0.5 text-muted hover:text-text" onClick={() => setFiles(files.filter((_, j) => j !== i))}>
                   <X size={12} />
                 </button>
@@ -80,13 +92,10 @@ export function ChatInput() {
             value={text}
             rows={1}
             disabled={busy}
-            onChange={(e) => {
-              setText(e.target.value);
-              e.target.style.height = "auto";
-              e.target.style.height = `${Math.min(160, e.target.scrollHeight)}px`;
-            }}
+            onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              // keyCode 229: Safari fires the Enter that confirms an IME composition with isComposing=false
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                 e.preventDefault();
                 void submit();
               }

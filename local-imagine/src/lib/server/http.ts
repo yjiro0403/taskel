@@ -13,8 +13,22 @@ export function notFound(message = "Not found") {
 }
 
 export function serverError(err: unknown) {
-  const message = err instanceof Error ? err.message : String(err);
-  return NextResponse.json({ error: message }, { status: 500 });
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (code === "ENOENT") return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const name = (err as Error)?.name;
+  // Backend errors are meant for the user; anything else is logged and replaced by a generic message.
+  if (name === "ComfyError" || name === "OllamaError" || name === "ValidationError") {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+  console.error("[api]", err);
+  return NextResponse.json({ error: "Internal error (see server log)" }, { status: 500 });
+}
+
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
 }
 
 export const IMAGE_MIME: Record<string, string> = {

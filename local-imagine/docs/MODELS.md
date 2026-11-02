@@ -52,7 +52,10 @@ LLM への指示 (タグ or 自然文)、品質タグ、ネガティブ、CLIP s
 - **Hugging Face**: 公式リポジトリ (例: `Laxhar/noobai-XL-1.0`, `cagliostrolab/animagine-xl-4.0`)。
 - ダウンロードしたら `ComfyUI/models/checkpoints/` へ。LoRA は `models/loras/`。
 
-### 系統別の既定パラメータ
+### 系統別の推奨パラメータ (手動設定の目安)
+
+アプリが系統から **自動で切り替えるのは** プロンプト流儀・品質タグ・ネガティブ・CLIP skip、および Flux / Turbo・Lightning 系の steps・CFG・scheduler です。
+sampler / steps / CFG の基本値は設定の「画像生成の既定値」(全系統共通) なので、使う checkpoint に合わせて下表を参考に手で調整してください。
 
 | 系統 | Sampler / Scheduler | Steps | CFG | CLIP skip | 補足 |
 | --- | --- | --- | --- | --- | --- |
@@ -63,7 +66,7 @@ LLM への指示 (タグ or 自然文)、品質タグ、ネガティブ、CLIP s
 | Lightning / Hyper (高速モード) | euler / sgm_uniform | 4–8 | 1–1.5 | – | 設定の「高速モード」で LoRA を選択 |
 | Flux (checkpoint 版) | euler / simple | 4 (schnell) / 20 | 1 | – | ネガティブ無効。16GB では GGUF 推奨 (本アプリは未対応) |
 
-既定値は設定で変更できます。アスペクト比は LLM が構図から選び、SDXL は約 1MP、SD1.5 は約 0.3MP の 64 の倍数に丸めます。
+アスペクト比は LLM が構図から選び、SDXL は約 1MP、SD1.5 は約 0.3MP の 64 の倍数の解像度に変換します (`src/lib/types.ts` の `dimensionsForAspect`)。
 
 ## 3. 高速モード (SDXL-Lightning / Hyper-SD)
 

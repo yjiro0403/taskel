@@ -23,7 +23,7 @@ export interface ChatTurnInput {
 }
 
 function historyToOllama(chat: Chat, limit: number): OllamaMessage[] {
-  const msgs = chat.messages.slice(-limit);
+  const msgs = limit > 0 ? chat.messages.slice(-limit) : [];
   const out: OllamaMessage[] = [];
   for (const m of msgs) {
     if (m.role === "user") {
@@ -33,10 +33,11 @@ function historyToOllama(chat: Chat, limit: number): OllamaMessage[] {
       const plan: AgentPlan = {
         reply: m.content,
         generations: (m.generations ?? []).map((g) => ({
-          prompt: g.prompt,
-          negative_prompt: g.negativePrompt,
+          // Feed back what the model wrote, not the composed prompt (which carries injected identity/quality tags)
+          prompt: g.scenePrompt ?? g.prompt,
+          negative_prompt: g.sceneNegative ?? g.negativePrompt,
           count: g.params.batchCount,
-          aspect: "2:3",
+          aspect: g.aspect ?? aspectFromSize(g.params.width, g.params.height),
           use_reference_images: g.params.referenceImages.length > 0,
         })),
       };
@@ -44,6 +45,14 @@ function historyToOllama(chat: Chat, limit: number): OllamaMessage[] {
     }
   }
   return out;
+}
+
+function aspectFromSize(w: number, h: number): AgentPlan["generations"][number]["aspect"] {
+  const r = w / h;
+  const table: Array<[number, AgentPlan["generations"][number]["aspect"]]> = [
+    [1, "1:1"], [3 / 4, "3:4"], [4 / 3, "4:3"], [2 / 3, "2:3"], [3 / 2, "3:2"], [9 / 16, "9:16"], [16 / 9, "16:9"],
+  ];
+  return table.reduce((best, cur) => (Math.abs(cur[0] - r) < Math.abs(best[0] - r) ? cur : best))[1];
 }
 
 async function describeAttachments(settings: Settings, attachments: string[], signal?: AbortSignal): Promise<string | null> {
@@ -143,6 +152,11 @@ export async function runChatTurn(input: ChatTurnInput): Promise<void> {
     });
     plan = normalisePlan(data, settings);
   } catch (err) {
+    if (signal?.aborted) {
+      // User cancelled while the model was thinking: nothing to persist.
+      send({ type: "done" });
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     const failed: Message = { id: newId("m_"), role: "assistant", content: "", error: msg, createdAt: nowIso(), model: settings.llmModel };
     await mutateChat(chatId, (c) => void c.messages.push(failed));
@@ -163,18 +177,52 @@ export async function runChatTurn(input: ChatTurnInput): Promise<void> {
     generations: plan.generations.map((g) => {
       const refs = g.use_reference_images ? [...(persona?.referenceImages ?? []), ...input.attachments] : [];
       const params = resolveParams(settings, persona, { aspect: g.aspect, count: g.count, referenceImages: refs });
-      return newBatch(composePositive(persona, g.prompt, family, nsfw), composeNegative(persona, g.negative_prompt, family), params);
+      const batch = newBatch(composePositive(persona, g.prompt, family, nsfw), composeNegative(persona, g.negative_prompt, family), params);
+      batch.scenePrompt = g.prompt;
+      batch.sceneNegative = g.negative_prompt;
+      batch.aspect = g.aspect;
+      return batch;
     }),
   };
   await mutateChat(chatId, (c) => void c.messages.push(assistant));
   send({ type: "assistant_message", message: assistant });
 
-  // 5. render sequentially (one GPU)
-  for (const batch of assistant.generations ?? []) {
-    if (signal?.aborted) break;
-    await runBatch({ chatId, messageId: assistant.id, settings, persona, send, signal }, batch);
-  }
+  // 5. render sequentially (one GPU); whatever is left after an abort/error must not stay "queued"
+  await renderBatches({ chatId, messageId: assistant.id, settings, persona, send, signal }, assistant.generations ?? []);
   send({ type: "done", messageId: assistant.id });
+}
+
+async function renderBatches(ctx: Parameters<typeof runBatch>[0], batches: Message["generations"] & object): Promise<void> {
+  let failure: string | null = null;
+  for (const batch of batches) {
+    if (ctx.signal?.aborted || failure) {
+      batch.status = ctx.signal?.aborted ? "cancelled" : "error";
+      if (failure) batch.error = failure;
+      ctx.send({ type: "batch_end", messageId: ctx.messageId, batch });
+      continue;
+    }
+    try {
+      await runBatch(ctx, batch);
+    } catch (err) {
+      failure = err instanceof Error ? err.message : String(err);
+      batch.status = "error";
+      batch.error = failure;
+      ctx.send({ type: "batch_end", messageId: ctx.messageId, batch });
+    }
+  }
+  const skipped = batches.filter((b) => b.status === "cancelled" || (b.status === "error" && b.error === failure));
+  if (skipped.length) {
+    await mutateChat(ctx.chatId, (chat) => {
+      const m = chat.messages.find((x) => x.id === ctx.messageId);
+      for (const b of skipped) {
+        const g = m?.generations?.find((x) => x.id === b.id);
+        if (g && (g.status === "queued" || g.status === "running")) {
+          g.status = b.status;
+          g.error = b.error;
+        }
+      }
+    });
+  }
 }
 
 function normalisePlan(raw: AgentPlan, settings: Settings): AgentPlan {
@@ -229,8 +277,10 @@ export async function runDirectGeneration(input: DirectGenerationInput): Promise
     denoise: input.params.denoise,
     seed: input.params.seed,
   });
-  const params = { ...base, ...stripUndefined(input.params) };
-  delete (params as Record<string, unknown>).aspect;
+  // input.params is validated by directParamsSchema in the route; aspect is consumed by resolveParams.
+  const { aspect: _aspect, ...overrides } = stripUndefined(input.params);
+  void _aspect;
+  const params = { ...base, ...overrides };
   const family = guessCheckpointFamily(params.checkpoint);
   const positive = input.compose ? composePositive(persona, input.prompt, family, nsfw) : input.prompt;
   const negative = input.compose ? composeNegative(persona, input.negativePrompt ?? "", family) : input.negativePrompt ?? "";
@@ -244,7 +294,7 @@ export async function runDirectGeneration(input: DirectGenerationInput): Promise
   };
   await mutateChat(chatId, (c) => void c.messages.push(assistant));
   send({ type: "assistant_message", message: assistant });
-  await runBatch({ chatId, messageId: assistant.id, settings, persona, send, signal }, assistant.generations![0]);
+  await renderBatches({ chatId, messageId: assistant.id, settings, persona, send, signal }, assistant.generations!);
   send({ type: "done", messageId: assistant.id });
 }
 

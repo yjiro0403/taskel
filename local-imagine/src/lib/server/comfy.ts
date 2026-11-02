@@ -161,12 +161,25 @@ export async function fetchOutput(base: string, f: Pick<ComfyOutputFile, "filena
 // ---------------------------------------------------------------- execution
 
 export async function queuePrompt(base: string, workflow: ApiWorkflow, clientId: string): Promise<string> {
-  const r = await http<{ prompt_id: string; number: number; node_errors: Record<string, unknown> }>(base, "/prompt", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompt: workflow, client_id: clientId }),
-    timeoutMs: 30000,
-  });
+  let r: { prompt_id: string; number: number; node_errors: Record<string, unknown> };
+  try {
+    r = await http(base, "/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: workflow, client_id: clientId }),
+      timeoutMs: 30000,
+    });
+  } catch (err) {
+    // Validation failures come back as HTTP 400 with {error, node_errors}
+    const details = err instanceof ComfyError ? (err.details as { node_errors?: unknown; error?: { message?: string } } | undefined) : undefined;
+    if (details && typeof details === "object" && details.node_errors && Object.keys(details.node_errors as object).length > 0) {
+      throw new ComfyError(`ComfyUI rejected the workflow: ${summariseNodeErrors(details.node_errors)}`, details);
+    }
+    if (details && typeof details === "object" && details.error?.message) {
+      throw new ComfyError(`ComfyUI rejected the workflow: ${details.error.message}`, details);
+    }
+    throw err;
+  }
   if (r.node_errors && Object.keys(r.node_errors).length > 0) {
     throw new ComfyError(`ComfyUI rejected the workflow: ${summariseNodeErrors(r.node_errors)}`, r.node_errors);
   }
@@ -240,7 +253,7 @@ export interface RunOptions {
 
 /**
  * Queue a workflow and wait for completion, reporting progress over the WebSocket.
- * Falls back to polling /history when the socket cannot be opened.
+ * Falls back to polling /history when the socket cannot be opened or drops.
  */
 export async function runWorkflow(base: string, workflow: ApiWorkflow, opts: RunOptions = {}): Promise<{ promptId: string; files: ComfyOutputFile[] }> {
   const clientId = `local-imagine-${Math.random().toString(36).slice(2)}`;
@@ -249,20 +262,28 @@ export async function runWorkflow(base: string, workflow: ApiWorkflow, opts: Run
 
   let ws: WebSocket | null = null;
   let promptId = "";
+  let submitted = false;
   let finished = false;
 
   const result = await new Promise<{ promptId: string }>((resolve, reject) => {
-    const timer = setTimeout(() => fail(new ComfyError("ComfyUI generation timed out")), timeoutMs);
     let pollTimer: NodeJS.Timeout | null = null;
+    let pollFailures = 0;
+    let pollsWithoutEntry = 0;
 
     const cleanup = () => {
       clearTimeout(timer);
       if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
       opts.signal?.removeEventListener("abort", onAbort);
-      try {
-        ws?.close();
-      } catch {
-        /* ignore */
+      if (ws) {
+        // Closing a CONNECTING socket emits 'error'; detach listeners first so nothing re-submits.
+        ws.removeAllListeners();
+        ws.on("error", () => undefined);
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
       }
     };
     const done = () => {
@@ -271,38 +292,56 @@ export async function runWorkflow(base: string, workflow: ApiWorkflow, opts: Run
       cleanup();
       resolve({ promptId });
     };
-    const fail = (err: Error) => {
+    const fail = (err: Error, stopRemote = false) => {
       if (finished) return;
       finished = true;
-      cleanup();
-      reject(err);
-    };
-    const onAbort = () => {
-      if (promptId) {
+      if (stopRemote && promptId) {
         interrupt(base, promptId).catch(() => undefined);
         deleteFromQueue(base, promptId).catch(() => undefined);
       }
-      fail(new ComfyError("Generation cancelled"));
+      cleanup();
+      reject(err);
     };
+    const onAbort = () => fail(new ComfyError("Generation cancelled"), true);
+    const timer = setTimeout(() => fail(new ComfyError("ComfyUI generation timed out"), true), timeoutMs);
     opts.signal?.addEventListener("abort", onAbort);
 
     const startPolling = () => {
-      if (pollTimer) return;
+      if (pollTimer || finished) return;
       pollTimer = setInterval(async () => {
         if (!promptId || finished) return;
         try {
           const h = await getHistory(base, promptId);
-          if (h?.status?.completed) done();
-          else if (h?.status && h.status.status_str === "error") fail(new ComfyError("ComfyUI reported an execution error", h.status.messages));
+          pollFailures = 0;
+          if (h?.status?.completed) return done();
+          if (h?.status && h.status.status_str === "error") return fail(new ComfyError("ComfyUI reported an execution error", h.status.messages));
+          if (!h) {
+            // No history yet: make sure the prompt is still known to ComfyUI (it may have restarted).
+            if (++pollsWithoutEntry % 5 === 0) {
+              const q = await http<{ queue_running: unknown[][]; queue_pending: unknown[][] }>(base, "/queue", { timeoutMs: 5000 });
+              const known = [...(q.queue_running ?? []), ...(q.queue_pending ?? [])].some((item) => item?.[1] === promptId);
+              if (!known) return fail(new ComfyError("ComfyUI lost the job (was it restarted?)"));
+            }
+          }
         } catch {
-          /* transient */
+          // ComfyUI unreachable for a while: give up instead of waiting for the 30 minute timeout.
+          if (++pollFailures >= 6) fail(new ComfyError("Lost connection to ComfyUI during generation"));
         }
       }, 1500);
     };
 
     const submit = async () => {
+      if (submitted || finished) return;
+      submitted = true;
       try {
-        promptId = await queuePrompt(base, workflow, clientId);
+        const id = await queuePrompt(base, workflow, clientId);
+        if (finished) {
+          // Cancelled while the POST was in flight: do not leave an orphan job behind.
+          interrupt(base, id).catch(() => undefined);
+          deleteFromQueue(base, id).catch(() => undefined);
+          return;
+        }
+        promptId = id;
         opts.onQueued?.(promptId);
         // Always poll as a safety net (e.g. the prompt completed before the socket caught up).
         startPolling();
@@ -323,10 +362,13 @@ export async function runWorkflow(base: string, workflow: ApiWorkflow, opts: Run
     ws.on("open", () => void submit());
     ws.on("error", () => {
       // Socket unusable: keep going with polling only.
-      if (!promptId) void submit();
+      if (!finished) void submit();
+    });
+    ws.on("close", () => {
+      if (!finished && submitted) startPolling();
     });
     ws.on("message", (data, isBinary) => {
-      if (isBinary) return; // preview image frames
+      if (isBinary || finished) return; // preview image frames
       let msg: { type: string; data: Record<string, unknown> };
       try {
         msg = JSON.parse(data.toString());
@@ -346,10 +388,12 @@ export async function runWorkflow(base: string, workflow: ApiWorkflow, opts: Run
           fail(new ComfyError("Generation interrupted"));
           break;
         case "execution_success":
-          done();
+          // Sent before the history entry is written; the executing{node:null} sentinel follows.
+          // Finish on the sentinel, or shortly after as a fallback for servers that skip it.
+          setTimeout(done, 800);
           break;
         case "executing":
-          // node === null signals the end of the prompt on older ComfyUI versions
+          // node === null is the completion sentinel (sent after history is written)
           if (d.node === null && promptId) done();
           break;
         default:
@@ -358,11 +402,12 @@ export async function runWorkflow(base: string, workflow: ApiWorkflow, opts: Run
     });
   });
 
-  // Outputs are only in /history once the prompt is complete.
+  // Outputs are only in /history once the prompt is complete; the entry can lag the socket events slightly.
   let entry: HistoryEntry | null = null;
-  for (let i = 0; i < 20 && !entry?.outputs; i++) {
+  for (let i = 0; i < 20; i++) {
     entry = await getHistory(base, result.promptId);
-    if (entry?.outputs && Object.keys(entry.outputs).length) break;
+    if (entry && Object.keys(entry.outputs ?? {}).length > 0) break;
+    if (entry?.status?.completed && entry.status.status_str !== "success") break;
     await new Promise((r) => setTimeout(r, 500));
   }
   if (!entry) throw new ComfyError("ComfyUI finished but no history entry was found");

@@ -98,10 +98,13 @@ npm run typecheck
 npm run lint
 npm test           # プロンプト合成・ワークフロー生成のユニットテスト
 node scripts/mock-backends.mjs   # GPU なしで UI を触るためのモック Ollama/ComfyUI
-OLLAMA_URL=http://127.0.0.1:11435 COMFYUI_URL=http://127.0.0.1:8189 npm run dev
+OLLAMA_URL=http://127.0.0.1:11435 COMFYUI_URL=http://127.0.0.1:8189 DATA_DIR=./data-mock npm run dev
 ```
 
 データ (人物・チャット・生成画像) は `local-imagine/data/` に JSON と PNG で保存されます。バックアップはこのフォルダをコピーするだけです。
+
+`OLLAMA_URL` / `COMFYUI_URL` の環境変数は **初回起動時に `data/settings.json` を初期化するだけ** です。以降は設定画面の URL が優先されます
+(モックで試すときは `DATA_DIR` を別フォルダにするのが簡単です)。
 
 ## 注意事項
 

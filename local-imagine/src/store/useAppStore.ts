@@ -12,7 +12,7 @@ import {
   Settings,
   StreamEvent,
 } from "@/lib/types";
-import { DirectGenerateBody, api, streamPost } from "@/lib/api";
+import { DirectGenerateBody, PersonaPatch, api, streamPost } from "@/lib/api";
 
 export interface ProgressState {
   messageId: string;
@@ -60,7 +60,7 @@ interface AppState {
   loadPersonas: () => Promise<void>;
   selectPersona: (id: string | null) => Promise<void>;
   createPersona: (input?: Partial<Persona>) => Promise<Persona>;
-  updatePersona: (id: string, patch: Partial<Persona>) => Promise<void>;
+  updatePersona: (id: string, patch: PersonaPatch) => Promise<void>;
   deletePersona: (id: string) => Promise<void>;
   uploadRefs: (id: string, files: File[]) => Promise<void>;
   removeRef: (id: string, file: string) => Promise<void>;
@@ -154,17 +154,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   toast: null,
 
   init: async () => {
-    const settings = await api.settings();
-    set({ settings });
-    await Promise.all([get().loadPersonas(), get().refreshHealth(), get().refreshModels()]);
-    const { personaId, chatId } = recall();
-    const personas = get().personas;
-    const pid = personaId && personas.some((p) => p.id === personaId) ? personaId : personas[0]?.id ?? null;
-    if (pid) {
-      await get().selectPersona(pid);
-      if (chatId && get().chats.some((c) => c.id === chatId)) await get().selectChat(chatId);
+    try {
+      const settings = await api.settings();
+      set({ settings });
+      await Promise.all([get().loadPersonas(), get().refreshHealth(), get().refreshModels()]);
+      const { personaId, chatId } = recall();
+      const personas = get().personas;
+      const pid = personaId && personas.some((p) => p.id === personaId) ? personaId : personas[0]?.id ?? null;
+      if (pid) {
+        await get().selectPersona(pid);
+        if (chatId && get().chats.some((c) => c.id === chatId)) await get().selectChat(chatId);
+      }
+    } catch (err) {
+      get().showToast(`起動時にエラー: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      set({ ready: true });
     }
-    set({ ready: true });
   },
 
   refreshHealth: async () => {
@@ -253,7 +258,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     remember(get().currentPersonaId, id);
     if (id) {
       const chat = await api.chat(id);
-      set({ chat });
+      // The user may have switched again while this request was in flight.
+      if (get().currentChatId === id) set({ chat });
     }
   },
 
@@ -282,6 +288,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendMessage: async (content, files) => {
+    if (get().busy) return;
     let chat = get().chat;
     if (!chat) {
       chat = await get().createChat();
@@ -305,23 +312,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       if (!abort.signal.aborted) get().showToast(err instanceof Error ? err.message : String(err));
     } finally {
-      set({ busy: false, progress: null, abort: null, status: "" });
-      const pid = get().currentPersonaId;
-      if (pid) void get().loadChats(pid);
-      // Re-sync with the server copy to be safe
-      if (get().currentChatId === chatId) {
-        try {
-          set({ chat: await api.chat(chatId) });
-        } catch {
-          /* ignore */
-        }
-      }
+      await finishTurn(chatId);
     }
   },
 
   generateDirect: async (body) => {
     const chat = get().chat;
-    if (!chat) return;
+    if (!chat || get().busy) return;
     const chatId = chat.id;
     const abort = new AbortController();
     set({ busy: true, status: "", progress: null, abort });
@@ -330,26 +327,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       if (!abort.signal.aborted) get().showToast(err instanceof Error ? err.message : String(err));
     } finally {
-      set({ busy: false, progress: null, abort: null, status: "" });
-      const pid = get().currentPersonaId;
-      if (pid) void get().loadChats(pid);
-      if (get().currentChatId === chatId) {
-        try {
-          set({ chat: await api.chat(chatId) });
-        } catch {
-          /* ignore */
-        }
-      }
+      await finishTurn(chatId);
     }
   },
 
   cancel: async () => {
-    get().abort?.abort();
-    try {
-      await api.interrupt();
-    } catch {
-      /* ComfyUI may be down */
+    const chatId = get().currentChatId;
+    const abort = get().abort;
+    set({ status: "中止しています…" });
+    // Ask the server to cancel: it marks the remaining batches as cancelled and ends the stream
+    // normally, so the client state stays consistent. Fall back to dropping the connection.
+    let serverCancelled = false;
+    if (chatId) {
+      try {
+        serverCancelled = (await api.cancelChat(chatId)).cancelled;
+      } catch {
+        /* server unreachable */
+      }
     }
+    if (!serverCancelled) abort?.abort();
+    else setTimeout(() => abort?.abort(), 15000);
   },
 
   setLightbox: (lightbox) => set({ lightbox }),
@@ -362,6 +359,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     }, 4000);
   },
 }));
+
+async function finishTurn(chatId: string) {
+  const { getState, setState: set } = useAppStore;
+  set({ busy: false, progress: null, abort: null, status: "" });
+  const pid = getState().currentPersonaId;
+  if (pid) void getState().loadChats(pid);
+  // Re-sync with the server copy; after a dropped connection the server may still be writing, so retry briefly.
+  if (getState().currentChatId !== chatId) return;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const chat = (await api.chat(chatId)) as Chat & { generating?: boolean };
+      if (getState().currentChatId !== chatId) return;
+      set({ chat });
+      if (!chat.generating) return;
+    } catch {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
 
 function handleEvent(e: StreamEvent, chatId: string) {
   const { chat } = useAppStore.getState();
@@ -376,6 +393,8 @@ function handleEvent(e: StreamEvent, chatId: string) {
   }
   if (e.type === "error") {
     set({ status: e.error });
+    // Errors tied to a message are rendered inside it; anything else would vanish with the stream.
+    if (!e.messageId) useAppStore.getState().showToast(e.error);
     return;
   }
   if (e.type === "done") return;

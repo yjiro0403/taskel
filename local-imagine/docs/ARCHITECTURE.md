@@ -95,8 +95,14 @@ CheckpointLoaderSimple ─┬─ MODEL ─ LoraLoader* ─ (IPAdapterUnifiedLoad
 | POST | `/api/chats/[id]/messages` | **SSE**。`{content, attachments}` → 1 ターン実行 |
 | POST | `/api/generate` | **SSE**。LLM を介さない直接生成 (バリエーション、再試行、動画化) |
 | POST | `/api/uploads` | チャットへの添付画像を `data/uploads/<chatId>/` に保存 |
-| POST | `/api/comfy/interrupt` | ComfyUI `/interrupt` |
+| POST | `/api/chats/[id]/cancel` | 実行中のターンをサーバー側で中止 (残りのバッチは `cancelled` になり、SSE は正常終了) |
+| POST | `/api/comfy/interrupt` | ComfyUI `/interrupt` (グローバル) |
 | GET | `/api/files/[...path]` | `data/` 配下のファイル配信 (Range 対応、パストラバーサル防止) |
+
+入力は `src/lib/server/validation.ts` (zod) で検証します: 設定の PUT、直接生成の `params` (許可フィールドのみ・範囲チェック)、
+ID (`isValidId`)、画像パス (`isAppImagePath`: このアプリが生成した `uploads/ images/ personas/` 配下の画像のみ)、アップロード (25MB・10 ファイル・マジックバイト判定)。
+`src/proxy.ts` は localhost 以外の Host とクロスサイトの変更系リクエストを 403 にします (認証が無いローカル API の保護)。
+同じチャットで 2 つのターンは同時に走らず (409)、サーバー再起動で `running` のまま残ったバッチはチャット取得時に `error` へ直します (`src/lib/server/jobs.ts`)。
 
 SSE のイベント型は `src/lib/types.ts` の `StreamEvent`。クライアントは `src/lib/api.ts: streamPost()` で読み、
 `src/store/useAppStore.ts: handleEvent()` で状態に反映します。

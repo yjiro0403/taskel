@@ -10,7 +10,16 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 COMFY_DIR="${1:-$APP_DIR/../ComfyUI}"
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.12 || command -v python3.11 || command -v python3.10 || command -v python3)}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.12 || command -v python3.11 || command -v python3.10 || command -v python3 || true)}"
+
+if [ -z "$PYTHON_BIN" ]; then
+  echo "!! No python3 found. Install one with: brew install python@3.12" >&2
+  exit 1
+fi
+if ! "$PYTHON_BIN" -c 'import sys; sys.exit(0 if (3,10) <= sys.version_info < (3,13) else 1)'; then
+  echo "!! $PYTHON_BIN is $("$PYTHON_BIN" --version). ComfyUI needs Python 3.10-3.12 (brew install python@3.12, or set PYTHON_BIN=...)" >&2
+  exit 1
+fi
 
 echo "==> ComfyUI dir : $COMFY_DIR"
 echo "==> Python      : $PYTHON_BIN ($("$PYTHON_BIN" --version))"

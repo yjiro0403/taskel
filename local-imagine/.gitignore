@@ -7,6 +7,7 @@ next-env.d.ts
 !.env.example
 # runtime data (personas, chats, generated images) lives here
 /data/
+/data-mock/
 # the root .gitignore ignores *.json; re-include the JSON files this app needs
 !*.json
 

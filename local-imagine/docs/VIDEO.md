@@ -20,12 +20,12 @@
 
 ## 方式 A: AnimateDiff (SD1.5) — 軽量・推奨
 
-必要なもの (`scripts/setup-comfyui.sh` で導入済み):
+必要なもの:
 
-- `brew install ffmpeg` (VideoHelperSuite が mp4 を書き出すのに必要)
-- `custom_nodes/ComfyUI-AnimateDiff-Evolved` (README に Mac M1/M2/M3 対応と明記)、`custom_nodes/ComfyUI-VideoHelperSuite`
-- モーションモジュール `models/animatediff_models/mm_sd_v15_v2.ckpt`
-  (https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt)
+- カスタムノード `ComfyUI-AnimateDiff-Evolved` (README に Mac M1/M2/M3 対応と明記) と `ComfyUI-VideoHelperSuite` — `scripts/setup-comfyui.sh` が導入します
+- `brew install ffmpeg` (VideoHelperSuite が mp4 を書き出すのに必要) — **手動**
+- モーションモジュール `models/animatediff_models/mm_sd_v15_v2.ckpt` — **手動でダウンロード**
+  (`curl -L -o ../ComfyUI/models/animatediff_models/mm_sd_v15_v2.ckpt https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt`)
 - SD1.5 の checkpoint (設定の「SD1.5 checkpoint」。未指定なら既定 checkpoint)
 
 既定: 512×512、16 フレーム、8 fps、20 steps。16GB で 2–5 分程度。

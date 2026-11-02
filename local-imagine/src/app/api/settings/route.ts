@@ -1,6 +1,6 @@
 import { getSettings, saveSettings } from "@/lib/server/store";
-import { json, serverError } from "@/lib/server/http";
-import { Settings } from "@/lib/types";
+import { badRequest, json, serverError } from "@/lib/server/http";
+import { parseSettingsPatch } from "@/lib/server/validation";
 
 export const runtime = "nodejs";
 
@@ -14,8 +14,11 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   try {
-    const patch = (await req.json()) as Partial<Settings>;
-    return json(await saveSettings(patch));
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return badRequest("JSON object required");
+    const parsed = parseSettingsPatch(body);
+    if (!parsed.ok) return badRequest(parsed.error);
+    return json(await saveSettings(parsed.data));
   } catch (err) {
     return serverError(err);
   }

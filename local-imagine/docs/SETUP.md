@@ -93,7 +93,7 @@ IP-Adapter の重みは `bash scripts/download-ipadapter.sh ../ComfyUI sdxl` (�
 ```bash
 cd local-imagine
 npm install
-cp .env.example .env.local     # URL を変える場合だけ
+cp .env.example .env.local     # URL を変える場合だけ (初回起動時の初期値。以降は設定画面の値が優先)
 npm run dev                    # http://localhost:3100
 ```
 

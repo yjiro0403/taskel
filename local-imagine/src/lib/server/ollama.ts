@@ -60,7 +60,9 @@ async function request<T>(base: string, p: string, init: RequestInit & { timeout
     return (await res.json()) as T;
   } catch (err) {
     if (err instanceof OllamaError) throw err;
+    if (external?.aborted) throw new OllamaError("Cancelled");
     const msg = err instanceof Error ? err.message : String(err);
+    if (/timeout/i.test(msg)) throw new OllamaError(`Ollama did not answer within ${Math.round((init.timeoutMs ?? 15000) / 1000)}s (${base}). The model may still be loading.`);
     throw new OllamaError(`Ollama unreachable at ${base} (${msg}). Is \`ollama serve\` running?`);
   } finally {
     clearTimeout(timer);
@@ -101,7 +103,7 @@ export async function ollamaChat(base: string, opts: OllamaChatOptions): Promise
     messages: opts.messages,
     stream: false,
     options: opts.options,
-    keep_alive: opts.keep_alive ?? "10m",
+    keep_alive: typeof opts.keep_alive === "string" ? opts.keep_alive.trim() || "5m" : (opts.keep_alive ?? "5m"),
   };
   if (opts.format) body.format = opts.format;
   if (opts.think !== undefined) body.think = opts.think;

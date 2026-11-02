@@ -57,7 +57,7 @@ export function Sidebar() {
           {personas.map((p) => (
             <button
               key={p.id}
-              onClick={() => void selectPersona(p.id)}
+              onClick={() => !busy && void selectPersona(p.id)}
               onDoubleClick={() => setPersonaPanelOpen(true)}
               className={clsx(
                 "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition hover:bg-panel-2",
@@ -108,8 +108,9 @@ export function Sidebar() {
                   <div className="text-[11px] text-muted">{c.imageCount} 枚 · {new Date(c.updatedAt).toLocaleDateString("ja-JP")}</div>
                 </div>
                 <button
-                  className="btn-icon hidden group-hover:block"
-                  title="チャットを削除"
+                  className="btn-icon hidden group-hover:block disabled:opacity-40"
+                  title={busy ? "生成中は削除できません" : "チャットを削除"}
+                  disabled={busy}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (confirm("このチャットと生成画像を削除しますか？")) void deleteChat(c.id);

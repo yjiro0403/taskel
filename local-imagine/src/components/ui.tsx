@@ -58,9 +58,24 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
+/** onClick handler that only fires when the pointer went down on the backdrop itself (not a drag out of a field). */
+export function useBackdropClose(onClose: () => void) {
+  const downOnBackdrop = React.useRef(false);
+  return {
+    onMouseDown: (e: React.MouseEvent) => {
+      downOnBackdrop.current = e.target === e.currentTarget;
+    },
+    onClick: (e: React.MouseEvent) => {
+      if (downOnBackdrop.current && e.target === e.currentTarget) onClose();
+      downOnBackdrop.current = false;
+    },
+  };
+}
+
 export function Modal({ title, onClose, children, width = "max-w-2xl" }: { title: string; onClose: () => void; children: React.ReactNode; width?: string }) {
+  const backdrop = useBackdropClose(onClose);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" {...backdrop}>
       <div className={clsx("max-h-[90vh] w-full overflow-y-auto rounded-xl border border-border bg-panel p-5 shadow-2xl", width)} onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold">{title}</h2>

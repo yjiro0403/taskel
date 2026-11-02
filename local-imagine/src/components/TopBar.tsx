@@ -26,7 +26,7 @@ export function TopBar() {
           <input
             className="w-full bg-transparent text-xs text-muted outline-none"
             defaultValue={chat.title}
-            key={chat.id}
+            key={`${chat.id}:${chat.title}`}
             onBlur={(e) => e.target.value.trim() && e.target.value !== chat.title && void renameChat(chat.id, e.target.value)}
           />
         ) : (

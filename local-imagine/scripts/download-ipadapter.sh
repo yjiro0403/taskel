@@ -10,8 +10,11 @@ CV="$COMFY_DIR/models/clip_vision"
 IPA="$COMFY_DIR/models/ipadapter"
 mkdir -p "$CV" "$IPA"
 
-dl() { # url dest
-  if [ -f "$2" ]; then echo "exists: $2"; else echo "fetch : $2"; curl -L --fail --progress-bar -o "$2" "$1"; fi
+dl() { # url dest  (downloads to dest.part and renames, so an interrupted run never leaves a truncated file behind)
+  if [ -f "$2" ]; then echo "exists: $2"; return; fi
+  echo "fetch : $2"
+  curl -L --fail --progress-bar -C - -o "$2.part" "$1"
+  mv "$2.part" "$2"
 }
 
 # CLIP vision encoder used by all ViT-H presets (SD1.5 and SDXL "vit-h" adapters)
