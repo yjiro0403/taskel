@@ -25,3 +25,19 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/*
+ * 古い WebView 向けの代替（Chromium 104 未満）。
+ * Tailwind v4 の translate-* / scale-* は CSS の individual transform
+ * プロパティ（translate / scale）で出力される。これを解釈できない WebView
+ * （Play ストアで更新できない端末。例: Daylight DC-1）では移動指定が丸ごと無視され、
+ * 左サイドメニューが画面に出たまま閉じられなくなる。
+ * Tailwind が設定する変数を使って transform に組み直す。対応ブラウザでは効かない。
+ */
+@supports not (translate: 0) {
+  [class*="translate-"],
+  [class*="scale-"] {
+    transform:
+      translate(var(--tw-translate-x, 0), var(--tw-translate-y, 0))
+      scale(var(--tw-scale-x, 1), var(--tw-scale-y, 1));
+  }
+}
