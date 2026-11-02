@@ -61,14 +61,16 @@ PYTORCH_ENABLE_MPS_FALLBACK=1 python main.py --listen 127.0.0.1 --port 8188 --di
 - `PYTORCH_ENABLE_MPS_FALLBACK=1` は Metal 未対応の演算を CPU に逃がす PyTorch の環境変数です。
 - 動画 (任意) を使うなら `brew install ffmpeg`。
 - M1 では `--lowvram` 等の VRAM 系フラグは **効果がありません** (ユニファイドメモリは常に SHARED 扱い)。
-  fp16 UNet + fp32 VAE が既定なので精度フラグも不要です。黒い画像が出たら [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
+  UNet は fp16 が既定。VAE は macOS 14+ では bf16 で動き、M1 では bf16 に専用回路が無いため VAE デコードが遅いことがあります。
+  その場合は `--fp16-vae` (SDXL は fp16-fix VAE と併用)、黒い画像が出たら `--fp32-vae` を試してください ([TROUBLESHOOTING.md](TROUBLESHOOTING.md))。
 
 ### B. Comfy Desktop アプリを使う
 
 https://www.comfy.org/download の macOS (Apple Silicon) 版でも動きます。
 
 - インストール先は `~/ComfyUI-Installs/<name>/ComfyUI`、モデルはその `models/` (または `~/ComfyUI-Shared/models`)。
-- ポートはインストールごとの **Launch Args** で決まります (旧版は 8000)。アプリの設定 → ComfyUI URL を合わせてください。
+- ポートは v1.x の新規インストールでは 8188 が既定。旧 Electron 版 (アーカイブ済み) や、そこから引き継いだインストールは 8000 です。
+  アプリの設定 → ComfyUI URL を合わせてください (`/system_stats` が返るかで確認できます)。
 - カスタムノード (IP-Adapter など) は Desktop 内の Manager から入れられます。
 
 ### モデルの配置

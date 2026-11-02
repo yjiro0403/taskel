@@ -185,8 +185,14 @@ export function summariseNodeErrors(nodeErrors: unknown): string {
   }
 }
 
-export async function interrupt(base: string): Promise<void> {
-  await http(base, "/interrupt", { method: "POST", timeoutMs: 5000 });
+/** Interrupt the running prompt. With a prompt_id ComfyUI only interrupts if that prompt is the one running. */
+export async function interrupt(base: string, promptId?: string): Promise<void> {
+  await http(base, "/interrupt", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(promptId ? { prompt_id: promptId } : {}),
+    timeoutMs: 5000,
+  });
 }
 
 export async function deleteFromQueue(base: string, promptId: string): Promise<void> {
@@ -273,7 +279,7 @@ export async function runWorkflow(base: string, workflow: ApiWorkflow, opts: Run
     };
     const onAbort = () => {
       if (promptId) {
-        interrupt(base).catch(() => undefined);
+        interrupt(base, promptId).catch(() => undefined);
         deleteFromQueue(base, promptId).catch(() => undefined);
       }
       fail(new ComfyError("Generation cancelled"));

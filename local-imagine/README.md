@@ -88,6 +88,7 @@ cd local-imagine && npm run dev
 | [docs/PERSONA_AND_LORA.md](docs/PERSONA_AND_LORA.md) | 「この子の画像を作って」を実現する 3 段階 (プロンプト → IP-Adapter → LoRA) |
 | [docs/VIDEO.md](docs/VIDEO.md) | 動画生成の現実的な選択肢と設定 |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 黒い画像、メモリ不足、接続できない、など |
+| [docs/RESEARCH_BRIEFING.md](docs/RESEARCH_BRIEFING.md) | (英語) 設計の根拠にした 2026-11 時点の調査まとめ: API 仕様、モデル、MPS の既知問題、出典 URL |
 
 ## 開発
 
