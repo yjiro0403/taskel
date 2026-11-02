@@ -30,6 +30,9 @@ jobs:
     timeout-minutes: 30
     env:
       DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+      # Firebase（FCM）設定。無いと FCM 無効の APK になり、Web で作ったアラームは
+      # 次にアプリを開くまで端末へ届かない（docs/alarm-setup.md 2 章）。
+      GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -64,6 +67,18 @@ jobs:
           mkdir -p ~/.android
           echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > ~/.android/debug.keystore
 
+      # google-services.json は git 管理外。secret から復元したビルドだけ FCM が有効になる。
+      - name: Restore google-services.json (optional, enables FCM)
+        if: env.GOOGLE_SERVICES_JSON_BASE64 != ''
+        run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > android/app/google-services.json
+
+      - name: Warn when FCM is disabled
+        if: env.GOOGLE_SERVICES_JSON_BASE64 == ''
+        run: |
+          echo "::warning::GOOGLE_SERVICES_JSON_BASE64 secret is not set. This APK has FCM disabled: alarms edited on the web reach the phone only when the app is opened."
+          echo "### FCM disabled in this APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "Set the GOOGLE_SERVICES_JSON_BASE64 secret (see docs/alarm-setup.md) to get instant alarm sync." >> "$GITHUB_STEP_SUMMARY"
+
       # capacitor-cordova-android-plugins 等の生成物を作る（gitignore 済みのため毎回必要）
       - name: Capacitor sync
         run: npx cap sync android
@@ -73,6 +88,15 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Report FCM status
+        run: |
+          f=android/app/build/generated/res/processDebugGoogleServices/values/values.xml
+          if [ -f "$f" ]; then
+            echo "### FCM enabled ($(grep -o 'name="project_id"[^>]*>[^<]*' "$f" | sed 's/.*>//'))" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "FCM resources not generated (google-services.json missing)"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

@@ -19,6 +19,8 @@ export interface NativeAlarmPayload {
 export interface NativeAlarmPermissionStatus {
     notifications: 'granted' | 'denied' | 'prompt' | 'prompt-with-rationale';
     exactAlarm: boolean;
+    /** ロック画面上の全画面アラームに必要（Android 14+ で剥奪され得る）。古い APK では欠ける。 */
+    fullScreenIntent?: boolean;
     batteryOptimizationExempt: boolean;
 }
 
@@ -84,9 +86,9 @@ export async function requestNativeAlarmPermissions(): Promise<NativeAlarmPermis
     return plugin.requestPermissions();
 }
 
-/** 通知・exact alarm が揃っているか（電池最適化除外は任意なので必須にしない）。 */
+/** 通知・exact alarm・全画面表示が揃っているか（電池最適化除外は任意なので必須にしない）。 */
 export function hasRequiredAlarmPermissions(status: NativeAlarmPermissionStatus): boolean {
-    return status.notifications === 'granted' && status.exactAlarm;
+    return status.notifications === 'granted' && status.exactAlarm && status.fullScreenIntent !== false;
 }
 
 /**

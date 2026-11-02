@@ -1,12 +1,13 @@
 package com.taskel.app.alarm
 
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 
 /**
  * すでに鳴っているアラームを止める。
- * 通知の FLAG_INSISTENT は通知のキャンセルで止まり、全画面の音は AlarmActivity が受け取る。
+ * ACTION_STOP のブロードキャストを AlarmRingService（音・フォアグラウンド通知）と
+ * AlarmActivity（全画面 UI）が受けて、それぞれ自分を止める。
+ * 予備経路（通知チャンネルの音）の場合は、通知のキャンセルで止まる。
  */
 object AlarmFeedback {
     const val ACTION_STOP = "com.taskel.app.action.STOP_RINGING"
@@ -18,10 +19,7 @@ object AlarmFeedback {
         fireAt <= now + RING_GRACE_MS
 
     fun stopRinging(context: Context, alarmId: String) {
-        runCatching {
-            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .cancel(alarmId.hashCode())
-        }
+        AlarmNotifications.cancel(context, alarmId)
         val intent = Intent(ACTION_STOP).setPackage(context.packageName).apply {
             putExtra(AlarmReceiver.EXTRA_ALARM_ID, alarmId)
         }

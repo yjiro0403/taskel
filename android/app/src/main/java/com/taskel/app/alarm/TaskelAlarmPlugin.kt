@@ -1,6 +1,7 @@
 package com.taskel.app.alarm
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -178,6 +179,18 @@ class TaskelAlarmPlugin : Plugin() {
             }
             return
         }
+        if (!canUseFullScreenIntent()) {
+            // Android 14+ で剥奪され得る。ロック画面上の全画面アラームに必要（音はサービスが出すので無くても鳴る）
+            runCatching {
+                activity.startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                        Uri.parse("package:${ctx.packageName}"),
+                    )
+                )
+            }
+            return
+        }
         if (!isIgnoringBatteryOptimizations()) {
             runCatching {
                 activity.startActivity(
@@ -205,7 +218,15 @@ class TaskelAlarmPlugin : Plugin() {
         return JSObject()
             .put("notifications", notifications)
             .put("exactAlarm", AlarmScheduler.canScheduleExactAlarms(context))
+            .put("fullScreenIntent", canUseFullScreenIntent())
             .put("batteryOptimizationExempt", isIgnoringBatteryOptimizations())
+    }
+
+    /** API 34+ では USE_FULL_SCREEN_INTENT が設定から剥奪され得る。それ未満は宣言だけで有効。 */
+    private fun canUseFullScreenIntent(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        val manager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+        return manager.canUseFullScreenIntent()
     }
 
     private fun isIgnoringBatteryOptimizations(): Boolean {

@@ -51,6 +51,18 @@ FCM 送信側（Next.js）も `FIREBASE_SERVICE_ACCOUNT` 未設定なら静か�
      # worktree でビルドするときはメイン側からコピーする
      cp /path/to/main/android/app/google-services.json android/app/
      ```
+   - **GitHub Actions の APK も同じ**。リポジトリにファイルが無いので、何もしなければ
+     Actions の成果物は **FCM 無効の APK** になる（ビルドは成功し、実行ログに warning が出るだけ）。
+     Actions でも FCM を有効にするには、ファイルを base64 化して secret
+     `GOOGLE_SERVICES_JSON_BASE64` に登録する。ワークフローが起動時に復元する。
+
+     ```bash
+     base64 -i android/app/google-services.json | pbcopy   # macOS: クリップボードへ
+     ```
+
+     GitHub → Settings → Secrets and variables → Actions → New repository secret →
+     Name `GOOGLE_SERVICES_JSON_BASE64`、Value に貼り付け。以後の実行は Summary に
+     「FCM enabled (taskel-prod)」と出る
 
 ## 3. サービスアカウント JSON の発行（サーバー送信用）
 
@@ -172,15 +184,40 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 3. `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`
    - `adb devices` に出てこない場合は、端末に出る「USB デバッグを許可しますか」を許可
 
+## 6-1. アプリ内で Google ログインする
+
+Capacitor は `taskel.vercel.app` 以外のホストへの画面遷移を Chrome で開く仕様のため、
+何も設定しないと Google ログインが **Chrome 側で完了してしまい、アプリは読み込み中のまま**
+止まる（タブレットで起きた症状）。`capacitor.config.ts` の `server.allowNavigation` で
+Supabase と Google のホストを WebView 内に留め、`android.overrideUserAgent` で
+Chrome の UA を名乗ることで、ログインがアプリ内で完結する
+（Google は UA に `wv` を含む WebView からの OAuth を `disallowed_useragent` で拒否する）。
+
+この設定はビルド時に焼き込まれる（`npx cap sync android` → `assets/capacitor.config.json`）。
+古い APK では Google ログインは使えないので、メール + パスワードでログインするか、APK を更新する。
+
 ## 7. 初回起動時の権限許可
 
 1. アプリを起動して Taskel にログイン
 2. 画面下部にアラーム権限の案内バナーが出たら「許可する」をタップし、順に許可:
    1. **通知**（Android 13+ の実行時権限。全画面アラーム表示に必要）
    2. **アラームとリマインダー**（Android 12 系のみ。13+ は自動付与）
-   3. **電池の最適化の除外**（任意。メーカー独自のバックグラウンド kill 対策）
+   3. **全画面通知**（Android 14+ で設定から剥奪されている場合のみ。ロック画面上の全画面表示に必要）
+   4. **電池の最適化の除外**（任意。メーカー独自のバックグラウンド kill 対策）
 3. Firebase 設定済みビルドなら、ログイン時に FCM トークンが自動で
    `/api/device-tokens` に登録される（操作不要）
+
+## 鳴り方（どこから音が出るか）
+
+- 発火すると `AlarmRingService`（フォアグラウンドサービス）がアラーム音（`USAGE_ALARM`）とバイブを
+  直接出す。時計アプリと同じ経路なので、**おやすみモード / マナーモード中でも端末の
+  「アラームを許可」設定が既定のままなら鳴る**。アラーム音量が 0 だと鳴らないのは時計アプリと同じ
+- 以前は通知チャンネルの音に頼っていた。通知はおやすみモードで丸ごと黙らされるため、
+  「Web には鳴動中と出ているのに端末は無音、通知をタップすると鳴り始める」症状が出ていた
+- 通知には **停止 / スヌーズ** のボタンが付く。全画面が出ない場面（端末操作中、
+  おやすみモードで全画面が抑止されたとき）でも通知から操作できる
+- 10 分鳴り続けたら音だけ止める。通知は残るので、後から停止 / スヌーズできる
+- サービスを起動できなかったときだけ、予備として通知チャンネルの音（ループ）で鳴らす
 
 ## 動作確認
 
@@ -216,8 +253,12 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 - **インストール時に「既存のパッケージと署名が一致しません」**:
   別マシン（別の debug.keystore）でビルドした Taskel が既に入っている。
   一度アンインストールしてから入れ直す
-- **アラームが鳴らない**: 権限バナーの 3 権限（特に「アラームとリマインダー」）と、
-  メーカー独自の電池管理設定（自動起動許可など）を確認
+- **アラームが鳴らない**: 権限バナーの権限（特に「アラームとリマインダー」「全画面通知」）と、
+  メーカー独自の電池管理設定（自動起動許可など）を確認。アラーム音量（メディアや着信音とは別）が
+  0 になっていないかも確認する。`adb logcat -s TaskelAlarmReceiver TaskelAlarmRing` に
+  `ring service started` / `Ringing <id> via foreground service` が出ていれば端末側は鳴らそうとしている
+- **Web には「鳴っています」と出るのに端末が無音**: この対応より前の APK は通知チャンネルの音で
+  鳴らしていたため、おやすみモード中は黙る。APK を更新する
 - **トークンが registration される気配がない**: google-services.json 配置後に
   `npx cap sync android` → 再ビルドしたか確認（配置しただけでは反映されない）
 - **ビルドは通るのに FCM が効かない**: そのビルドに google-services.json が

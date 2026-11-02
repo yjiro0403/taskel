@@ -172,7 +172,7 @@
   },
   "NativeAlarm": {
     "permission_title": "Alarm permissions needed",
-    "permission_description": "To ring alarms at the exact time, please allow notifications and exact alarms.",
+    "permission_description": "To ring alarms at the exact time, please allow notifications, exact alarms and full-screen alerts.",
     "grant": "Grant permissions",
     "dismiss": "Dismiss"
   },

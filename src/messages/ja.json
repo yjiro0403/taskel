@@ -172,7 +172,7 @@
   },
   "NativeAlarm": {
     "permission_title": "アラームの権限が必要です",
-    "permission_description": "指定時刻にアラームを鳴らすには、通知と正確なアラームの権限を許可してください。",
+    "permission_description": "指定時刻にアラームを鳴らすには、通知・正確なアラーム・全画面表示の権限を許可してください。",
     "grant": "権限を許可する",
     "dismiss": "閉じる"
   },

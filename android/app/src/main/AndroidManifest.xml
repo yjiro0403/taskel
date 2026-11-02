@@ -82,6 +82,13 @@
             </intent-filter>
         </service>
 
+        <!-- アラーム音の本体。通知チャンネルの音はおやすみモード等で黙るため、
+             フォアグラウンドサービスが USAGE_ALARM で直接鳴らす（時計アプリと同じ方式） -->
+        <service
+            android:name=".alarm.AlarmRingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
         <!-- アラーム全画面 UI（full-screen intent から起動、ロック画面上に表示） -->
         <activity
             android:name=".alarm.AlarmActivity"
@@ -126,9 +133,11 @@
     <!-- 再起動後のアラーム再登録 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- アラーム鳴動 -->
+    <!-- アラーム鳴動（AlarmRingService は mediaPlayback 型のフォアグラウンドサービス） -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- 電池最適化の除外リクエスト（メーカー独自 kill 対策、任意） -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
