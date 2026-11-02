@@ -44,3 +44,8 @@ npm run smoke:supabase
 
 スキーマ適用、dry-run、本移行、Vercel 設定の手順は
 [Supabase 移行 Runbook](docs/supabase-migration-runbook.md) を参照してください。
+
+## Local Imagine（ローカル画像生成スタジオ）
+
+`local-imagine/` に、ローカル LLM (Ollama) と ComfyUI を使って Mac (Apple Silicon) 上で画像を生成する独立したアプリがあります。
+Taskel 本体とは依存関係を共有しません。セットアップと使い方は [local-imagine/README.md](local-imagine/README.md) を参照してください。

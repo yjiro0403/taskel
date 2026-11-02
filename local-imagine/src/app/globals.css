@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0b0b10;
+  --panel: #14141c;
+  --panel-2: #1b1b26;
+  --border: #2a2a3a;
+  --text: #ececf3;
+  --muted: #9a9ab0;
+  --accent: #8b5cf6;
+  --accent-2: #ec4899;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.input {
+  @apply w-full rounded-md border border-border bg-panel-2 px-2.5 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-accent;
+}
+
+.btn {
+  @apply inline-flex items-center gap-1.5 rounded-md border border-border bg-panel-2 px-2.5 py-1.5 text-sm text-text transition hover:border-accent disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-primary {
+  @apply border-transparent bg-accent text-white hover:bg-accent/90 hover:border-transparent;
+}
+
+.btn-danger {
+  @apply hover:border-danger hover:text-danger;
+}
+
+.btn-icon {
+  @apply rounded-md p-1.5 text-muted transition hover:bg-panel-2 hover:text-text;
+}
+
+.label {
+  @apply mb-1 block text-xs font-medium text-muted;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--panel-2) 25%, var(--border) 50%, var(--panel-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}

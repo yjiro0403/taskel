@@ -39,6 +39,7 @@
   "exclude": [
     "node_modules",
     "src/stories",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "local-imagine"
   ]
 }
