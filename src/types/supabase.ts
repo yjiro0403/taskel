@@ -691,8 +691,10 @@ export type Database = {
             };
             tasks: {
                 Row: {
+                    actor_since: string | null;
                     actual_minutes: number;
                     ai_completed_at: string | null;
+                    ai_minutes: number;
                     ai_error: string | null;
                     ai_status: Database['public']['Enums']['task_ai_status'] | null;
                     ai_tags: string[];
@@ -719,15 +721,19 @@ export type Database = {
                     scheduled_start: string | null;
                     score: number | null;
                     section_id: string | null;
+                    segment_ai_minutes: number;
                     started_at: string | null;
                     status: Database['public']['Enums']['task_status'];
                     title: string;
                     updated_at: string;
                     user_id: string;
+                    work_actor: string;
                 };
                 Insert: {
+                    actor_since?: string | null;
                     actual_minutes?: number;
                     ai_completed_at?: string | null;
+                    ai_minutes?: number;
                     ai_error?: string | null;
                     ai_status?: Database['public']['Enums']['task_ai_status'] | null;
                     ai_tags?: string[];
@@ -754,15 +760,19 @@ export type Database = {
                     scheduled_start?: string | null;
                     score?: number | null;
                     section_id?: string | null;
+                    segment_ai_minutes?: number;
                     started_at?: string | null;
                     status?: Database['public']['Enums']['task_status'];
                     title: string;
                     updated_at?: string;
                     user_id: string;
+                    work_actor?: string;
                 };
                 Update: {
+                    actor_since?: string | null;
                     actual_minutes?: number;
                     ai_completed_at?: string | null;
+                    ai_minutes?: number;
                     ai_error?: string | null;
                     ai_status?: Database['public']['Enums']['task_ai_status'] | null;
                     ai_tags?: string[];
@@ -789,11 +799,13 @@ export type Database = {
                     scheduled_start?: string | null;
                     score?: number | null;
                     section_id?: string | null;
+                    segment_ai_minutes?: number;
                     started_at?: string | null;
                     status?: Database['public']['Enums']['task_status'];
                     title?: string;
                     updated_at?: string;
                     user_id?: string;
+                    work_actor?: string;
                 };
                 Relationships: [];
             };

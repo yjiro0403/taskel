@@ -8,6 +8,7 @@ import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import AddTaskModal from './LazyAddTaskModal';
 import { getSectionForTime } from '@/lib/sectionUtils';
+import { buildActorToggleUpdate, closedRunFields, startedRunFields } from '@/lib/tasks/workActor';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import DraggableUnscheduledTask from './RightSidebarDraggableItem';
@@ -159,13 +160,15 @@ export default function RightSidebar() {
         // Multi-active: start this task without stopping other in_progress timers.
         // Start task immediately and move to Today AND Correct Section
         const now = new Date();
+        const startedAt = now.getTime();
         const currentSectionId = getSectionForTime(useStore.getState().sections, now);
 
         await updateTask(task.id, {
             status: 'in_progress',
-            startedAt: now.getTime(),
+            startedAt,
             date: useStore.getState().currentDate, // Assign to today
-            sectionId: currentSectionId || task.sectionId // Move to current section if found
+            sectionId: currentSectionId || task.sectionId, // Move to current section if found
+            ...startedRunFields(startedAt),
         });
     };
 
@@ -178,8 +181,13 @@ export default function RightSidebar() {
         updateTask(task.id, {
             status: 'open',
             startedAt: undefined,
-            actualMinutes: (task.actualMinutes || 0) + elapsedMinutes
+            actualMinutes: (task.actualMinutes || 0) + elapsedMinutes,
+            ...closedRunFields(task, now, elapsedMinutes),
         });
+    };
+
+    const handleToggleActor = (task: Task) => {
+        void updateTask(task.id, buildActorToggleUpdate(task, Date.now()), { occurrenceDate: task.date });
     };
 
     return (
@@ -320,6 +328,7 @@ export default function RightSidebar() {
                             toggleTaskSelection={toggleTaskSelection}
                             handlePlay={handlePlay}
                             handleStop={handleStop}
+                            handleToggleActor={handleToggleActor}
                             projects={projects}
                         />
                     ))

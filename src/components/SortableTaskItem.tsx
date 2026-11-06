@@ -59,6 +59,7 @@ export const SortableTaskItem = memo(function SortableTaskItem(props: SortableTa
             onPlay={taskContext.onPlay}
             onStop={taskContext.onStop}
             onToggleStatus={taskContext.onToggleStatus}
+            onToggleActor={taskContext.onToggleActor}
             onTagClick={taskContext.onTagClick}
             onImageClick={taskContext.onImageClick}
             isHighlighted={isHighlighted}

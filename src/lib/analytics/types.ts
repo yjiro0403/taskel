@@ -27,7 +27,10 @@ export interface FinanceCategoryBudget {
 export interface TimeBucket {
     id: string;
     label: string;
+    /** Closed logged minutes, human plus AI. */
     minutes: number;
+    humanMinutes: number;
+    aiMinutes: number;
     taskCount: number;
     completedCount: number;
 }

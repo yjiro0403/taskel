@@ -661,9 +661,13 @@ function taskWasUntouched(task: {
     started_at: string | null;
     completed_at: string | null;
     memo: string | null;
+    ai_minutes?: number | null;
+    work_actor?: string | null;
 }): boolean {
     return task.status === 'open'
         && task.actual_minutes === 0
+        && (task.ai_minutes ?? 0) === 0
+        && task.work_actor !== 'ai'
         && !task.started_at
         && !task.completed_at
         && (task.memo === INTAKE_MEMO || task.memo === null || task.memo === '');
@@ -703,7 +707,7 @@ export async function cancelScheduleIntake(
     if (row.task_id) {
         const { data: task } = await supabase
             .from('tasks')
-            .select('status, actual_minutes, started_at, completed_at, memo')
+            .select('status, actual_minutes, ai_minutes, work_actor, started_at, completed_at, memo')
             .eq('id', row.task_id)
             .eq('user_id', user.id)
             .maybeSingle();

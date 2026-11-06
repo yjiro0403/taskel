@@ -3,8 +3,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Square, Timer } from 'lucide-react';
-
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Sparkles, Square, Timer } from 'lucide-react';
 import { useNowNext } from '@/hooks/useNowNext';
 import {
     describeDuration,
@@ -14,6 +13,7 @@ import {
     type NextAction,
 } from '@/lib/tasks/nowNext';
 import { formatTime } from '@/lib/timeUtils';
+import { buildActorToggleUpdate, closedRunFields, workActorOf } from '@/lib/tasks/workActor';
 import { useStore } from '@/store/useStore';
 import type { Task } from '@/types';
 
@@ -118,7 +118,15 @@ function completeRunningTask(
         startedAt: undefined,
         actualMinutes: (task.actualMinutes || 0) + elapsedMinutes,
         completedAt: now,
+        ...closedRunFields(task, now, elapsedMinutes),
     });
+}
+
+function handoffTask(
+    task: Task,
+    updateTask: (taskId: string, updates: Partial<Task>, options?: { occurrenceDate?: string }) => unknown
+) {
+    void updateTask(task.id, buildActorToggleUpdate(task, Date.now()), { occurrenceDate: task.date });
 }
 
 function locationLabel(task: Task, viewedDate: string, t: Translate): string | null {
@@ -161,9 +169,41 @@ interface NowLaneProps {
     formatDuration: (parts: DurationParts) => string;
     onJump: (task: Task) => void;
     onComplete: (task: Task) => void;
+    onHandoff: (task: Task) => void;
 }
 
-function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onComplete }: NowLaneProps) {
+function HandoffButton({
+    task,
+    onHandoff,
+    compact = false,
+}: {
+    task: Task;
+    onHandoff: (task: Task) => void;
+    compact?: boolean;
+}) {
+    const tActor = useTranslations('WorkActor');
+    const aiActor = workActorOf(task) === 'ai';
+    const label = aiActor ? tActor('backToMe') : tActor('handToAi');
+    return (
+        <button
+            type="button"
+            aria-pressed={aiActor}
+            title={label}
+            aria-label={label}
+            onClick={() => onHandoff(task)}
+            className={clsx(
+                'inline-flex items-center gap-0.5 rounded-md font-medium cursor-pointer flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
+                compact ? 'p-1 text-[10px]' : 'mt-1.5 px-1.5 py-1 text-xs',
+                aiActor ? 'bg-violet-600 text-white hover:bg-violet-700' : 'border border-violet-200 text-violet-700 hover:bg-violet-50'
+            )}
+        >
+            <Sparkles size={compact ? 12 : 14} />
+            AI
+        </button>
+    );
+}
+
+function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onComplete, onHandoff }: NowLaneProps) {
     if (!current) {
         return (
             <div className="p-4 min-w-0">
@@ -186,7 +226,15 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onC
     return (
         <div className="p-4 min-w-0">
             <div className="flex items-center justify-between gap-2 pr-8 sm:pr-0">
-                <LaneLabel icon={Timer} text={t('now')} className="text-blue-700" />
+                <span className="inline-flex items-center gap-2 min-w-0">
+                    <LaneLabel icon={Timer} text={t('now')} className={workActorOf(current.task) === 'ai' ? 'text-violet-700' : 'text-blue-700'} />
+                    {workActorOf(current.task) === 'ai' && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-medium text-white">
+                            <Sparkles size={11} />
+                            AI
+                        </span>
+                    )}
+                </span>
                 {current.concurrentCount > 0 && (
                     <span className="text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">
                         {t('concurrent', { count: current.concurrentCount })}
@@ -203,6 +251,7 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onC
                         onJump={onJump}
                     />
                 </div>
+                <HandoffButton task={current.task} onHandoff={onHandoff} />
                 <button
                     type="button"
                     onClick={() => onComplete(current.task)}
@@ -262,6 +311,7 @@ function NowLane({ current, conflict, viewedDate, t, formatDuration, onJump, onC
                                             </span>
                                         )}
                                     </button>
+                                    <HandoffButton task={task} onHandoff={onHandoff} compact />
                                     <button
                                         type="button"
                                         onClick={() => onComplete(task)}
@@ -380,6 +430,9 @@ export default function NowNextWidget() {
     const completeTask = (task: Task) => {
         completeRunningTask(task, updateTask);
     };
+    const handoff = (task: Task) => {
+        handoffTask(task, updateTask);
+    };
 
     const summaryFor = (): ReactNode => {
         const nowText = current
@@ -400,6 +453,9 @@ export default function NowNextWidget() {
                 <span className="inline-flex items-center gap-1.5 min-w-0 shrink">
                     <Timer size={14} className="shrink-0 text-blue-700" />
                     <span className="truncate font-semibold text-gray-900">{current ? current.task.title : t('nothing_now')}</span>
+                    {current && workActorOf(current.task) === 'ai' && (
+                        <span className="shrink-0 rounded-full bg-violet-600 px-1.5 text-[10px] font-medium text-white">AI</span>
+                    )}
                     {nowText && (
                         <span
                             className={clsx(
@@ -445,6 +501,7 @@ export default function NowNextWidget() {
                                 formatDuration={formatDuration}
                                 onJump={jumpTo}
                                 onComplete={completeTask}
+                                onHandoff={handoff}
                             />
                             <NextLane
                                 next={next}

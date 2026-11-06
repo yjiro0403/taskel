@@ -2,10 +2,11 @@
 
 import { useStore } from '@/store/useStore';
 import { Task, Section } from '@/types';
-import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar } from 'lucide-react';
+import { Play, Square, Circle, CheckCircle2, Check, Copy, X, Calendar, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { calculateTaskSchedule, formatTime, type TimeSlot } from '@/lib/timeUtils';
 import { useEffect, useState, useMemo, useRef, memo } from 'react';
+import { useTranslations } from 'next-intl';
 import dynamic from 'next/dynamic';
 import { useShallow } from 'zustand/react/shallow';
 import { addMinutes } from 'date-fns';
@@ -34,6 +35,7 @@ import { TaskRowFlagsSync } from './taskRowFlags';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { compareTasksForDisplay, sortTasksForDisplay } from '@/lib/tasks/taskOrder';
 import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
+import { buildActorToggleUpdate, closedRunFields, startedRunFields } from '@/lib/tasks/workActor';
 
 // AI チャットは framer-motion / @ai-sdk/react / react-markdown を引き込む。開くまでは
 // 右下のボタンしか見えないので、初期バンドルから外して別チャンクで後から読み込む。
@@ -70,6 +72,7 @@ function TaskList() {
     const [createSlot, setCreateSlot] = useState<{ date: string; time: string } | null>(null);
     const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+    const tActor = useTranslations('WorkActor');
 
     // FTUE: 初回ユーザー向けオンボーディングツアー
     const { startTour } = useTour();
@@ -234,12 +237,18 @@ function TaskList() {
         }
 
         const currentSectionId = getSectionForTime(sections, now);
+        const startedAt = now.getTime();
 
         await updateTask(task.id, {
             status: 'in_progress',
-            startedAt: now.getTime(),
-            sectionId: currentSectionId
+            startedAt,
+            sectionId: currentSectionId,
+            ...startedRunFields(startedAt),
         });
+    };
+
+    const handleToggleActor = (task: Task) => {
+        void updateTask(task.id, buildActorToggleUpdate(task, Date.now()), { occurrenceDate: task.date });
     };
 
     const handleStop = (task: Task) => {
@@ -259,7 +268,8 @@ function TaskList() {
             status: 'done',
             startedAt: undefined,
             actualMinutes: (task.actualMinutes || 0) + elapsedMinutes,
-            completedAt: now
+            completedAt: now,
+            ...closedRunFields(task, now, elapsedMinutes),
         });
     };
 
@@ -272,7 +282,8 @@ function TaskList() {
                 status: 'done',
                 startedAt: undefined,
                 actualMinutes: (task.actualMinutes || 0) + elapsedMinutes,
-                completedAt: now
+                completedAt: now,
+                ...closedRunFields(task, now, elapsedMinutes),
             });
             return;
         }
@@ -305,6 +316,7 @@ function TaskList() {
         onPlay: handlePlay,
         onStop: handleStop,
         onToggleStatus: handleStatusToggle,
+        onToggleActor: handleToggleActor,
         onTagClick: (tagId: string) => setSelectedTagId(tagId),
         onImageClick: (url: string) => setLightboxImage(url),
     };
@@ -334,6 +346,19 @@ function TaskList() {
                     </div>
                 </div>
 
+                {timelineTasks.some((task) => task.status === 'in_progress' && task.workActor === 'ai') && (
+                    <div className="flex items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+                        <Sparkles size={16} className="shrink-0 text-violet-600" />
+                        <span className="font-medium">{tActor('working')}</span>
+                        <span className="min-w-0 truncate">
+                            {timelineTasks
+                                .filter((task) => task.status === 'in_progress' && task.workActor === 'ai')
+                                .map((task) => task.title)
+                                .join('、')}
+                        </span>
+                    </div>
+                )}
+
                 {/* Daily Goals */}
                 <DailyGoalList date={currentDate} goals={dailyGoals} />
 
@@ -348,6 +373,7 @@ function TaskList() {
                         onEditTask={handleEditTask}
                         onPlay={handlePlay}
                         onStop={handleStop}
+                        onToggleActor={handleToggleActor}
                         onCreateAt={handleCreateAt}
                         onDuplicate={handleDuplicate}
                     />

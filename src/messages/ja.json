@@ -135,7 +135,16 @@
     "actualHint": "開始や終了を押し忘れたときは、ここを直すとタイムラインの位置も動きます。終了を空にすると実行中のままです。",
     "actualEndBeforeStart": "実績の終了は開始より後にしてください。",
     "actualEndNeedsStart": "実績の終了を入れるときは、開始も入れてください。",
-    "actualNeedsDate": "実績の時刻を入れるには、日付が必要です。"
+    "actualNeedsDate": "実績の時刻を入れるには、日付が必要です。",
+    "aiMinutes": "AIの実績（分）",
+    "aiCheckbox": "ここからはAIが作業する",
+    "aiHint": "オンのあいだに進んだ時間はAIの稼働になります。外すと、続きは自分の稼働です。押し忘れたときは、AIの分数を直接直せます。"
+  },
+  "WorkActor": {
+    "handToAi": "ここからはAI",
+    "backToMe": "自分の作業に戻す",
+    "working": "AI作業中",
+    "armed": "次はAI"
   },
   "TaskLink": {
     "copy": "リンクをコピー",
@@ -247,6 +256,11 @@
     "kpiCompleted": "完了",
     "kpiRate": "完了率",
     "kpiTime": "実績時間",
+    "kpiHuman": "自分の稼働",
+    "kpiAi": "AIの稼働",
+    "legendHuman": "自分",
+    "legendAi": "AI",
+    "splitTime": "自分 {human} · AI {ai}",
     "kpiExpense": "支出",
     "kpiIncome": "収入",
     "kpiBudget": "予算",
@@ -254,7 +268,7 @@
     "kpiOver": "オーバー",
     "unset": "未設定",
     "projectsTitle": "プロジェクトの時間",
-    "projectsHint": "すべてのプロジェクトの実績時間と予想時間を一覧します。行をクリックするとタグ内訳が開きます。",
+    "projectsHint": "棒グラフの青が自分、紫がAIです。予想との差分は、その合計に対してです。行をクリックするとタグ内訳が開きます。",
     "tagsTitle": "タグ・ミーティングの時間",
     "tagsHint": "タグごとの合計時間です。行をクリックするとプロジェクト内訳が開きます。",
     "colName": "名前",
@@ -329,7 +343,9 @@
     "zoomInShort": "拡大",
     "duplicateShort": "複製",
     "edit": "編集",
-    "closeActions": "閉じる"
+    "closeActions": "閉じる",
+    "aiOn": "ここからはAI",
+    "aiOff": "自分の作業に戻す"
   },
   "Projects": {
     "expectedHours": "予想時間（時間）",

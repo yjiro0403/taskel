@@ -1,5 +1,6 @@
 import type { FinanceEntry } from '../finance/types';
 import type { Project, Task } from '../../types';
+import { splitLoggedMinutes } from '../tasks/workActor';
 import {
     UNCATEGORIZED_ID,
     UNCATEGORIZED_TAG,
@@ -8,8 +9,20 @@ import {
 } from './types';
 
 export function taskLoggedMinutes(task: Task): number {
-    const minutes = Number(task.actualMinutes || 0);
-    return Number.isFinite(minutes) && minutes > 0 ? minutes : 0;
+    return splitLoggedMinutes(task).total;
+}
+
+function emptyBucket(id: string, label: string): TimeBucket {
+    return { id, label, minutes: 0, humanMinutes: 0, aiMinutes: 0, taskCount: 0, completedCount: 0 };
+}
+
+function addTaskTime(bucket: TimeBucket, task: Task) {
+    const split = splitLoggedMinutes(task);
+    bucket.minutes += split.total;
+    bucket.humanMinutes += split.human;
+    bucket.aiMinutes += split.ai;
+    bucket.taskCount += 1;
+    if (task.status === 'done') bucket.completedCount += 1;
 }
 
 export function computeVariance(actual: number, expected: number | null | undefined): VarianceStatus | null {
@@ -31,30 +44,18 @@ function sortBuckets(buckets: TimeBucket[]): TimeBucket[] {
 export function aggregateByProject(tasks: Task[], projects: Project[]): TimeBucket[] {
     const byId = new Map<string, TimeBucket>();
     for (const project of projects) {
-        byId.set(project.id, {
-            id: project.id,
-            label: project.title,
-            minutes: 0,
-            taskCount: 0,
-            completedCount: 0,
-        });
+        byId.set(project.id, emptyBucket(project.id, project.title));
     }
 
     for (const task of tasks) {
         const id = task.projectId || UNCATEGORIZED_ID;
         const existing = byId.get(id);
         if (existing) {
-            existing.minutes += taskLoggedMinutes(task);
-            existing.taskCount += 1;
-            if (task.status === 'done') existing.completedCount += 1;
+            addTaskTime(existing, task);
         } else {
-            byId.set(id, {
-                id,
-                label: id === UNCATEGORIZED_ID ? '' : id,
-                minutes: taskLoggedMinutes(task),
-                taskCount: 1,
-                completedCount: task.status === 'done' ? 1 : 0,
-            });
+            const created = emptyBucket(id, id === UNCATEGORIZED_ID ? '' : id);
+            addTaskTime(created, task);
+            byId.set(id, created);
         }
     }
 
@@ -67,17 +68,11 @@ export function aggregateByTag(tasks: Task[]): TimeBucket[] {
     const add = (id: string, label: string, task: Task) => {
         const existing = byTag.get(id);
         if (existing) {
-            existing.minutes += taskLoggedMinutes(task);
-            existing.taskCount += 1;
-            if (task.status === 'done') existing.completedCount += 1;
+            addTaskTime(existing, task);
         } else {
-            byTag.set(id, {
-                id,
-                label,
-                minutes: taskLoggedMinutes(task),
-                taskCount: 1,
-                completedCount: task.status === 'done' ? 1 : 0,
-            });
+            const created = emptyBucket(id, label);
+            addTaskTime(created, task);
+            byTag.set(id, created);
         }
     };
 

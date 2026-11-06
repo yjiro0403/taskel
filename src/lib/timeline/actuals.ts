@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 
 import type { Section, Task } from '../../types';
 import { getPersistedSectionForTime } from '../sectionUtils';
+import { closedRunFields, splitLoggedMinutes, startedRunFields } from '../tasks/workActor';
 import { actualTaskInterval, minutesOnDate } from './layout';
 import { hhmmToMinutes, minutesToHHMM } from './time';
 
@@ -22,10 +23,12 @@ function atMinuteOfDay(timestamp: number, minutes: number): number {
 export function buildTimelinePlayUpdate(task: Task, now: Date, sections: Section[]): Partial<Task> {
     const scheduledStart = format(now, 'HH:mm');
     const sectionId = getPersistedSectionForTime(sections, scheduledStart);
+    const startedAt = now.getTime();
     return {
         status: 'in_progress',
-        startedAt: now.getTime(),
+        startedAt,
         scheduledStart,
+        ...startedRunFields(startedAt),
         ...(sectionId ? { sectionId } : {}),
     };
 }
@@ -53,6 +56,7 @@ export function buildTimelineStopUpdate(task: Task, now: Date): Partial<Task> | 
         startedAt: undefined,
         actualMinutes: previousActual + elapsedMinutes,
         completedAt: now.getTime(),
+        ...closedRunFields(task, now.getTime(), elapsedMinutes),
     };
 
     const started = new Date(task.startedAt);
@@ -82,13 +86,18 @@ export function buildTimelineSlotUpdate(
     const recorded = actualTaskInterval(task);
 
     if (recorded && task.status === 'in_progress' && task.startedAt) {
-        update.startedAt = atMinuteOfDay(task.startedAt, slot.startMin);
+        const nextStarted = atMinuteOfDay(task.startedAt, slot.startMin);
+        update.startedAt = nextStarted;
+        if (typeof task.actorSince === 'number') {
+            update.actorSince = task.actorSince + (nextStarted - task.startedAt);
+        }
         if (slot.duration != null) update.estimatedMinutes = slot.duration;
         return update;
     }
     if (recorded && task.status === 'done' && task.completedAt) {
         const actualMinutes = slot.duration ?? recorded.endMin - recorded.startMin;
         update.actualMinutes = actualMinutes;
+        update.aiMinutes = Math.min(splitLoggedMinutes(task).ai, actualMinutes);
         update.completedAt = atMinuteOfDay(task.completedAt, slot.startMin + actualMinutes);
         return update;
     }
@@ -138,6 +147,9 @@ export function buildRecordedIntervalUpdate(
                 startedAt: undefined,
                 completedAt: undefined,
                 actualMinutes: 0,
+                aiMinutes: 0,
+                segmentAiMinutes: 0,
+                actorSince: undefined,
             },
         };
     }
@@ -155,6 +167,8 @@ export function buildRecordedIntervalUpdate(
                 status: 'in_progress',
                 startedAt: timestampOnDate(input.date, startMin),
                 completedAt: undefined,
+                actorSince: timestampOnDate(input.date, startMin),
+                segmentAiMinutes: 0,
             },
         };
     }
@@ -166,6 +180,8 @@ export function buildRecordedIntervalUpdate(
             startedAt: undefined,
             completedAt: timestampOnDate(input.date, endMin),
             actualMinutes: endMin - startMin,
+            segmentAiMinutes: 0,
+            actorSince: undefined,
         },
     };
 }

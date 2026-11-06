@@ -2,8 +2,10 @@ import { memo, type CSSProperties } from 'react';
 import { useDraggable, type DraggableAttributes, type DraggableSyntheticListeners } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { clsx } from 'clsx';
-import { CheckCircle2, Circle, Square, Play, GripVertical } from 'lucide-react';
+import { CheckCircle2, Circle, Square, Play, GripVertical, Sparkles } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { Task } from '@/types';
+import { workActorOf } from '@/lib/tasks/workActor';
 import { useIsTaskHighlighted, useIsTaskSelected } from './taskRowFlags';
 
 interface DraggableUnscheduledTaskProps {
@@ -12,6 +14,7 @@ interface DraggableUnscheduledTaskProps {
     toggleTaskSelection?: (id: string) => void;
     handlePlay?: (task: Task) => void;
     handleStop?: (task: Task) => void;
+    handleToggleActor?: (task: Task) => void;
     projects?: Array<{ id: string; title: string }>;
     isOverlay?: boolean;
 }
@@ -22,6 +25,7 @@ interface TaskCardContentProps {
     toggleTaskSelection?: (id: string) => void;
     handlePlay?: (task: Task) => void;
     handleStop?: (task: Task) => void;
+    handleToggleActor?: (task: Task) => void;
     projects?: Array<{ id: string; title: string }>;
     onClick?: () => void;
     isOverlay?: boolean;
@@ -33,7 +37,7 @@ function DraggableUnscheduledTask(props: DraggableUnscheduledTaskProps) {
 }
 
 function DraggableUnscheduledTaskRow({
-    task, onEdit, toggleTaskSelection, handlePlay, handleStop, projects,
+    task, onEdit, toggleTaskSelection, handlePlay, handleStop, handleToggleActor, projects,
 }: DraggableUnscheduledTaskProps) {
     const { attributes, listeners, setNodeRef, transform } = useDraggable({
         id: task.id,
@@ -54,6 +58,7 @@ function DraggableUnscheduledTaskRow({
             toggleTaskSelection={toggleTaskSelection}
             handlePlay={handlePlay}
             handleStop={handleStop}
+            handleToggleActor={handleToggleActor}
             projects={projects}
             setNodeRef={setNodeRef}
             listeners={listeners}
@@ -71,6 +76,7 @@ function UnscheduledTaskSurface({
     toggleTaskSelection,
     handlePlay,
     handleStop,
+    handleToggleActor,
     projects,
     isOverlay,
     setNodeRef,
@@ -93,10 +99,13 @@ function UnscheduledTaskSurface({
             data-task-id={task.id}
             style={style}
             className={clsx(
-                "bg-white rounded-lg p-2 flex items-start gap-2 relative pr-8",
+                "rounded-lg p-2 flex items-start gap-2 relative pr-8",
+                workActorOf(task) === 'ai' && task.status === 'in_progress' ? "bg-violet-50" : "bg-white",
                 isOverlay
                     ? "border border-blue-500 shadow-xl mb-2 cursor-grabbing"
-                    : "border border-gray-100 shadow-sm hover:shadow-md transition-shadow group",
+                    : workActorOf(task) === 'ai' && task.status === 'in_progress'
+                        ? "border border-violet-300 shadow-sm group"
+                        : "border border-gray-100 shadow-sm hover:shadow-md transition-shadow group",
                 !isOverlay && isHighlighted && "ring-2 ring-amber-400 bg-amber-50 shadow-md border-amber-200",
             )}
         >
@@ -116,6 +125,7 @@ function UnscheduledTaskSurface({
                 toggleTaskSelection={toggleTaskSelection}
                 handlePlay={handlePlay}
                 handleStop={handleStop}
+                handleToggleActor={handleToggleActor}
                 projects={projects}
                 onClick={openTask}
                 isOverlay={isOverlay}
@@ -124,7 +134,9 @@ function UnscheduledTaskSurface({
     );
 }
 
-function TaskCardContent({ task, isSelected, toggleTaskSelection, handlePlay, handleStop, projects, onClick, isOverlay }: TaskCardContentProps) {
+function TaskCardContent({ task, isSelected, toggleTaskSelection, handlePlay, handleStop, handleToggleActor, projects, onClick, isOverlay }: TaskCardContentProps) {
+    const tActor = useTranslations('WorkActor');
+    const aiActor = workActorOf(task) === 'ai';
     return (
         <>
             <button
@@ -168,11 +180,32 @@ function TaskCardContent({ task, isSelected, toggleTaskSelection, handlePlay, ha
                         </span>
                     )}
                     {task.status === 'in_progress' && (
-                        <span className="text-blue-600 font-semibold animate-pulse">Running</span>
+                        <span className={clsx('font-semibold', aiActor ? 'text-violet-700' : 'text-blue-600 animate-pulse')}>
+                            {aiActor ? tActor('working') : 'Running'}
+                        </span>
                     )}
                 </div>
             </div>
 
+            {handleToggleActor && task.status !== 'done' && !isOverlay && (
+                <button
+                    type="button"
+                    aria-pressed={aiActor}
+                    title={aiActor ? tActor('backToMe') : tActor('handToAi')}
+                    aria-label={aiActor ? tActor('backToMe') : tActor('handToAi')}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleActor(task);
+                    }}
+                    className={clsx(
+                        'inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium shrink-0',
+                        aiActor ? 'bg-violet-600 text-white' : 'text-gray-400 hover:bg-violet-50 hover:text-violet-700'
+                    )}
+                >
+                    <Sparkles size={14} />
+                    AI
+                </button>
+            )}
             <button
                 onClick={(e) => {
                     e.stopPropagation();

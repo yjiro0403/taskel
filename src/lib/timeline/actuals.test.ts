@@ -34,6 +34,8 @@ describe('buildTimelinePlayUpdate', () => {
             startedAt: at(11, 30).getTime(),
             scheduledStart: '11:30',
             sectionId: 'work',
+            actorSince: at(11, 30).getTime(),
+            segmentAiMinutes: 0,
         });
     });
 
@@ -59,6 +61,9 @@ describe('buildTimelineStopUpdate', () => {
             startedAt: undefined,
             actualMinutes: 30,
             completedAt: at(11, 30).getTime(),
+            aiMinutes: 0,
+            segmentAiMinutes: 0,
+            actorSince: undefined,
         });
     });
 
@@ -89,6 +94,18 @@ describe('buildTimelineStopUpdate', () => {
         const update = buildTimelineStopUpdate(running, at(7, 3, 25));
         expect(update?.actualMinutes).toBe(1);
         expect(update?.completedAt).toBe(at(7, 3, 25).getTime());
+    });
+
+    it('keeps a briefing on the person and the rest on AI', () => {
+        const running = task({
+            status: 'in_progress',
+            startedAt: at(9, 0).getTime(),
+            actorSince: at(9, 20).getTime(),
+            workActor: 'ai',
+        });
+        const update = buildTimelineStopUpdate(running, at(11, 0));
+        expect(update?.actualMinutes).toBe(120);
+        expect(update?.aiMinutes).toBe(100);
     });
 
     it('returns null for a task that is not running', () => {
@@ -125,6 +142,7 @@ describe('buildTimelineSlotUpdate', () => {
         expect(new Date(moved.completedAt!).getMinutes()).toBe(30);
         const resized = buildTimelineSlotUpdate(done, { startMin: 15 * 60 + 25, duration: 45 }, sections);
         expect(resized.actualMinutes).toBe(45);
+        expect(resized.aiMinutes).toBe(0);
         expect(new Date(resized.completedAt!).getMinutes()).toBe(10);
         expect(new Date(resized.completedAt!).getHours()).toBe(16);
     });
@@ -169,7 +187,15 @@ describe('recorded interval editing', () => {
         const update = buildRecordedIntervalUpdate({ date: '2026-09-24', start: '', end: '' });
         expect(update).toEqual({
             ok: true,
-            update: { status: 'open', startedAt: undefined, completedAt: undefined, actualMinutes: 0 },
+            update: {
+                status: 'open',
+                startedAt: undefined,
+                completedAt: undefined,
+                actualMinutes: 0,
+                aiMinutes: 0,
+                segmentAiMinutes: 0,
+                actorSince: undefined,
+            },
         });
     });
 
