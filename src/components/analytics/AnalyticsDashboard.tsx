@@ -9,6 +9,7 @@ import {
     ChevronRight,
     Clock,
     JapaneseYen,
+    Sparkles,
     Wallet,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -40,6 +41,7 @@ import { periodKeyFromDate, rangeForTimeRange, shiftPeriodDate } from '@/lib/ana
 import type { AnalyticsPeriodType, AnalyticsTimeRange } from '@/lib/analytics/types';
 import { UNCATEGORIZED_ID, UNCATEGORIZED_TAG } from '@/lib/analytics/types';
 import { formatYen } from '@/lib/finance/format';
+import { splitLoggedMinutes } from '@/lib/tasks/workActor';
 import type { FinanceEntry } from '@/lib/finance/types';
 import { useStore } from '@/store/useStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -123,7 +125,13 @@ export default function AnalyticsDashboard() {
     }, [tasks, range, selectedProject, selectedTag]);
 
     const completedTasks = filteredTasks.filter((task) => task.status === 'done');
-    const totalTime = completedTasks.reduce((sum, task) => sum + Number(task.actualMinutes || 0), 0);
+    const completedSplit = completedTasks.reduce(
+        (sum, task) => {
+            const split = splitLoggedMinutes(task);
+            return { human: sum.human + split.human, ai: sum.ai + split.ai };
+        },
+        { human: 0, ai: 0 }
+    );
     const completionRate = filteredTasks.length > 0
         ? Math.round((completedTasks.length / filteredTasks.length) * 100)
         : 0;
@@ -153,11 +161,15 @@ export default function AnalyticsDashboard() {
         if (timeRange === 'week') {
             return eachDayOfInterval({ start, end }).map((day) => {
                 const dayTasks = filteredTasks.filter((task) => isSameDay(parseISO(task.date), day) && task.status === 'done');
-                const value = dayTasks.reduce(
-                    (acc, task) => acc + (metric === 'minutes' ? Number(task.actualMinutes || 0) : 1),
-                    0
+                const split = dayTasks.reduce(
+                    (acc, task) => {
+                        if (metric !== 'minutes') return { ...acc, value: acc.value + 1 };
+                        const part = splitLoggedMinutes(task);
+                        return { value: acc.value + part.total, human: acc.human + part.human, ai: acc.ai + part.ai };
+                    },
+                    { value: 0, human: 0, ai: 0 }
                 );
-                return { label: format(day, 'EEE'), value };
+                return { label: format(day, 'EEE'), ...split };
             });
         }
         if (timeRange === 'month') {
@@ -165,22 +177,30 @@ export default function AnalyticsDashboard() {
                 const weekTasks = filteredTasks.filter(
                     (task) => isSameWeek(parseISO(task.date), weekStart, { weekStartsOn: 1 }) && task.status === 'done'
                 );
-                const value = weekTasks.reduce(
-                    (acc, task) => acc + (metric === 'minutes' ? Number(task.actualMinutes || 0) : 1),
-                    0
+                const split = weekTasks.reduce(
+                    (acc, task) => {
+                        if (metric !== 'minutes') return { ...acc, value: acc.value + 1 };
+                        const part = splitLoggedMinutes(task);
+                        return { value: acc.value + part.total, human: acc.human + part.human, ai: acc.ai + part.ai };
+                    },
+                    { value: 0, human: 0, ai: 0 }
                 );
-                return { label: format(weekStart, 'd MMM'), value };
+                return { label: format(weekStart, 'd MMM'), ...split };
             });
         }
         return eachMonthOfInterval({ start, end }).map((monthStart) => {
             const monthTasks = filteredTasks.filter(
                 (task) => isSameMonth(parseISO(task.date), monthStart) && task.status === 'done'
             );
-            const value = monthTasks.reduce(
-                (acc, task) => acc + (metric === 'minutes' ? Number(task.actualMinutes || 0) : 1),
-                0
+            const split = monthTasks.reduce(
+                (acc, task) => {
+                    if (metric !== 'minutes') return { ...acc, value: acc.value + 1 };
+                    const part = splitLoggedMinutes(task);
+                    return { value: acc.value + part.total, human: acc.human + part.human, ai: acc.ai + part.ai };
+                },
+                { value: 0, human: 0, ai: 0 }
             );
-            return { label: format(monthStart, 'MMM'), value };
+            return { label: format(monthStart, 'MMM'), ...split };
         });
     }, [filteredTasks, metric, range, timeRange]);
 
@@ -298,7 +318,17 @@ export default function AnalyticsDashboard() {
                         <Kpi label={t('kpiTasks')} value={String(filteredTasks.length)} />
                         <Kpi label={t('kpiCompleted')} value={String(completedTasks.length)} accent="text-green-600" />
                         <Kpi label={t('kpiRate')} value={`${completionRate}%`} accent="text-blue-600" />
-                        <Kpi label={t('kpiTime')} value={formatDurationMinutes(totalTime, locale)} accent="text-orange-600" />
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-violet-100">
+                            <div className="text-sm text-gray-600 mb-2">{t('kpiTime')}</div>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-xs text-gray-500">{t('kpiHuman')}</span>
+                                <span className="text-2xl font-bold text-blue-700">{formatDurationMinutes(completedSplit.human, locale)}</span>
+                            </div>
+                            <div className="mt-1 flex items-baseline justify-between gap-3">
+                                <span className="inline-flex items-center gap-1 text-xs text-violet-700"><Sparkles size={12} />{t('kpiAi')}</span>
+                                <span className="text-2xl font-bold text-violet-700">{formatDurationMinutes(completedSplit.ai, locale)}</span>
+                            </div>
+                        </div>
                     </div>
 
                     {financeEnabled && (
@@ -523,7 +553,12 @@ export default function AnalyticsDashboard() {
                                         {task.actualMinutes > 0 && (
                                             <div className="flex items-center gap-1 text-xs text-gray-600">
                                                 <Clock size={12} />
-                                                {formatDurationMinutes(task.actualMinutes, locale)}
+                                                {splitLoggedMinutes(task).ai > 0
+                                                    ? t('splitTime', {
+                                                        human: formatDurationMinutes(splitLoggedMinutes(task).human, locale),
+                                                        ai: formatDurationMinutes(splitLoggedMinutes(task).ai, locale),
+                                                    })
+                                                    : formatDurationMinutes(task.actualMinutes, locale)}
                                             </div>
                                         )}
                                     </div>
@@ -563,7 +598,12 @@ export default function AnalyticsDashboard() {
                                                     <td className="px-4 py-2 text-gray-900 font-medium">{task.title}</td>
                                                     <td className="px-4 py-2 text-gray-700">{task.status}</td>
                                                     <td className="px-4 py-2 text-gray-600">
-                                                        {formatDurationMinutes(task.status === 'done' ? task.actualMinutes : task.estimatedMinutes, locale)}
+                                                        {task.status === 'done' && splitLoggedMinutes(task).ai > 0
+                                                            ? t('splitTime', {
+                                                                human: formatDurationMinutes(splitLoggedMinutes(task).human, locale),
+                                                                ai: formatDurationMinutes(splitLoggedMinutes(task).ai, locale),
+                                                            })
+                                                            : formatDurationMinutes(task.status === 'done' ? task.actualMinutes : task.estimatedMinutes, locale)}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -675,7 +715,7 @@ function TimeTable({
     onSaveExpected,
     showExpected,
 }: {
-    rows: { id: string; label: string; minutes: number; taskCount: number }[];
+    rows: { id: string; label: string; minutes: number; humanMinutes?: number; aiMinutes?: number; taskCount: number }[];
     locale: string;
     expectedFor?: (id: string) => number | undefined;
     labelFor: (row: { id: string; label: string }) => string;
@@ -717,9 +757,20 @@ function TimeTable({
                             >
                                 <td className="py-3 pr-3">
                                     <div className="font-medium text-gray-900">{labelFor(row)}</div>
-                                    <div className="h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden">
-                                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(row.minutes / maxMinutes) * 100}%` }} />
+                                    <div className="h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden" style={{ width: `${(row.minutes / maxMinutes) * 100}%` }}>
+                                        <div className="flex h-full">
+                                            <div className="h-full bg-blue-500" style={{ width: row.minutes > 0 ? `${((row.humanMinutes ?? row.minutes) / row.minutes) * 100}%` : '0%' }} />
+                                            <div className="h-full bg-violet-500" style={{ width: row.minutes > 0 ? `${((row.aiMinutes ?? 0) / row.minutes) * 100}%` : '0%' }} />
+                                        </div>
                                     </div>
+                                    {(row.aiMinutes ?? 0) > 0 && (
+                                        <div className="mt-1 text-[11px] text-gray-500">
+                                            {t('splitTime', {
+                                                human: formatDurationMinutes(row.humanMinutes ?? 0, locale),
+                                                ai: formatDurationMinutes(row.aiMinutes ?? 0, locale),
+                                            })}
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="py-3 pr-3 text-gray-900 whitespace-nowrap">{formatDurationMinutes(row.minutes, locale)}</td>
                                 {showExpected && (
@@ -762,7 +813,7 @@ function TrendChart({
     data,
     metric,
 }: {
-    data: { label: string; value: number }[];
+    data: { label: string; value: number; human?: number; ai?: number }[];
     metric: 'minutes' | 'count';
 }) {
     const maxData = Math.max(...data.map((item) => item.value), 0);
@@ -791,8 +842,9 @@ function TrendChart({
                                     ? (item.value >= 60 ? `${(item.value / 60).toFixed(1)}h` : `${Math.round(item.value)}m`)
                                     : item.value}
                             </div>
-                            <div className="w-full bg-blue-100 rounded-t-sm" style={{ height: `${height}%`, minHeight: item.value > 0 ? '4px' : '0' }}>
-                                <div className="w-full bg-blue-500 h-full" />
+                            <div className="w-full flex flex-col-reverse overflow-hidden rounded-t-sm" style={{ height: `${height}%`, minHeight: item.value > 0 ? '4px' : '0' }}>
+                                <div className="w-full bg-blue-500" style={{ height: item.value > 0 ? `${((item.human ?? item.value) / item.value) * 100}%` : '0%' }} />
+                                <div className="w-full bg-violet-500" style={{ height: item.value > 0 ? `${((item.ai ?? 0) / item.value) * 100}%` : '0%' }} />
                             </div>
                             <div className="mt-2 text-[10px] text-gray-500 truncate w-full text-center">{item.label}</div>
                         </div>

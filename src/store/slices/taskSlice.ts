@@ -175,6 +175,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
                 if (detached.status === 'in_progress') {
                     detached.status = 'open';
                     detached.startedAt = undefined;
+                    // The open run is discarded with the move, including any AI
+                    // segment that had not been folded into logged minutes yet.
+                    detached.actorSince = undefined;
+                    detached.segmentAiMinutes = 0;
                 }
 
                 // 触れる id を巻き戻し対象＆pending に登録する。
@@ -283,6 +287,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
             title: `${task.title} (copy)`,
             status: 'open',
             actualMinutes: 0,
+            aiMinutes: 0,
+            segmentAiMinutes: 0,
+            workActor: 'human',
+            actorSince: undefined,
             startedAt: undefined,
             completedAt: undefined,
             createdAt: Date.now(),

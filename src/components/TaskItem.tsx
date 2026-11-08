@@ -3,6 +3,7 @@
 import { Task } from '@/types';
 import clsx from 'clsx';
 import { Play, Square, Circle, CheckCircle2, Check, Copy, GripVertical, ListChecks, MessageSquare, Sparkles, Link2 } from 'lucide-react';
+import { splitLoggedMinutes, workActorOf } from '@/lib/tasks/workActor';
 import { formatTime } from '@/lib/timeUtils';
 import { AIStatusBadge } from '@/components/ai/AIStatusBadge';
 import { AttachmentImage } from '@/components/AttachmentImage';
@@ -28,6 +29,7 @@ export interface TaskItemProps {
     onPlay: (task: Task) => void;
     onStop: (task: Task) => void;
     onToggleStatus: (task: Task) => void;
+    onToggleActor?: (task: Task) => void;
     onTagClick: (tagId: string) => void;
     onImageClick: (url: string) => void;
     isOverlay?: boolean;
@@ -51,6 +53,7 @@ export const TaskItem = memo(function TaskItem({
     onPlay,
     onStop,
     onToggleStatus,
+    onToggleActor,
     onTagClick,
     onImageClick,
     isOverlay,
@@ -64,7 +67,11 @@ export const TaskItem = memo(function TaskItem({
         return projects.find((project) => project.id === task.projectId)?.title || 'Unknown Project';
     }, [projects, task.projectId]);
     const tLink = useTranslations('TaskLink');
+    const tActor = useTranslations('WorkActor');
     const { copyTaskLink } = useCopyTaskLink();
+    const aiActor = workActorOf(task) === 'ai';
+    const logged = splitLoggedMinutes(task);
+    const aiWorking = aiActor && task.status === 'in_progress';
 
     return (
         <div
@@ -72,9 +79,10 @@ export const TaskItem = memo(function TaskItem({
             data-task-id={task.id}
             style={style}
             className={clsx(
-                "group flex items-center p-3 transition-colors bg-white",
-                !isOverlay && "hover:bg-gray-50",
-                task.status === 'done' && "bg-gray-50/50",
+                "group flex items-center p-3 transition-colors",
+                aiWorking ? "bg-violet-50 border-l-4 border-violet-500" : "bg-white",
+                !isOverlay && !aiWorking && "hover:bg-gray-50",
+                task.status === 'done' && !aiWorking && "bg-gray-50/50",
                 // When dragging (original item): keep it visible but dims it slightly and add dashed border
                 isDragging && "opacity-40 border-2 border-dashed border-gray-300 bg-gray-50/50",
                 // Overlay item: fully opaque, elevated, and styled
@@ -131,6 +139,22 @@ export const TaskItem = memo(function TaskItem({
                     {task.status === 'in_progress' ? <Square size={20} fill="currentColor" /> :
                         task.status === 'done' ? <Check size={20} /> : <Play size={20} />}
                 </button>
+                {canEdit && !isOverlay && task.status !== 'done' && onToggleActor && (
+                    <button
+                        type="button"
+                        aria-pressed={aiActor}
+                        title={aiActor ? tActor('backToMe') : tActor('handToAi')}
+                        aria-label={aiActor ? tActor('backToMe') : tActor('handToAi')}
+                        onClick={() => onToggleActor(task)}
+                        className={clsx(
+                            'inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+                            aiActor ? 'bg-violet-600 text-white' : 'text-gray-400 hover:bg-violet-50 hover:text-violet-700'
+                        )}
+                    >
+                        <Sparkles size={14} />
+                        AI
+                    </button>
+                )}
             </div>
 
             {/* Task Content */}
@@ -201,6 +225,20 @@ export const TaskItem = memo(function TaskItem({
                 <div className="flex text-xs text-gray-500 gap-3 items-center mt-1">
                     <span>Min: {task.estimatedMinutes}</span>
                     <span className="font-mono text-blue-600">Act: {task.actualMinutes ? task.actualMinutes.toFixed(1) : 0}</span>
+                    {logged.ai > 0 && (
+                        <span className="font-mono text-violet-700">AI {logged.ai}</span>
+                    )}
+                    {aiWorking && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                            <Sparkles size={10} />
+                            {tActor('working')}
+                        </span>
+                    )}
+                    {aiActor && task.status === 'open' && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
+                            {tActor('armed')}
+                        </span>
+                    )}
                     {task.score !== undefined && (
                         <span className="text-gray-500" title="Score">Sc: {task.score}</span>
                     )}

@@ -9,6 +9,7 @@ import { Task, Attachment, ChecklistItem } from '@/types';
 import { X, MessageSquare, Link2, Check, Trash2 } from 'lucide-react';
 import { getSectionForTime, generateDisplaySections } from '@/lib/sectionUtils';
 import { buildRecordedIntervalUpdate, recordedIntervalFromTask } from '@/lib/timeline/actuals';
+import { buildEditorWorkUpdate, workActorOf, type WorkActor } from '@/lib/tasks/workActor';
 import { TaskCommentThread } from '@/components/TaskCommentThread';
 import { TaskForm } from '@/components/TaskForm';
 import { TaskAttachments } from '@/components/TaskAttachments';
@@ -137,6 +138,9 @@ export default function AddTaskModal({
 
     const [estimatedMinutes, setEstimatedMinutes] = useState<number | string>(targetTask?.estimatedMinutes !== undefined ? targetTask.estimatedMinutes : 15);
     const [actualMinutes, setActualMinutes] = useState<number | string>(targetTask?.actualMinutes !== undefined ? targetTask.actualMinutes : 0);
+    const [aiMinutes, setAiMinutes] = useState<number | string>(targetTask?.aiMinutes ?? 0);
+    const [workActorAi, setWorkActorAi] = useState(workActorOf(targetTask) === 'ai');
+    const aiDirtyRef = useRef(false);
     const [sectionId, setSectionId] = useState(() => {
         if (targetTask?.sectionId) return targetTask.sectionId;
         if (defaultSectionId) return defaultSectionId;
@@ -278,6 +282,9 @@ export default function AddTaskModal({
 
             setEstimatedMinutes(targetTask?.estimatedMinutes !== undefined ? targetTask.estimatedMinutes : 15);
             setActualMinutes(targetTask?.actualMinutes !== undefined ? targetTask.actualMinutes : 0);
+            setAiMinutes(targetTask?.aiMinutes ?? 0);
+            setWorkActorAi(workActorOf(targetTask) === 'ai');
+            aiDirtyRef.current = false;
             setProjectId(targetTask?.projectId || initialProjectId || '');
             setMilestoneId(targetTask?.milestoneId || initialMilestoneId || '');
 
@@ -537,6 +544,16 @@ export default function AddTaskModal({
             recordedUpdate = recorded.update;
         }
 
+        const nextActor: WorkActor = workActorAi ? 'ai' : 'human';
+        const actorPatch = buildEditorWorkUpdate({
+            task: targetTask ?? null,
+            nowMs: Date.now(),
+            nextActor,
+            aiMinutesInput: Number(aiMinutes) || 0,
+            aiFieldDirty: aiDirtyRef.current,
+            recorded: recordedChanged ? recordedUpdate : null,
+        });
+
         const taskFields = {
             title,
             sectionId: activeType === 'task' ? (finalSectionId || (sections[0]?.id || 'section-1')) : 'goal',
@@ -556,6 +573,7 @@ export default function AddTaskModal({
             checklist,
             attachments,
             ...recordedUpdate,
+            ...actorPatch,
         };
 
         setIsSaving(true);
@@ -647,6 +665,9 @@ export default function AddTaskModal({
             setScore('');
             setEstimatedMinutes(15);
             setActualMinutes(0);
+            setAiMinutes(0);
+            setWorkActorAi(false);
+            aiDirtyRef.current = false;
             setScheduledStart('');
             setProjectId('');
             setMilestoneId('');
@@ -793,6 +814,13 @@ export default function AddTaskModal({
                         setActualStart={setActualStart}
                         actualEnd={actualEnd}
                         setActualEnd={setActualEnd}
+                        aiMinutes={aiMinutes}
+                        setAiMinutes={(value) => {
+                            aiDirtyRef.current = true;
+                            setAiMinutes(value);
+                        }}
+                        workActorAi={workActorAi}
+                        setWorkActorAi={setWorkActorAi}
                         displaySections={displaySections}
                         isTimeSectionInconsistent={isTimeSectionInconsistent}
                     />

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import clsx from 'clsx';
 import { useTranslations } from 'next-intl';
 import { format } from 'date-fns';
-import { Copy, ExternalLink, Minus, MoreHorizontal, Play, Plus, Square, X } from 'lucide-react';
+import { Copy, ExternalLink, Minus, MoreHorizontal, Play, Plus, Sparkles, Square, X } from 'lucide-react';
 
 import type { Section, Task } from '@/types';
 import {
@@ -32,6 +32,7 @@ import { autoScrollStep } from '@/lib/timeline/autoScroll';
 import { groupUnscheduledBySection } from '@/lib/timeline/unscheduledGroups';
 import { buildTimelineDropUpdate, snapDropStart, type TimelineDropTarget } from '@/lib/timeline/weekDrag';
 import { useStore } from '@/store/useStore';
+import { splitLoggedMinutes, workActorOf } from '@/lib/tasks/workActor';
 
 import {
     DAY_ZOOM_LEVELS,
@@ -80,6 +81,7 @@ interface DayTimelineProps {
     onEditTask: (task: Task) => void;
     onPlay: (task: Task) => void;
     onStop: (task: Task) => void;
+    onToggleActor?: (task: Task) => void;
     /** Empty grid space was clicked: open the create form at that time. */
     onCreateAt?: (date: string, scheduledStart: string) => void;
     /** The copy button on a block. */
@@ -143,6 +145,7 @@ export default function DayTimeline({
     onEditTask,
     onPlay,
     onStop,
+    onToggleActor,
     onCreateAt,
     onDuplicate,
     visibleRangeOverride,
@@ -692,13 +695,18 @@ export default function DayTimeline({
         const editable = canEditTask(task);
         const lifted = drag?.taskId === task.id;
         const running = task.status === 'in_progress';
+        const aiActor = workActorOf(task) === 'ai';
         return (
             <div
                 key={task.id}
                 data-task-id={task.id}
                 className={clsx(
-                    'inline-flex max-w-full items-stretch rounded-md border bg-white text-xs text-gray-900 overflow-hidden',
-                    lifted ? 'border-blue-400 ring-2 ring-blue-300 shadow-md' : 'border-gray-200',
+                    'inline-flex max-w-full items-stretch rounded-md border text-xs text-gray-900 overflow-hidden',
+                    lifted
+                        ? 'border-blue-400 bg-white ring-2 ring-blue-300 shadow-md'
+                        : running && aiActor
+                            ? 'border-violet-400 bg-violet-50'
+                            : 'border-gray-200 bg-white',
                     carriedTaskId === task.id && 'opacity-40'
                 )}
             >
@@ -719,6 +727,25 @@ export default function DayTimeline({
                 >
                     {task.title}
                 </button>
+                {editable && onToggleActor && task.status !== 'done' && (
+                    <button
+                        type="button"
+                        title={aiActor ? t('aiOff') : t('aiOn')}
+                        aria-label={aiActor ? t('aiOff') : t('aiOn')}
+                        aria-pressed={aiActor}
+                        onPointerDown={stopPointer}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onToggleActor(task);
+                        }}
+                        className={clsx(
+                            'flex items-center gap-0.5 px-1.5 border-l border-gray-200 cursor-pointer pointer-coarse:px-2.5',
+                            aiActor ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-50'
+                        )}
+                    >
+                        <Sparkles size={11} />
+                    </button>
+                )}
                 {editable && task.status !== 'done' && (
                     <button
                         type="button"
@@ -912,9 +939,13 @@ export default function DayTimeline({
                         const editable = canEditTask(task);
                         const lifted = drag?.taskId === task.id && drag.kind !== 'resize';
                         const running = task.status === 'in_progress';
+                        const aiActor = workActorOf(task) === 'ai';
+                        const logged = splitLoggedMinutes(task);
+                        const fullAi = !running && logged.total > 0 && logged.ai >= logged.total;
                         const showPlay = editable && task.status !== 'done';
                         const showCopy = editable && Boolean(onDuplicate);
-                        const inlineActionCount = (showPlay ? 1 : 0) + (showCopy ? 1 : 0);
+                        const showActorControl = editable && task.status !== 'done' && Boolean(onToggleActor);
+                        const inlineActionCount = (showPlay ? 1 : 0) + (showCopy ? 1 : 0) + (showActorControl ? 1 : 0);
                         const blockWidth = trackWidth > 0 ? overlapBlockWidth(trackWidth, assignment.colCount) : 0;
                         // Shorter than a fingertip, or too narrow for a readable title beside
                         // the 44px controls (two or more tasks in one phone slot): buttons
@@ -937,11 +968,15 @@ export default function DayTimeline({
                                 className={clsx(
                                     'group @container absolute rounded-lg border overflow-hidden shadow-sm select-none [-webkit-touch-callout:none]',
                                     shortBlock ? 'px-1.5 py-0' : 'px-2 py-1',
-                                    running
-                                        ? 'bg-blue-50 border-blue-400'
-                                        : task.status === 'done'
-                                            ? 'bg-emerald-50 border-emerald-300'
-                                            : 'bg-indigo-50 border-indigo-200',
+                                    running && aiActor
+                                        ? 'bg-violet-100 border-violet-500'
+                                        : running
+                                            ? 'bg-blue-50 border-blue-400'
+                                            : fullAi
+                                                ? 'bg-violet-50 border-violet-300'
+                                                : task.status === 'done'
+                                                    ? 'bg-emerald-50 border-emerald-300'
+                                                    : 'bg-indigo-50 border-indigo-200',
                                     editable && 'cursor-grab active:cursor-grabbing',
                                     lifted && 'z-40 ring-2 ring-blue-400 shadow-lg',
                                     carriedTaskId === task.id && 'opacity-40'
@@ -994,6 +1029,27 @@ export default function DayTimeline({
                                         }}
                                         title={task.title}
                                     >
+                                        {showActorControl && !useSheet && !touchReady ? (
+                                            <button
+                                                type="button"
+                                                title={aiActor ? t('aiOff') : t('aiOn')}
+                                                aria-label={aiActor ? t('aiOff') : t('aiOn')}
+                                                aria-pressed={aiActor}
+                                                onPointerDown={stopPointer}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onToggleActor?.(task);
+                                                }}
+                                                className={clsx(
+                                                    'mr-1 inline-flex h-4 w-4 items-center justify-center rounded-full align-text-bottom',
+                                                    aiActor ? 'bg-violet-600 text-white' : 'text-violet-500 hover:bg-violet-100',
+                                                )}
+                                            >
+                                                <Sparkles size={11} />
+                                            </button>
+                                        ) : (aiActor || logged.ai > 0) && (
+                                            <Sparkles size={11} className="mr-1 inline text-violet-600" aria-hidden />
+                                        )}
                                         {task.title}
                                     </div>
                                     {showTimeRange && (
@@ -1049,6 +1105,26 @@ export default function DayTimeline({
                                         <MoreHorizontal size={12} />
                                     </span>
                                 )}
+                                {showActorControl && touchReady && onToggleActor && (
+                                    <button
+                                        type="button"
+                                        title={aiActor ? t('aiOff') : t('aiOn')}
+                                        aria-label={aiActor ? t('aiOff') : t('aiOn')}
+                                        aria-pressed={aiActor}
+                                        onPointerDown={stopPointer}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            onToggleActor(task);
+                                        }}
+                                        className={clsx(
+                                            'absolute inset-y-0 z-10 flex w-11 items-center justify-center cursor-pointer touch-manipulation',
+                                            aiActor ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-white/80',
+                                        )}
+                                        style={{ right: (showPlay ? INLINE_ACTION_PX : 0) + (showCopy ? INLINE_ACTION_PX : 0) }}
+                                    >
+                                        <Sparkles size={16} />
+                                    </button>
+                                )}
                                 {showCopy && touchReady && (
                                     <button
                                         type="button"
@@ -1085,6 +1161,12 @@ export default function DayTimeline({
                                             ? <Square size={touchReady ? 16 : shortBlock ? 10 : 14} fill="currentColor" />
                                             : <Play size={touchReady ? 16 : shortBlock ? 10 : 14} fill="currentColor" />}
                                     </button>
+                                )}
+                                {!running && logged.ai > 0 && logged.human > 0 && (
+                                    <span
+                                        className="pointer-events-none absolute bottom-0 left-0 h-1 bg-violet-500"
+                                        style={{ width: `${(logged.ai / logged.total) * 100}%` }}
+                                    />
                                 )}
                                 {editable && height >= 12 && (
                                     // Mouse: a thin strip along the bottom edge. Touch: a small grip in the
@@ -1201,6 +1283,8 @@ export default function DayTimeline({
                         : null}
                     showPlay={canEditTask(actionTask) && actionTask.status !== 'done'}
                     showCopy={canEditTask(actionTask) && Boolean(onDuplicate)}
+                    showActor={canEditTask(actionTask) && actionTask.status !== 'done' && Boolean(onToggleActor)}
+                    onToggleActor={() => onToggleActor?.(actionTask)}
                     onPlay={() => {
                         if (actionTask.status === 'in_progress') onStop(actionTask);
                         else onPlay(actionTask);
@@ -1227,8 +1311,10 @@ function ShortBlockSheet({
     timeLabel,
     showPlay,
     showCopy,
+    showActor,
     onPlay,
     onDuplicate,
+    onToggleActor,
     onEdit,
     onClose,
 }: {
@@ -1236,13 +1322,16 @@ function ShortBlockSheet({
     timeLabel: string | null;
     showPlay: boolean;
     showCopy: boolean;
+    showActor: boolean;
     onPlay: () => void;
     onDuplicate: () => void;
+    onToggleActor: () => void;
     onEdit: () => void;
     onClose: () => void;
 }) {
     const t = useTranslations('Timeline');
     const running = task.status === 'in_progress';
+    const aiActor = workActorOf(task) === 'ai';
     const columns = 1 + (showPlay ? 1 : 0) + (showCopy ? 1 : 0);
     return (
         <div
@@ -1302,6 +1391,22 @@ function ShortBlockSheet({
                         {t('edit')}
                     </button>
                 </div>
+                {showActor && (
+                    <button
+                        type="button"
+                        aria-pressed={aiActor}
+                        onClick={onToggleActor}
+                        className={clsx(
+                            'mt-2 inline-flex h-12 w-full items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-medium cursor-pointer touch-manipulation',
+                            aiActor
+                                ? 'bg-violet-600 text-white hover:bg-violet-700'
+                                : 'border border-violet-200 text-violet-800 hover:bg-violet-50',
+                        )}
+                    >
+                        <Sparkles size={16} />
+                        {aiActor ? t('aiOff') : t('aiOn')}
+                    </button>
+                )}
             </div>
         </div>
     );

@@ -54,6 +54,14 @@ export interface Task {
     status: TaskStatus;
     estimatedMinutes: number;
     actualMinutes: number;
+    /** Closed minutes within actualMinutes that AI worked. */
+    aiMinutes?: number;
+    /** AI minutes finished in the current run, folded into aiMinutes on stop. */
+    segmentAiMinutes?: number;
+    /** Who the current or next timer segment belongs to. */
+    workActor?: 'human' | 'ai';
+    /** When the current open segment started. */
+    actorSince?: number;
     startedAt?: number; // timestamp
     completedAt?: number; // timestamp
     scheduledStart?: string; // HH:mm

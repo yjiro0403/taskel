@@ -135,7 +135,16 @@
     "actualHint": "If you forgot to press start or stop, correct it here. The timeline block follows these times. Leave the end empty to keep it running.",
     "actualEndBeforeStart": "Actual end has to be after the start.",
     "actualEndNeedsStart": "Enter an actual start when you enter an end.",
-    "actualNeedsDate": "A date is required to record actual times."
+    "actualNeedsDate": "A date is required to record actual times.",
+    "aiMinutes": "AI actual (min)",
+    "aiCheckbox": "AI works from here",
+    "aiHint": "Time while this is on counts as AI. Turn it off and the rest counts as you. If you forget, edit the AI minutes directly."
+  },
+  "WorkActor": {
+    "handToAi": "AI from here",
+    "backToMe": "Back to me",
+    "working": "AI working",
+    "armed": "Next is AI"
   },
   "TaskLink": {
     "copy": "Copy link",
@@ -247,6 +256,11 @@
     "kpiCompleted": "Completed",
     "kpiRate": "Completion",
     "kpiTime": "Logged time",
+    "kpiHuman": "My time",
+    "kpiAi": "AI time",
+    "legendHuman": "Me",
+    "legendAi": "AI",
+    "splitTime": "Me {human} · AI {ai}",
     "kpiExpense": "Spend",
     "kpiIncome": "Income",
     "kpiBudget": "Budget",
@@ -254,7 +268,7 @@
     "kpiOver": "Over",
     "unset": "Not set",
     "projectsTitle": "Time by project",
-    "projectsHint": "Actual vs expected hours for every project. Click a row to see the tag breakdown.",
+    "projectsHint": "Blue is you, violet is AI. The variance compares expected hours with that total. Click a row for the tag breakdown.",
     "tagsTitle": "Time by tag",
     "tagsHint": "Total hours per tag, including meetings. Click a row to see the project breakdown.",
     "colName": "Name",
@@ -329,7 +343,9 @@
     "zoomInShort": "Zoom",
     "duplicateShort": "Copy",
     "edit": "Edit",
-    "closeActions": "Close"
+    "closeActions": "Close",
+    "aiOn": "AI from here",
+    "aiOff": "Back to me"
   },
   "Projects": {
     "expectedHours": "Expected hours",

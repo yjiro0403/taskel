@@ -64,7 +64,7 @@ describe('analytics aggregation', () => {
             projects
         );
 
-        expect(rows.find((row) => row.id === 'p-a')).toMatchObject({ minutes: 120, taskCount: 2, completedCount: 1 });
+        expect(rows.find((row) => row.id === 'p-a')).toMatchObject({ minutes: 120, humanMinutes: 120, aiMinutes: 0, taskCount: 2, completedCount: 1 });
         expect(rows.find((row) => row.id === 'p-b')).toMatchObject({ minutes: 0, taskCount: 0 });
         expect(rows.find((row) => row.id === UNCATEGORIZED_ID)).toMatchObject({ minutes: 15, taskCount: 1 });
     });
@@ -78,6 +78,21 @@ describe('analytics aggregation', () => {
         const rows = aggregateByTag(tasks);
         expect(rows.find((row) => row.id === 'meeting')).toMatchObject({ minutes: 90, taskCount: 2 });
         expect(tasksForTag(tasks, UNCATEGORIZED_TAG).map((item) => item.id)).toEqual(['t3']);
+    });
+
+    it('splits a project between the person and AI', () => {
+        const rows = aggregateByProject(
+            [
+                task({ id: 't1', projectId: 'p-a', actualMinutes: 120, aiMinutes: 100 }),
+                task({ id: 't2', projectId: 'p-a', actualMinutes: 40, aiMinutes: 0 }),
+            ],
+            projects
+        );
+        expect(rows.find((row) => row.id === 'p-a')).toMatchObject({
+            minutes: 160,
+            humanMinutes: 60,
+            aiMinutes: 100,
+        });
     });
 
     it('marks a project over expected time', () => {

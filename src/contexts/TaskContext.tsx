@@ -11,6 +11,7 @@ interface TaskContextType {
     onPlay: (task: Task) => void;
     onStop: (task: Task) => void;
     onToggleStatus: (task: Task) => void;
+    onToggleActor: (task: Task) => void;
     onTagClick: (tagId: string) => void;
     onImageClick: (url: string) => void;
 }

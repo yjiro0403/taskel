@@ -69,7 +69,7 @@ function nullableIntegerUpdate(value: number | undefined | null): number | null 
 
 function timestampUpdate(
     updates: Partial<Task>,
-    key: 'startedAt' | 'completedAt' | 'aiCompletedAt'
+    key: 'startedAt' | 'completedAt' | 'aiCompletedAt' | 'actorSince'
 ): string | null | undefined {
     if (!Object.prototype.hasOwnProperty.call(updates, key)) {
         return undefined;
@@ -99,6 +99,10 @@ export function buildTaskInsertPayload(task: Task, userId: string): Tables['task
         status: task.status,
         estimated_minutes: Math.round(task.estimatedMinutes ?? 0),
         actual_minutes: Math.round(task.actualMinutes ?? 0),
+        ai_minutes: Math.max(0, Math.round(task.aiMinutes ?? 0)),
+        segment_ai_minutes: Math.max(0, Math.round(task.segmentAiMinutes ?? 0)),
+        work_actor: task.workActor === 'ai' ? 'ai' : 'human',
+        actor_since: millisToIso(task.actorSince),
         started_at: millisToIso(task.startedAt),
         completed_at: millisToIso(task.completedAt),
         scheduled_start: toTimeOrNull(task.scheduledStart),
@@ -138,6 +142,10 @@ export function buildTaskUpdatePayload(updates: Partial<Task>): Tables['tasks'][
         status: updates.status,
         estimated_minutes: integerUpdate(updates.estimatedMinutes),
         actual_minutes: integerUpdate(updates.actualMinutes),
+        ai_minutes: integerUpdate(updates.aiMinutes),
+        segment_ai_minutes: integerUpdate(updates.segmentAiMinutes),
+        work_actor: updates.workActor,
+        actor_since: timestampUpdate(updates, 'actorSince'),
         started_at: timestampUpdate(updates, 'startedAt'),
         completed_at: timestampUpdate(updates, 'completedAt'),
         // scheduled_start は time 列。空文字は null へ正規化する（insert 経路と対称）。

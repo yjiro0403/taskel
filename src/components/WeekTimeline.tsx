@@ -11,6 +11,7 @@ import DayTimeline from '@/components/timeline/DayTimeline';
 import { WeekTimelineDragProvider } from '@/components/timeline/WeekTimelineDragContext';
 import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
+import { buildActorToggleUpdate } from '@/lib/tasks/workActor';
 import { computeVisibleRange } from '@/lib/timeline/time';
 import { scheduledTaskInterval } from '@/lib/timeline/layout';
 import { useStore } from '@/store/useStore';
@@ -33,6 +34,7 @@ function WeekDayColumn({
     onEditTask,
     onPlay,
     onStop,
+    onToggleActor,
     onCreateAt,
     onDuplicate,
     canEditTask,
@@ -46,6 +48,7 @@ function WeekDayColumn({
     onEditTask: (task: Task) => void;
     onPlay: (task: Task) => void;
     onStop: (task: Task) => void;
+    onToggleActor: (task: Task) => void;
     onCreateAt: (date: string, scheduledStart: string) => void;
     onDuplicate: (task: Task) => void;
     canEditTask: (task: Task) => boolean;
@@ -106,6 +109,7 @@ function WeekDayColumn({
                 onEditTask={onEditTask}
                 onPlay={onPlay}
                 onStop={onStop}
+                onToggleActor={onToggleActor}
                 onCreateAt={onCreateAt}
                 onDuplicate={onDuplicate}
                 visibleRangeOverride={visibleRange}
@@ -167,6 +171,10 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
         if (update) void updateTask(task.id, update, { occurrenceDate: task.date });
     };
 
+    const handleToggleActor = (task: Task) => {
+        void updateTask(task.id, buildActorToggleUpdate(task, Date.now()), { occurrenceDate: task.date });
+    };
+
     const handleDuplicate = (task: Task) => {
         void duplicateTask(task.id);
     };
@@ -189,6 +197,7 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
                                 onEditTask={setEditingTask}
                                 onPlay={handlePlay}
                                 onStop={handleStop}
+                                onToggleActor={handleToggleActor}
                                 onCreateAt={(date, time) => setAddSlot({ date, time })}
                                 onDuplicate={handleDuplicate}
                                 canEditTask={canEditTask}

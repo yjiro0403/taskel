@@ -35,6 +35,10 @@ interface TaskDatePickerProps {
     setActualStart: Dispatch<SetStateAction<string>>;
     actualEnd: string;
     setActualEnd: Dispatch<SetStateAction<string>>;
+    aiMinutes: number | string;
+    setAiMinutes: (value: number | string) => void;
+    workActorAi: boolean;
+    setWorkActorAi: Dispatch<SetStateAction<boolean>>;
     displaySections: Section[];
     isTimeSectionInconsistent: boolean;
 }
@@ -64,6 +68,10 @@ export const TaskDatePicker = memo(function TaskDatePicker({
     setActualStart,
     actualEnd,
     setActualEnd,
+    aiMinutes,
+    setAiMinutes,
+    workActorAi,
+    setWorkActorAi,
     displaySections,
     isTimeSectionInconsistent,
 }: TaskDatePickerProps) {
@@ -241,23 +249,47 @@ export const TaskDatePicker = memo(function TaskDatePicker({
                                 />
                             </div>
                         </div>
-                        <div className="max-w-[10rem]">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">{t('actualMinutes')}</label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={actualMinutes}
-                                onChange={(e) => {
-                                    const raw = e.target.value === '' ? '' : Number(e.target.value);
-                                    setActualMinutes(raw);
-                                    const startMin = hhmmToMinutes(actualStart);
-                                    if (startMin == null || raw === '' || raw <= 0) return;
-                                    const endMin = startMin + raw;
-                                    if (endMin < 24 * 60) setActualEnd(minutesToHHMM(endMin));
-                                }}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 bg-white"
-                            />
+                        <div className="flex flex-wrap items-end gap-3">
+                            <div className="max-w-[10rem]">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">{t('actualMinutes')}</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={actualMinutes}
+                                    onChange={(e) => {
+                                        const raw = e.target.value === '' ? '' : Number(e.target.value);
+                                        setActualMinutes(raw);
+                                        const startMin = hhmmToMinutes(actualStart);
+                                        if (startMin == null || raw === '' || raw <= 0) return;
+                                        const endMin = startMin + raw;
+                                        if (endMin < 24 * 60) setActualEnd(minutesToHHMM(endMin));
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 bg-white"
+                                />
+                            </div>
+                            <div className="max-w-[10rem]">
+                                <label className="block text-sm font-medium text-violet-800 mb-1">{t('aiMinutes')}</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={aiMinutes}
+                                    onChange={(e) => setAiMinutes(e.target.value === '' ? '' : Number(e.target.value))}
+                                    className="w-full px-3 py-2 border border-violet-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all text-gray-900 bg-white"
+                                />
+                            </div>
                         </div>
+                        <label className="flex items-start gap-2 text-sm text-gray-800 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={workActorAi}
+                                onChange={(e) => setWorkActorAi(e.target.checked)}
+                                className="mt-0.5 h-4 w-4 rounded border-violet-300 text-violet-600 focus:ring-violet-500"
+                            />
+                            <span>
+                                <span className="font-medium">{t('aiCheckbox')}</span>
+                                <span className="block text-xs text-gray-600">{t('aiHint')}</span>
+                            </span>
+                        </label>
                     </div>
                 </div>
             )}
