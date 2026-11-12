@@ -29,6 +29,18 @@ object AlarmNotifications {
     private const val LEGACY_CHANNEL_ID = "taskel_alarm"
     const val CHANNEL_ID = "taskel_alarm_v2"
 
+    /**
+     * AlarmRingService が音を出すときの通知チャンネル。重要度 HIGH・チャンネル音なし。
+     *
+     * 以前は CHANNEL_ID の通知に NotificationCompat の setSilent(true) を付けていたが、
+     * setSilent は通知を "silent" グループの子（GROUP_ALERT_SUMMARY）にする。
+     * SystemUI はこれを「グループの通知抑止」とみなし、全画面インテントもヘッドアップも出さない
+     * （logcat: "FSI suppressed: suppressive group alert behavior"）。
+     * その結果、音は鳴るのにロック画面にアラーム画面が出なかった。
+     * 音を消すのはチャンネル側で行い、通知自体は抑止しない。
+     */
+    const val RING_CHANNEL_ID = "taskel_alarm_ring"
+
     fun notificationId(alarmId: String): Int = alarmId.hashCode()
 
     fun canPostNotifications(context: Context): Boolean =
@@ -42,6 +54,23 @@ object AlarmNotifications {
         // 通知チャンネルは作成後に importance / 音 を変更できない。無音だった旧チャンネルが
         // 残っていると修正が反映されないため、削除して新 ID で作り直す。
         runCatching { manager.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
+
+        if (manager.getNotificationChannel(RING_CHANNEL_ID) == null) {
+            val ringChannel = NotificationChannel(
+                RING_CHANNEL_ID,
+                "Ringing alarms",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Shows the alarm screen while Taskel plays the alarm sound"
+                setBypassDnd(true)
+                // 音とバイブは AlarmRingService が USAGE_ALARM で出す。二重に鳴らさない。
+                setSound(null, null)
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            manager.createNotificationChannel(ringChannel)
+            Log.i(TAG, "Notification channel $RING_CHANNEL_ID created")
+        }
 
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
 
@@ -86,7 +115,9 @@ object AlarmNotifications {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        // loud=false はチャンネル音なしの RING_CHANNEL_ID を使う。setSilent(true) は使わないこと
+        // （全画面インテントとヘッドアップが抑止される。RING_CHANNEL_ID の説明を参照）。
+        val builder = NotificationCompat.Builder(context, if (loud) CHANNEL_ID else RING_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarm.label.ifBlank { context.getString(R.string.alarm_default_label) })
             .setContentText(
@@ -104,10 +135,6 @@ object AlarmNotifications {
             // 全画面が出せない場面（端末操作中・おやすみモード中）でも通知から止められるようにする
             .addAction(0, context.getString(R.string.alarm_snooze), actionPending(context, alarm.id, AlarmReceiver.ACTION_NOTIFICATION_SNOOZE, 1))
             .addAction(0, context.getString(R.string.alarm_stop), actionPending(context, alarm.id, AlarmReceiver.ACTION_NOTIFICATION_STOP, 2))
-
-        if (!loud) {
-            builder.setSilent(true)
-        }
 
         val notification = builder.build()
         if (loud) {

@@ -259,6 +259,13 @@ Chrome の UA を名乗ることで、ログインがアプリ内で完結する
   `ring service started` / `Ringing <id> via foreground service` が出ていれば端末側は鳴らそうとしている
 - **Web には「鳴っています」と出るのに端末が無音**: この対応より前の APK は通知チャンネルの音で
   鳴らしていたため、おやすみモード中は黙る。APK を更新する
+- **音は鳴るのに全画面のアラーム画面もヘッドアップ通知も出ない**: 2026-11 以前の APK は鳴動中の通知に
+  `setSilent(true)` を付けており、SystemUI が全画面インテントを抑止していた
+  （`adb logcat | grep "FSI suppressed"` に `suppressive group alert behavior` と出る）。
+  現在はチャンネル音なしの `taskel_alarm_ring` チャンネルで出している。APK を更新する
+- **Web から停止したのにスマホが鳴り続ける**: `adb logcat -s TaskelFcmService TaskelAlarmRing` に
+  `FCM cancel alarm <id>` → `Stopped <id>` が出るか確認する。`FCM cancel` が出なければ
+  FCM が届いていない（上の「プッシュが届かない」）
 - **トークンが registration される気配がない**: google-services.json 配置後に
   `npx cap sync android` → 再ビルドしたか確認（配置しただけでは反映されない）
 - **ビルドは通るのに FCM が効かない**: そのビルドに google-services.json が
