@@ -1,5 +1,7 @@
 import { NextResponse, after } from 'next/server';
 
+import { isMissingRingingColumn } from '@/lib/alarms/deviceReport';
+import { alarmListFilter } from '@/lib/alarms/listFilter';
 import { requireAuth } from '@/lib/api/auth';
 import { handleApiError, jsonError } from '@/lib/api/errors';
 import { parseJsonBody } from '@/lib/api/request';
@@ -8,24 +10,30 @@ import { mapAlarm } from '@/lib/supabase/mappers';
 import { alarmUpsertPush, sendAlarmPushToUser } from '@/lib/server/fcm';
 import { alarmCreateSchema } from '@/lib/validations/alarm';
 
-// GET: 自分の「今後のアラーム」一覧。
-// scheduled のもの（過去の未処理分も端末側で扱えるよう含める）と、
-// 状態を問わず fire_at が現在以降のものを返す。
+// GET: 自分の「今後のアラーム」一覧。条件は alarmListFilter を参照
+// （過ぎてから 24 時間を超えた未処理の scheduled は返さない。鳴動中は返す）。
 export async function GET() {
     try {
         const user = await requireAuth();
         const supabase = await createClient();
 
-        const nowIso = new Date().toISOString();
-        const { data, error } = await supabase
-            .from('alarms')
-            .select('*')
-            .eq('user_id', user.id)
-            .or(`status.eq.scheduled,fire_at.gte.${nowIso}`)
-            .order('fire_at', { ascending: true });
+        const now = new Date();
+        const listAlarms = (ringingColumn: boolean) =>
+            supabase
+                .from('alarms')
+                .select('*')
+                .eq('user_id', user.id)
+                .or(alarmListFilter(now, { ringingColumn }))
+                .order('fire_at', { ascending: true });
 
-        if (error) {
-            throw error;
+        let { data, error } = await listAlarms(true);
+        // ringing_at 追加前のデータベースでも一覧は返す。
+        if (error && isMissingRingingColumn(error)) {
+            ({ data, error } = await listAlarms(false));
+        }
+
+        if (error || !data) {
+            throw error ?? new Error('Failed to list alarms');
         }
 
         return NextResponse.json({ alarms: data.map(mapAlarm) });
