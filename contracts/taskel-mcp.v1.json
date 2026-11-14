@@ -1,0 +1,6 @@
+{
+  "contract": 1,
+  "server": { "name": "taskel-mcp-server", "version": "1.0.0" },
+  "tools": [],
+  "errors": []
+}
