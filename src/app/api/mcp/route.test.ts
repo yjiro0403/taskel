@@ -43,7 +43,8 @@ const AUTH: McpAuth = {
     timezone: 'Asia/Tokyo',
     expiresAt: '2027-02-13T01:00:00+00:00',
 };
-const fakeDb = { marker: 'fake-db' } as unknown as McpDb;
+const logEvent = vi.fn(async () => undefined);
+const fakeDb = { marker: 'fake-db', logEvent } as unknown as McpDb;
 const TOOLS_LIST = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
 
 let token: string;
@@ -99,6 +100,7 @@ beforeEach(() => {
     dbModule.authenticateMcpTokenHash.mockReset();
     dbModule.createMcpDb.mockReset();
     dbModule.createMcpDb.mockReturnValue(fakeDb);
+    logEvent.mockClear();
     factory.override = null;
     factory.contexts = [];
     authenticateAs({ status: 'ok', auth: AUTH });
@@ -131,7 +133,45 @@ describe('POST /api/mcp: protocol', () => {
     it('answers a request without a prior initialize (stateless)', async () => {
         const response = await post(TOOLS_LIST);
         expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+        const body = await response.json();
+        expect(body.id).toBe(1);
+        expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+            'taskel_whoami',
+            'taskel_list_tasks_for_day',
+            'taskel_search_tasks',
+            'taskel_get_task',
+            'taskel_create_task',
+            'taskel_revoke_current_token',
+        ]);
+    });
+
+    it('lists only the tools the token scope allows', async () => {
+        authenticateAs({ status: 'ok', auth: { ...AUTH, scopes: ['tasks:create'] } });
+        const body = await (await post(TOOLS_LIST)).json();
+        expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+            'taskel_whoami',
+            'taskel_create_task',
+            'taskel_revoke_current_token',
+        ]);
+    });
+
+    it('answers taskel_whoami from the authentication result, with no database call', async () => {
+        const response = await post({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'tools/call',
+            params: { name: 'taskel_whoami', arguments: {} },
+        });
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.result.isError).toBeUndefined();
+        expect(body.result.structuredContent.data.token).toMatchObject({
+            name: 'Beacon',
+            prefix: 'tsk_mcp_AbCdEfGh',
+            scopes: ['tasks:read', 'tasks:create'],
+        });
+        expect(JSON.stringify(body)).not.toContain(token);
+        expect(logEvent).not.toHaveBeenCalled();
     });
 
     it('answers tools/call for an unknown tool with the tool error envelope', async () => {
@@ -149,6 +189,7 @@ describe('POST /api/mcp: protocol', () => {
             ok: false,
             error: { code: 'TOOL_UNKNOWN', message: 'Unknown tool.', retryable: false },
         });
+        expect(logEvent).toHaveBeenCalledWith('taskel_delete_everything', 'TOOL_UNKNOWN');
     });
 
     it('accepts a notification with 202', async () => {
@@ -415,6 +456,7 @@ describe('POST /api/mcp: failures and switches', () => {
             throw new TypeError('factory exploded: secret detail');
         };
         dbModule.createMcpDb.mockReturnValue(fakeDb);
+    logEvent.mockClear();
         const second = await post(TOOLS_LIST);
         const secondText = await second.clone().text();
         await expectHttpError(second, 500, 'MCP_INTERNAL');
