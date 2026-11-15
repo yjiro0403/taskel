@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,10 +55,47 @@ type InputSchema = {
     additionalProperties: boolean;
 };
 
+/** Paths git lists for these `ls-files` options, or null without git. */
+function gitFiles(options: string[]): string[] | null {
+    try {
+        return execFileSync('git', ['ls-files', '-z', ...options], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            maxBuffer: 64 * 1024 * 1024,
+        })
+            .split('\0')
+            .filter((file) => file.length > 0)
+            .map((file) => path.join(repoRoot, file));
+    } catch {
+        return null;
+    }
+}
+
+function isRegularFile(file: string): boolean {
+    try {
+        // A tracked file deleted in the working tree, or a symlink, is not read.
+        return lstatSync(file).isFile();
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Files a token scan must cover: everything tracked, plus untracked files
+ * that are not ignored (they are one `git add` away from a commit). Without
+ * git, the whole tree minus build output and dependencies.
+ */
+function listScannedFiles(): string[] {
+    const listed =
+        gitFiles(['--cached', '--others', '--exclude-standard']) ??
+        walk(repoRoot).filter((file) => !/^android\/(app\/)?build\//.test(relative(file)));
+    return [...new Set(listed)].filter(isRegularFile);
+}
+
 function walk(dir: string): string[] {
     const files: string[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (entry.name === 'node_modules' || entry.name === '.next') {
+        if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === '.git') {
             continue;
         }
         const full = path.join(dir, entry.name);
@@ -189,24 +227,47 @@ describe('MCP source requirements', () => {
         expect(page).not.toContain('NEXT_PUBLIC_FIREBASE');
     });
 
+    it('scans every tracked file for token literals, not a fixed list of folders', () => {
+        const scanned = new Set(listScannedFiles().map(relative));
+        expect(scanned.has('README.md')).toBe(true);
+        expect(scanned.has('package.json')).toBe(true);
+        expect(scanned.has('.github/workflows/ci.yml')).toBe(true);
+        expect([...scanned].some((file) => file.startsWith('e2e/'))).toBe(true);
+        expect([...scanned].some((file) => file.startsWith('scripts/'))).toBe(true);
+        expect([...scanned].some((file) => file.startsWith('node_modules/'))).toBe(false);
+    });
+
     it('does not commit a full MCP token literal', () => {
         const token = /tsk_mcp_[A-Za-z0-9_-]{52}/;
         const hits: string[] = [];
-        for (const root of ['src', 'contracts', 'scripts', 'docs', 'supabase']) {
-            for (const file of walk(path.join(repoRoot, root))) {
-                if (BINARY_EXT.has(path.extname(file).toLowerCase())) {
-                    continue;
-                }
-                const bytes = readFileSync(file);
-                if (bytes.includes(0)) {
-                    continue;
-                }
-                if (token.test(bytes.toString('utf8'))) {
-                    hits.push(relative(file));
-                }
+        for (const file of listScannedFiles()) {
+            if (BINARY_EXT.has(path.extname(file).toLowerCase())) {
+                continue;
+            }
+            const bytes = readFileSync(file);
+            if (bytes.includes(0)) {
+                continue;
+            }
+            if (token.test(bytes.toString('utf8'))) {
+                hits.push(relative(file));
             }
         }
         expect(hits).toEqual([]);
+    });
+
+    it('points every npm script at a script file that is tracked', () => {
+        const pkg = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {
+            scripts: Record<string, string>;
+        };
+        const tracked = gitFiles(['--cached']);
+        const isTracked = (target: string) =>
+            tracked === null ? isRegularFile(path.join(repoRoot, target)) : tracked.map(relative).includes(target);
+        const targets = Object.values(pkg.scripts).flatMap((command) =>
+            [...command.matchAll(/(?:^|\s)(scripts\/\S+\.(?:mjs|cjs|js|ts))(?=\s|$)/g)].map((match) => match[1])
+        );
+        expect(targets).toContain('scripts/mcp-e2e-seed.mjs');
+        expect(targets).toContain('scripts/smoke-mcp.mjs');
+        expect(targets.filter((target) => !isTracked(target) || !isRegularFile(path.join(repoRoot, target)))).toEqual([]);
     });
 
     it('does not leak memo, checklist, tags, or project_id in the contract', () => {
