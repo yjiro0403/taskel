@@ -14,23 +14,44 @@ export function tokenError(status: number, code: string, message: string): NextR
     return tokenJson({ error: message, code }, status);
 }
 
+function firstHeaderValue(request: Request, name: string): string | null {
+    const value = request.headers.get(name)?.split(',')[0]?.trim();
+    return value ? value : null;
+}
+
+/**
+ * The origin the browser reached. Next builds `request.url` from the address
+ * the server is bound to (`-H` host and port), not from the Host the browser
+ * used, so a page on http://localhost:3210 served by a server bound to
+ * 127.0.0.1:3210, or a page behind a TLS proxy, would never match it. A
+ * browser cannot set Host or X-Forwarded-* on a cross-site fetch without a
+ * preflight this route never answers.
+ */
+function browserOrigin(request: Request): string {
+    const url = new URL(request.url);
+    const host = firstHeaderValue(request, 'x-forwarded-host') ?? firstHeaderValue(request, 'host') ?? url.host;
+    const proto = firstHeaderValue(request, 'x-forwarded-proto') ?? url.protocol.replace(/:$/, '');
+    return new URL(`${proto}://${host}`).origin;
+}
+
 /**
  * Refuses a browser request sent from another site. A same-origin fetch from
- * the app carries an Origin equal to the request's own; a request with no
- * Origin (not a browser cross-site call) is left to the session check.
+ * the app carries an Origin equal to the one the browser reached; a request
+ * with no Origin (not a browser cross-site call) is left to the session check.
  */
 export function rejectCrossOrigin(request: Request): NextResponse | null {
     const origin = request.headers.get('origin');
     if (origin === null) {
         return null;
     }
-    let expected: string;
     try {
-        expected = new URL(request.url).origin;
+        if (new URL(origin).origin === browserOrigin(request)) {
+            return null;
+        }
     } catch {
-        return tokenError(403, 'FORBIDDEN', 'Forbidden');
+        // An unparsable Origin, Host or protocol is refused below.
     }
-    return origin === expected ? null : tokenError(403, 'FORBIDDEN', 'Forbidden');
+    return tokenError(403, 'FORBIDDEN', 'Forbidden');
 }
 
 /** Every failure answers with fixed text. Nothing the caller sent is echoed. */
