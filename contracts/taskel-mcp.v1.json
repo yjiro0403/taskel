@@ -1,0 +1,709 @@
+{
+  "contract": 1,
+  "server": {
+    "name": "taskel-mcp-server",
+    "version": "1.0.0"
+  },
+  "tools": [
+    {
+      "name": "taskel_whoami",
+      "scope": null,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "example": {
+        "request": {},
+        "data": {
+          "token": {
+            "name": "Beacon",
+            "prefix": "tsk_mcp_AbCdEfGh",
+            "scopes": [
+              "tasks:read",
+              "tasks:create"
+            ],
+            "expires_at": "2027-02-13T01:00:00.000Z",
+            "days_until_expiry": 90
+          },
+          "timezone": "Asia/Tokyo",
+          "today": "2026-11-15",
+          "server": {
+            "name": "taskel-mcp-server",
+            "version": "1.0.0",
+            "contract": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "taskel_list_tasks_for_day",
+      "scope": "tasks:read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "enum": [
+              "today",
+              "tomorrow",
+              "yesterday"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "example": {
+        "request": {
+          "date": "2026-11-15"
+        },
+        "data": {
+          "date": "2026-11-15",
+          "weekday": "Sun",
+          "timezone": "Asia/Tokyo",
+          "today": "2026-11-15",
+          "summary": {
+            "total": 3,
+            "open": 2,
+            "in_progress": 0,
+            "done": 1,
+            "estimated_minutes_total": 75,
+            "estimated_minutes_remaining": 45,
+            "actual_minutes_total": 32
+          },
+          "tasks": [
+            {
+              "id": "bbbbbbbb-0000-4000-8000-000000000001",
+              "title": "朝のストレッチ",
+              "status": "done",
+              "date": "2026-11-15",
+              "scheduled_start": "06:30",
+              "section": "Morning",
+              "estimated_minutes": 30,
+              "actual_minutes": 32,
+              "is_routine": true,
+              "is_virtual": false
+            },
+            {
+              "id": "bbbbbbbb-0000-4000-8000-000000000002",
+              "title": "請求書を送る",
+              "status": "open",
+              "date": "2026-11-15",
+              "scheduled_start": "10:00",
+              "section": "Morning",
+              "estimated_minutes": 15,
+              "actual_minutes": 0,
+              "is_routine": false,
+              "is_virtual": false
+            },
+            {
+              "id": "bce273aa-c29d-5bcf-a352-f1080f462a25",
+              "title": "日報",
+              "status": "open",
+              "date": "2026-11-15",
+              "scheduled_start": null,
+              "section": "Evening",
+              "estimated_minutes": 30,
+              "actual_minutes": 0,
+              "is_routine": true,
+              "is_virtual": true
+            }
+          ],
+          "daily_goals": [
+            {
+              "id": "dddddddd-0000-4000-8000-000000000001",
+              "title": "提案書の骨子",
+              "status": "open"
+            }
+          ],
+          "hidden_shared_count": 1,
+          "truncated": false
+        }
+      }
+    },
+    {
+      "name": "taskel_search_tasks",
+      "scope": "tasks:read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "today",
+              "yesterday",
+              "this_week",
+              "last_week",
+              "last_7_days",
+              "last_30_days",
+              "last_90_days",
+              "this_month",
+              "last_month"
+            ]
+          },
+          "date_from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "date_to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "open",
+                "in_progress",
+                "done"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "include_undated": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      },
+      "example": {
+        "request": {
+          "query": "請求書",
+          "range": "last_week"
+        },
+        "data": {
+          "query": "請求書",
+          "date_from": "2026-11-02",
+          "date_to": "2026-11-08",
+          "timezone": "Asia/Tokyo",
+          "today": "2026-11-15",
+          "count": 1,
+          "truncated": false,
+          "tasks": [
+            {
+              "id": "eeeeeeee-0000-4000-8000-000000000001",
+              "title": "A社へ請求書を送る",
+              "status": "done",
+              "date": "2026-11-05",
+              "scheduled_start": null,
+              "section": "Afternoon",
+              "estimated_minutes": 15,
+              "actual_minutes": 12,
+              "is_routine": false,
+              "is_virtual": false,
+              "completed_on": "2026-11-05"
+            }
+          ],
+          "routine_matches": [],
+          "note": "Untouched past routine occurrences are not stored and cannot be found."
+        }
+      }
+    },
+    {
+      "name": "taskel_get_task",
+      "scope": "tasks:read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "example": {
+        "request": {
+          "id": "bbbbbbbb-0000-4000-8000-000000000002"
+        },
+        "data": {
+          "task": {
+            "id": "bbbbbbbb-0000-4000-8000-000000000002",
+            "title": "請求書を送る",
+            "status": "open",
+            "date": "2026-11-15",
+            "scheduled_start": "10:00",
+            "section": "Morning",
+            "estimated_minutes": 15,
+            "actual_minutes": 0,
+            "is_routine": false,
+            "is_virtual": false,
+            "completed_on": null
+          }
+        }
+      }
+    },
+    {
+      "name": "taskel_create_task",
+      "scope": "tasks:create",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "day": {
+            "type": "string",
+            "enum": [
+              "today",
+              "tomorrow"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "scheduled_start": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "estimated_minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1440
+          },
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{16,64}$"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "example": {
+        "request": {
+          "title": "請求書を送る",
+          "day": "today",
+          "scheduled_start": "10:00",
+          "idempotency_key": "contract-example-key-0001"
+        },
+        "data": {
+          "created": true,
+          "task": {
+            "id": "ffffffff-0000-4000-8000-000000000001",
+            "title": "請求書を送る",
+            "status": "open",
+            "date": "2026-11-15",
+            "scheduled_start": "10:00",
+            "section": "Morning",
+            "estimated_minutes": 15,
+            "actual_minutes": 0,
+            "is_routine": false,
+            "is_virtual": false
+          }
+        }
+      }
+    },
+    {
+      "name": "taskel_revoke_current_token",
+      "scope": null,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "example": {
+        "request": {},
+        "data": {
+          "revoked": true
+        }
+      }
+    }
+  ],
+  "errors": [
+    {
+      "layer": "http",
+      "status": 400,
+      "code": "MCP_BAD_REQUEST",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Bad request.",
+          "data": {
+            "code": "MCP_BAD_REQUEST"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 400,
+      "code": "MCP_BATCH_UNSUPPORTED",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Batch requests are not supported.",
+          "data": {
+            "code": "MCP_BATCH_UNSUPPORTED"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 401,
+      "code": "MCP_UNAUTHORIZED",
+      "headers": {
+        "WWW-Authenticate": "Bearer realm=\"taskel-mcp\""
+      },
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Authentication required.",
+          "data": {
+            "code": "MCP_UNAUTHORIZED"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 401,
+      "code": "MCP_TOKEN_INVALID",
+      "headers": {
+        "WWW-Authenticate": "Bearer realm=\"taskel-mcp\""
+      },
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Invalid token.",
+          "data": {
+            "code": "MCP_TOKEN_INVALID"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 401,
+      "code": "MCP_TOKEN_REVOKED",
+      "headers": {
+        "WWW-Authenticate": "Bearer realm=\"taskel-mcp\""
+      },
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Token revoked.",
+          "data": {
+            "code": "MCP_TOKEN_REVOKED"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 401,
+      "code": "MCP_TOKEN_EXPIRED",
+      "headers": {
+        "WWW-Authenticate": "Bearer realm=\"taskel-mcp\""
+      },
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Token expired.",
+          "data": {
+            "code": "MCP_TOKEN_EXPIRED"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 413,
+      "code": "MCP_BODY_TOO_LARGE",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Request body too large.",
+          "data": {
+            "code": "MCP_BODY_TOO_LARGE"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 429,
+      "code": "MCP_RATE_LIMITED",
+      "headers": {
+        "Retry-After": "60"
+      },
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Too many requests.",
+          "data": {
+            "code": "MCP_RATE_LIMITED"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 500,
+      "code": "MCP_INTERNAL",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Internal error.",
+          "data": {
+            "code": "MCP_INTERNAL"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 503,
+      "code": "MCP_NOT_READY",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "MCP server is not ready.",
+          "data": {
+            "code": "MCP_NOT_READY"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 503,
+      "code": "MCP_DISABLED",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "MCP server is disabled.",
+          "data": {
+            "code": "MCP_DISABLED"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 415,
+      "code": "MCP_BAD_REQUEST",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Bad request.",
+          "data": {
+            "code": "MCP_BAD_REQUEST"
+          }
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "http",
+      "status": 405,
+      "code": null,
+      "headers": {
+        "Allow": "POST"
+      },
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32001,
+          "message": "Method not allowed."
+        },
+        "id": null
+      }
+    },
+    {
+      "layer": "tool",
+      "code": "INVALID_INPUT",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[INVALID_INPUT] Invalid arguments."
+          }
+        ],
+        "structuredContent": {
+          "ok": false,
+          "error": {
+            "code": "INVALID_INPUT",
+            "message": "Invalid arguments.",
+            "retryable": false
+          }
+        },
+        "isError": true
+      }
+    },
+    {
+      "layer": "tool",
+      "code": "SCOPE_FORBIDDEN",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[SCOPE_FORBIDDEN] This token does not have the required scope."
+          }
+        ],
+        "structuredContent": {
+          "ok": false,
+          "error": {
+            "code": "SCOPE_FORBIDDEN",
+            "message": "This token does not have the required scope.",
+            "retryable": false
+          }
+        },
+        "isError": true
+      }
+    },
+    {
+      "layer": "tool",
+      "code": "TOOL_UNKNOWN",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[TOOL_UNKNOWN] Unknown tool."
+          }
+        ],
+        "structuredContent": {
+          "ok": false,
+          "error": {
+            "code": "TOOL_UNKNOWN",
+            "message": "Unknown tool.",
+            "retryable": false
+          }
+        },
+        "isError": true
+      }
+    },
+    {
+      "layer": "tool",
+      "code": "NOT_FOUND",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[NOT_FOUND] Task not found."
+          }
+        ],
+        "structuredContent": {
+          "ok": false,
+          "error": {
+            "code": "NOT_FOUND",
+            "message": "Task not found.",
+            "retryable": false
+          }
+        },
+        "isError": true
+      }
+    },
+    {
+      "layer": "tool",
+      "code": "CONFLICT",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[CONFLICT] This idempotency key was already used for a different request."
+          }
+        ],
+        "structuredContent": {
+          "ok": false,
+          "error": {
+            "code": "CONFLICT",
+            "message": "This idempotency key was already used for a different request.",
+            "retryable": false
+          }
+        },
+        "isError": true
+      }
+    },
+    {
+      "layer": "tool",
+      "code": "RATE_LIMITED",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[RATE_LIMITED] Task creation limit reached."
+          }
+        ],
+        "structuredContent": {
+          "ok": false,
+          "error": {
+            "code": "RATE_LIMITED",
+            "message": "Task creation limit reached.",
+            "retryable": true
+          }
+        },
+        "isError": true
+      }
+    },
+    {
+      "layer": "tool",
+      "code": "INTERNAL_ERROR",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[INTERNAL_ERROR] Internal error."
+          }
+        ],
+        "structuredContent": {
+          "ok": false,
+          "error": {
+            "code": "INTERNAL_ERROR",
+            "message": "Internal error.",
+            "retryable": true
+          }
+        },
+        "isError": true
+      }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { parseISO, isBefore, isSameDay } from 'date-fns';
+import { parseISO, isBefore, isSameDay, differenceInCalendarDays } from 'date-fns';
 import type { Routine } from '@/types';
 
 const CIVIL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -156,9 +156,9 @@ export function routineOccursOn(routine: Pick<Routine,
 
         case 'custom': {
             if (!routine.interval || routine.interval <= 0) return false;
-            const diffDays = Math.floor(
-                (targetDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-            );
+            // 暦日で数える。ミリ秒差を 1 日で割ると、夏時間の切り替えをまたぐ
+            // 区間が 1 時間短くなり、実行環境のタイムゾーンで出現日がずれる。
+            const diffDays = differenceInCalendarDays(targetDate, startDate);
             return diffDays >= 0 && diffDays % routine.interval === 0;
         }
 

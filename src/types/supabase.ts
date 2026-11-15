@@ -375,6 +375,138 @@ export type Database = {
                 };
                 Relationships: [];
             };
+            mcp_audit_logs: {
+                Row: {
+                    arg_keys: string[];
+                    created_at: string;
+                    error_code: string | null;
+                    event: string;
+                    id: number;
+                    ok: boolean;
+                    request_id: string | null;
+                    target_task_id: string | null;
+                    token_id: string | null;
+                    token_prefix: string | null;
+                    tool: string | null;
+                    user_id: string | null;
+                };
+                Insert: {
+                    arg_keys?: string[];
+                    created_at?: string;
+                    error_code?: string | null;
+                    event: string;
+                    id?: number;
+                    ok: boolean;
+                    request_id?: string | null;
+                    target_task_id?: string | null;
+                    token_id?: string | null;
+                    token_prefix?: string | null;
+                    tool?: string | null;
+                    user_id?: string | null;
+                };
+                Update: {
+                    arg_keys?: string[];
+                    created_at?: string;
+                    error_code?: string | null;
+                    event?: string;
+                    id?: number;
+                    ok?: boolean;
+                    request_id?: string | null;
+                    target_task_id?: string | null;
+                    token_id?: string | null;
+                    token_prefix?: string | null;
+                    tool?: string | null;
+                    user_id?: string | null;
+                };
+                Relationships: [];
+            };
+            mcp_rate_windows: {
+                Row: {
+                    count: number;
+                    token_id: string;
+                    window_start: string;
+                };
+                Insert: {
+                    count: number;
+                    token_id: string;
+                    window_start: string;
+                };
+                Update: {
+                    count?: number;
+                    token_id?: string;
+                    window_start?: string;
+                };
+                Relationships: [];
+            };
+            mcp_task_creations: {
+                Row: {
+                    created_at: string;
+                    idempotency_key: string;
+                    request_hash: string;
+                    task_id: string | null;
+                    token_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    idempotency_key: string;
+                    request_hash: string;
+                    task_id?: string | null;
+                    token_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    idempotency_key?: string;
+                    request_hash?: string;
+                    task_id?: string | null;
+                    token_id?: string;
+                };
+                Relationships: [];
+            };
+            mcp_tokens: {
+                Row: {
+                    created_at: string;
+                    expires_at: string;
+                    id: string;
+                    last_used_at: string | null;
+                    name: string;
+                    revoked_at: string | null;
+                    revoked_via: string | null;
+                    scopes: string[];
+                    timezone: string;
+                    token_hash: string;
+                    token_prefix: string;
+                    user_id: string;
+                };
+                Insert: {
+                    created_at?: string;
+                    expires_at: string;
+                    id?: string;
+                    last_used_at?: string | null;
+                    name: string;
+                    revoked_at?: string | null;
+                    revoked_via?: string | null;
+                    scopes: string[];
+                    timezone: string;
+                    token_hash: string;
+                    token_prefix: string;
+                    user_id: string;
+                };
+                Update: {
+                    created_at?: string;
+                    expires_at?: string;
+                    id?: string;
+                    last_used_at?: string | null;
+                    name?: string;
+                    revoked_at?: string | null;
+                    revoked_via?: string | null;
+                    scopes?: string[];
+                    timezone?: string;
+                    token_hash?: string;
+                    token_prefix?: string;
+                    user_id?: string;
+                };
+                Relationships: [];
+            };
             notes: {
                 Row: {
                     content: string;
@@ -1038,6 +1170,106 @@ export type Database = {
                     p_start: string;
                 };
                 Returns: Database['public']['Tables']['finance_entries']['Row'][];
+            };
+            mcp_authenticate: {
+                Args: {
+                    p_token_hash: string;
+                };
+                Returns: Json;
+            };
+            mcp_create_task: {
+                Args: {
+                    p_date: string;
+                    p_estimated_minutes: number | null;
+                    p_idempotency_key: string | null;
+                    p_request_hash: string;
+                    p_request_id: string | null;
+                    p_scheduled_start: string | null;
+                    p_section_id: string | null;
+                    p_title: string;
+                    p_token_id: string;
+                    p_user_id: string;
+                };
+                Returns: Json;
+            };
+            mcp_day_snapshot: {
+                Args: {
+                    p_arg_keys: string[] | null;
+                    p_date: string;
+                    p_request_id: string | null;
+                    p_token_id: string;
+                    p_tool?: string;
+                    p_user_id: string;
+                };
+                Returns: Json;
+            };
+            mcp_get_task: {
+                Args: {
+                    p_request_id: string | null;
+                    p_task_id: string;
+                    p_token_id: string;
+                    p_user_id: string;
+                };
+                Returns: Json;
+            };
+            mcp_in_scope: {
+                Args: {
+                    p_project_id: string | null;
+                    p_user_id: string;
+                };
+                Returns: boolean;
+            };
+            mcp_issue_token: {
+                Args: {
+                    p_expires_days: number;
+                    p_name: string;
+                    p_scopes: string[];
+                    p_timezone: string;
+                    p_token_hash: string;
+                    p_token_prefix: string;
+                    p_user_id: string;
+                };
+                Returns: Json;
+            };
+            mcp_list_tokens: {
+                Args: {
+                    p_user_id: string;
+                };
+                Returns: Json;
+            };
+            mcp_log_event: {
+                Args: {
+                    p_error_code: string | null;
+                    p_event: string;
+                    p_request_id: string | null;
+                    p_token_id: string;
+                    p_tool: string | null;
+                    p_user_id: string;
+                };
+                Returns: Json;
+            };
+            mcp_revoke_token: {
+                Args: {
+                    p_token_id: string;
+                    p_user_id: string;
+                    p_via: string;
+                };
+                Returns: Json;
+            };
+            mcp_search_tasks: {
+                Args: {
+                    p_arg_keys: string[] | null;
+                    p_date_from: string | null;
+                    p_date_to: string | null;
+                    p_include_undated: boolean | null;
+                    p_limit: number | null;
+                    p_request_id: string | null;
+                    p_statuses: string[] | null;
+                    p_terms: string[] | null;
+                    p_token_id: string;
+                    p_user_id: string;
+                };
+                Returns: Json;
             };
             replace_task_finance_entries: {
                 Args: {
