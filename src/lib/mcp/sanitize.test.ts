@@ -80,6 +80,61 @@ describe('cleanTaskTitle', () => {
         expect(cleanTaskTitle(`Buy milk${cp(0xe0001)}${cp(0xe0049)}${cp(0xe007f)}`)).toEqual({ ok: false });
     });
 
+    it.each([
+        ['unassigned tag-plane code point U+E0080', 0xe0080],
+        ['unassigned tag-plane code point U+E00FF', 0xe00ff],
+        ['unassigned selector-plane code point U+E01F0', 0xe01f0],
+        ['unassigned plane 14 code point U+E0FFF', 0xe0fff],
+        ['unassigned specials U+FFF0', 0xfff0],
+        ['unassigned U+2065', 0x2065],
+        ['interlinear annotation anchor U+FFF9', 0xfff9],
+        ['interlinear annotation separator U+FFFA', 0xfffa],
+        ['interlinear annotation terminator U+FFFB', 0xfffb],
+        ['shorthand letter overlap U+1BCA0', 0x1bca0],
+        ['shorthand continuing overlap U+1BCA1', 0x1bca1],
+        ['shorthand format down step U+1BCA2', 0x1bca2],
+        ['shorthand format up step U+1BCA3', 0x1bca3],
+        ['Egyptian hieroglyph vertical joiner U+13430', 0x13430],
+        ['Arabic number sign U+0600', 0x600],
+        ['Arabic end of ayah U+06DD', 0x6dd],
+        ['Kaithi number sign U+110BD', 0x110bd],
+    ])('refuses a title ending in the invisible %s', (_name, code) => {
+        const title = `Buy milk${cp(code)}`;
+        expect(hasForbiddenTextChars(title)).toBe(true);
+        expect(cleanTaskTitle(title)).toEqual({ ok: false });
+    });
+
+    it('refuses a lone surrogate', () => {
+        expect(cleanTaskTitle('Buy milk\ud800')).toEqual({ ok: false });
+        expect(cleanTaskTitle('Buy\udc00 milk')).toEqual({ ok: false });
+    });
+
+    it.each([
+        ['40 ideographic selectors after Latin text', `Buy milk${Array.from({ length: 40 }, (_, i) => cp(0xe0100 + i)).join('')}`],
+        ['a run of 30 emoji selectors', `x${cp(0xfe0f).repeat(30)}`],
+        ['a leading emoji selector', `${cp(0xfe0f)}Buy milk`],
+        ['an ideographic selector after a Latin letter', `a${cp(0xe0100)}`],
+        ['two emoji selectors after one emoji', `❤${cp(0xfe0f)}${cp(0xfe0f)}`],
+        ['an emoji selector after a Latin letter', `Buy${cp(0xfe0f)} milk`],
+        ['an emoji selector after a space', `Buy ${cp(0xfe0f)}milk`],
+        ['an emoji selector after a digit with no keycap', `Buy 2${cp(0xfe0f)} milk`],
+        ['FE00 after a Latin letter', `a${cp(0xfe00)}b`],
+        ['two ideographic selectors on one Han base', `葛${cp(0xe0100)}${cp(0xe0101)}`],
+        ['three ideographic variation sequences', `葛${cp(0xe0100)}飾${cp(0xe0100)}区${cp(0xe0100)}`],
+        ['one selector after each Han character of a long run', Array.from('漢字漢字漢字漢字', (ch) => `${ch}${cp(0xe0101)}`).join('')],
+    ])('refuses a title with %s', (_name, title) => {
+        expect(hasForbiddenTextChars(title)).toBe(true);
+        expect(cleanTaskTitle(title)).toEqual({ ok: false });
+    });
+
+    it('accepts selectors that pick a glyph', () => {
+        expect(cleanTaskTitle(`1${cp(0xfe0f)}${cp(0x20e3)} 朝の準備`).ok).toBe(true);
+        expect(cleanTaskTitle(`#${cp(0xfe0f)}${cp(0x20e3)}`).ok).toBe(true);
+        expect(cleanTaskTitle(`☎${cp(0xfe0e)} 電話`).ok).toBe(true);
+        expect(cleanTaskTitle(`葛${cp(0xe0100)}飾${cp(0xe0101)}区役所`).ok).toBe(true);
+        expect(cleanTaskTitle(`神${cp(0xfe00)}社`).ok).toBe(true);
+    });
+
     it('still accepts emoji with a variation selector and an ideographic variation sequence', () => {
         expect(cleanTaskTitle('☀️ 朝の散歩').ok).toBe(true);
         expect(cleanTaskTitle('❤️ 母に電話').ok).toBe(true);

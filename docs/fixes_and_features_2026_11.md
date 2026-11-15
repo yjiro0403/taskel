@@ -15,6 +15,8 @@
     - The `Origin` check now compares with the host the browser reached. This fixes a `403` when the page is on localhost and the server is bound to `127.0.0.1`, and when the app is behind a TLS proxy.
     - An unsupported `mcp-protocol-version` is `400` `MCP_BAD_REQUEST` with fixed text.
     - Titles also refuse the Unicode tag block and invisible fillers.
+    - Titles refuse every format character (`\p{Cf}`), the rest of plane 14 outside the ideographic selectors, and variation selectors that do not pick a glyph (leading, in a run, or after the wrong base). This closes hidden-text payloads carried by selector runs.
+    - The day snapshot gives in-scope rows the 500 slots first, so rows another project editor inserts with the user's id cannot push the user's own tasks out of the MCP day list or the reminder.
     - Custom routines count their interval in calendar days. The app and the MCP day view drifted by a day across daylight-saving changes, depending on the process time zone. This also fixes the app itself in a daylight-saving zone.
     - `.gitleaks.toml` adds rule `taskel-mcp-pat`.
     - The local-stack scripts `scripts/mcp-e2e-seed.mjs` and `scripts/smoke-mcp.mjs` are in the repo.
