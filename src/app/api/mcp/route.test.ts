@@ -463,6 +463,25 @@ describe('POST /api/mcp: failures and switches', () => {
         expect(secondText).not.toContain('secret detail');
     });
 
+    it('400 MCP_BAD_REQUEST for an unsupported mcp-protocol-version, before the token is looked up', async () => {
+        for (const version of ['CALLER-SUPPLIED-MARKER', '1999-01-01', '']) {
+            await expectHttpError(
+                await post(TOOLS_LIST, { headers: { 'mcp-protocol-version': version } }),
+                400,
+                'MCP_BAD_REQUEST'
+            );
+        }
+        expectNoDatabaseCall();
+    });
+
+    it('accepts a supported mcp-protocol-version', async () => {
+        for (const version of ['2025-06-18', '2025-03-26']) {
+            const response = await post(TOOLS_LIST, { headers: { 'mcp-protocol-version': version } });
+            expect(response.status).toBe(200);
+            expect((await response.json()).result.tools.length).toBeGreaterThan(0);
+        }
+    });
+
     it('every error response carries only fixed text', async () => {
         const marker = 'CALLER-SUPPLIED-MARKER';
         const responses = [
@@ -472,6 +491,7 @@ describe('POST /api/mcp: failures and switches', () => {
             await post(TOOLS_LIST, { bearer: marker }),
             await post(TOOLS_LIST, { bearer: null, headers: { authorization: `Basic ${marker}` } }),
             await post(TOOLS_LIST, { headers: { 'content-type': marker } }),
+            await post(TOOLS_LIST, { headers: { 'mcp-protocol-version': marker } }),
         ];
         for (const response of responses) {
             expect(response.status).toBeGreaterThanOrEqual(400);

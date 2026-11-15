@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
+import { JSONRPCMessageSchema, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js';
 
 import { applyRateLimit } from '@/lib/api/rateLimit';
 import { buildMcpContext, readBearerToken, resolveRequestId } from '@/lib/mcp/auth';
@@ -25,7 +25,8 @@ function isDisabled(): boolean {
 /**
  * The request handed to the MCP transport. The transport exposes request
  * headers to tool handlers, so the Authorization header (and anything else
- * the caller sent) is left behind here.
+ * the caller sent) is left behind here. `mcp-protocol-version` reaches this
+ * point only when it is a supported value.
  */
 function transportRequest(request: Request): Request {
     const headers = new Headers();
@@ -61,6 +62,12 @@ export async function POST(request: Request): Promise<Response> {
             return mcpHttpError(body.code, { status: body.status });
         }
         if (!JSONRPCMessageSchema.safeParse(body.value).success) {
+            return mcpHttpError('MCP_BAD_REQUEST');
+        }
+        // The SDK transport answers an unsupported version with a 400 whose
+        // message repeats the header value, so it is refused here with fixed text.
+        const protocolVersion = request.headers.get('mcp-protocol-version');
+        if (protocolVersion !== null && !SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
             return mcpHttpError('MCP_BAD_REQUEST');
         }
 
