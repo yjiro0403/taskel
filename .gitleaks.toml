@@ -1,0 +1,10 @@
+title = "Taskel gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "taskel-mcp-pat"
+description = "Taskel MCP personal access token"
+regex = '''tsk_mcp_[A-Za-z0-9_-]{20,}'''
+keywords = ["tsk_mcp_"]

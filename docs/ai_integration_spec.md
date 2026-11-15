@@ -103,3 +103,7 @@ AI機能のリリース時に `docs/PrivacyPolicy.md` を更新し、以下を�
 | SDK | Vercel AI SDK | Next.js App Router と最も親和性が高い |
 | UI | FABボタン + スライドパネル | 既存UIを壊さず追加可能 |
 | データ送信 | 最小限（タイトル・日付のみ） | プライバシー保護 |
+
+## External MCP access (2026-11)
+
+External assistant access is the MCP server in `docs/mcp_server_spec.md`. The in-app AI chat described above is unchanged.
