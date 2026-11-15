@@ -182,8 +182,7 @@ describe('MCP source requirements', () => {
         }
     });
 
-    // Enabled by the settings UI work package (T5): remove .skip when the stale block is gone.
-    it.skip('does not hand the browser session to the settings page', () => {
+    it('does not hand the browser session to the settings page', () => {
         const page = readFileSync(path.join(repoRoot, 'src/app/[locale]/settings/integrations/page.tsx'), 'utf8');
         expect(page).not.toContain('refresh_token');
         expect(page).not.toContain('access_token');
