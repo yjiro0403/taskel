@@ -258,10 +258,25 @@ function assertDenied(result, step) {
     expect(result?.error?.code === '42501', `${step} code ${result?.error?.code ?? 'none'}`);
 }
 
+/**
+ * Only 42501 (permission denied) proves the execute revoke. PGRST202 or 42883
+ * (function not found) means the migration is missing, which must fail the
+ * check rather than pass it, so the caller first confirms the function exists.
+ */
 function assertFunctionDenied(result, step) {
     const code = result?.error?.code ?? 'none';
-    expect(code === '42501' || code === 'PGRST202', `${step} code ${code}`);
+    expect(!isMissingMigration(result?.error), `${step} is missing (migration not applied)`);
+    expect(code === '42501', `${step} code ${code}`);
     expect(result?.data == null, `${step} returned data`);
+}
+
+/**
+ * Calls the function as service_role with arguments it refuses or that touch
+ * no row (an unknown user or hash), so the call writes nothing.
+ */
+async function assertFunctionExists(admin, name, args) {
+    const result = await admin.rpc(name, args);
+    expect(!isMissingMigration(result.error), `${name} is missing (migration not applied)`);
 }
 
 function titlesOf(data) {
@@ -420,6 +435,24 @@ async function main() {
 
         await check('R2', 'mcp functions are service-role only', async () => {
             const forged = generateToken();
+            const nobody = randomUUID();
+            await assertFunctionExists(admin, 'mcp_issue_token', {
+                p_user_id: nobody,
+                p_name: 'exists',
+                p_token_hash: forged.hash,
+                p_token_prefix: forged.prefix,
+                p_scopes: ['tasks:read'],
+                p_expires_days: 0,
+                p_timezone: TIMEZONE,
+            });
+            await assertFunctionExists(admin, 'mcp_day_snapshot', {
+                p_user_id: nobody,
+                p_token_id: randomUUID(),
+                p_request_id: 'smoke',
+                p_arg_keys: [],
+                p_date: fx.today,
+            });
+            await assertFunctionExists(admin, 'mcp_authenticate', { p_token_hash: forged.hash });
             assertFunctionDenied(
                 await signedA.rpc('mcp_issue_token', {
                     p_user_id: fx.userA.id,
@@ -442,9 +475,7 @@ async function main() {
                 }),
                 'mcp_day_snapshot'
             );
-            const authenticated = await anon.rpc('mcp_authenticate', { p_token_hash: aRw.hash });
-            expect(authenticated.error, `mcp_authenticate code ${authenticated.error?.code ?? 'none'}`);
-            expect(authenticated.data == null, 'mcp_authenticate returned data');
+            assertFunctionDenied(await anon.rpc('mcp_authenticate', { p_token_hash: aRw.hash }), 'mcp_authenticate');
             const rows = await exactCount(
                 admin.from('mcp_tokens').select('id', { count: 'exact', head: true }).eq('user_id', fx.userA.id)
             );
