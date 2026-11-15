@@ -686,10 +686,17 @@ begin
     ) x;
 
     if not v_for_create then
-        select coalesce(jsonb_agg(x.item order by x.ord, x.id), '[]'::jsonb), count(*)
+        -- In-scope rows take the 500 slots first. Anyone who can edit a project
+        -- may insert rows with user_id = this user and any "order" into it, so
+        -- out-of-scope rows must not be able to push the user's own rows out of
+        -- the snapshot. They only fill what is left (they are still needed for
+        -- routine suppression and the hidden count). The outer aggregate uses
+        -- the same key, so "- 500" below drops exactly the 501st row picked here.
+        select coalesce(jsonb_agg(x.item order by x.in_scope desc, x.ord, x.id), '[]'::jsonb), count(*)
         into v_tasks, v_task_count
         from (
             select
+                sc.in_scope,
                 t."order" as ord,
                 t.id,
                 jsonb_build_object(
@@ -711,7 +718,7 @@ begin
             ) sc
             where t.user_id = p_user_id
               and t.date = p_date
-            order by t."order", t.id
+            order by sc.in_scope desc, t."order", t.id
             limit 501
         ) x;
 

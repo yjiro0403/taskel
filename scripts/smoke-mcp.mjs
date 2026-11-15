@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 
 import {
+    addDays,
     assertLoopbackUrl,
     deleteFixtureUsers,
     generateToken,
@@ -23,6 +24,7 @@ const IPS = {
     r7: '10.99.0.1',
     r9: '10.99.0.2',
     r10: '10.99.0.3',
+    r10b: '10.99.0.15',
     r11: '10.99.0.4',
     r12: '10.99.0.5',
     r13: '10.99.0.6',
@@ -659,6 +661,95 @@ async function main() {
             const search = toolData(await call(aRw.token, 'taskel_search_tasks', { query: 'SHARED-MARKER' }, { ip: IPS.r10 }));
             expect(search.count === 0, `search count ${search.count}`);
             assertToolError(await call(aRw.token, 'taskel_get_task', { id: fx.ids.shared }, { ip: IPS.r10 }), 'NOT_FOUND');
+        });
+
+        await check('R10b', "a project editor's rows cannot push the user's own tasks out of the day", async () => {
+            // Another day, so the rows planted here do not change the counts the
+            // other checks expect for today.
+            const day = addDays(fx.today, 5);
+            const project = await signedB
+                .from('projects')
+                .insert({ owner_id: fx.userB.id, title: `Flood ${tag}` })
+                .select('id')
+                .single();
+            expect(!project.error, `B project code ${project.error?.code ?? 'none'}`);
+            const flood = Array.from({ length: 501 }, (_, index) => ({
+                user_id: fx.userA.id,
+                project_id: project.data.id,
+                title: `FLOOD-HIDDEN ${index}`,
+                date: day,
+                status: 'open',
+                estimated_minutes: 1,
+                actual_minutes: 0,
+                order: -1000,
+            }));
+            // Inserted by B through the ordinary task insert policy, as an editor of B's own project.
+            const planted = await signedB.from('tasks').insert(flood);
+            expect(!planted.error, `B flood code ${planted.error?.code ?? 'none'}`);
+
+            const own = await admin
+                .from('tasks')
+                .insert({
+                    user_id: fx.userA.id,
+                    title: 'FLOOD-OWN 自分のタスク',
+                    date: day,
+                    status: 'open',
+                    section_id: fx.sections.Morning,
+                    estimated_minutes: 15,
+                    actual_minutes: 0,
+                    order: 0,
+                })
+                .select('id')
+                .single();
+            expect(!own.error, `own task code ${own.error?.code ?? 'none'}`);
+            const routineRow = await admin
+                .from('tasks')
+                .insert({
+                    user_id: fx.userA.id,
+                    title: '日報',
+                    date: day,
+                    status: 'open',
+                    section_id: fx.sections.Evening,
+                    routine_id: fx.ids.routineDaily,
+                    estimated_minutes: 30,
+                    actual_minutes: 0,
+                    order: 1,
+                })
+                .select('id')
+                .single();
+            expect(!routineRow.error, `routine row code ${routineRow.error?.code ?? 'none'}`);
+
+            const snapshot = await admin.rpc('mcp_day_snapshot', {
+                p_user_id: fx.userA.id,
+                p_token_id: aRo.id,
+                p_request_id: 'smoke-r10b',
+                p_arg_keys: ['date'],
+                p_date: day,
+            });
+            expect(!snapshot.error, `snapshot code ${snapshot.error?.code ?? 'none'}`);
+            const rows = snapshot.data?.tasks ?? [];
+            expect(rows.length === 500, `snapshot rows ${rows.length}`);
+            expect(snapshot.data?.tasks_truncated === true, 'snapshot not truncated');
+            const ownRow = rows.find((row) => row.id === own.data.id);
+            expect(ownRow?.in_scope === true, 'own task missing from the snapshot');
+            const materialised = rows.find((row) => row.id === routineRow.data.id);
+            expect(materialised?.in_scope === true, 'routine row missing from the snapshot');
+            expect(
+                rows.filter((row) => row.in_scope === false).every((row) => row.title === null),
+                'out-of-scope title returned'
+            );
+
+            const list = toolData(await call(aRo.token, 'taskel_list_tasks_for_day', { date: day }, { ip: IPS.r10b }));
+            const listed = list.tasks ?? [];
+            expect(listed.some((task) => task.title === 'FLOOD-OWN 自分のタスク'), 'own task missing from the list');
+            const reports = listed.filter((task) => task.title === '日報');
+            expect(reports.length === 1, `daily report rows ${reports.length}`);
+            expect(reports[0].is_virtual === false, 'routine listed as a virtual duplicate');
+            expect(
+                !titlesOf(list).some((title) => typeof title === 'string' && title.includes('FLOOD-HIDDEN')),
+                'flood title returned'
+            );
+            expect(list.hidden_shared_count === 498, `hidden ${list.hidden_shared_count}`);
         });
 
         await check('R11', 'memo is never returned or searched', async () => {

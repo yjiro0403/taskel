@@ -280,4 +280,20 @@ describe('MCP source requirements', () => {
         collectKeys(JSON.parse(text), found);
         expect(found).toEqual([]);
     });
+
+    it('gives in-scope rows the day snapshot slots before out-of-scope rows', () => {
+        // A project editor can insert rows with another user's id and any "order".
+        // Ranking by in_scope first keeps those rows from pushing the user's own
+        // tasks past the 500-row cut; the local-stack check is smoke R10b.
+        const sql = readFileSync(path.join(repoRoot, 'supabase/migrations/20261114160000_mcp_server.sql'), 'utf8');
+        const start = sql.indexOf('create or replace function public.mcp_day_snapshot(');
+        const end = sql.indexOf('$$;', start);
+        expect(start).toBeGreaterThan(-1);
+        const body = sql.slice(start, end).replace(/\s+/g, ' ');
+        const inner = body.indexOf('order by sc.in_scope desc, t."order", t.id limit 501');
+        expect(inner).toBeGreaterThan(-1);
+        const outer = body.lastIndexOf('jsonb_agg(x.item order by x.in_scope desc, x.ord, x.id)', inner);
+        expect(outer).toBeGreaterThan(-1);
+        expect(body).toContain("'tasks', case when v_task_count > 500 then v_tasks - 500 else v_tasks end");
+    });
 });
