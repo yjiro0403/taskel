@@ -12,6 +12,12 @@ export interface TimelineInterval {
 export interface TimelineColumnAssignment {
     col: number;
     colCount: number;
+    /**
+     * How many columns this block occupies, starting at `col`.
+     * A block grows into later columns that no overlapping task uses,
+     * so an empty column does not leave a blank stripe beside it.
+     */
+    span: number;
 }
 
 export interface TimelineIntervalOptions {
@@ -139,7 +145,19 @@ export function assignOverlapColumns(items: TimelineInterval[]): Record<string, 
         }
         const colCount = Math.max(1, colEnds.length);
         for (const item of group) {
-            result[item.id] = { col: cols.get(item.id) ?? 0, colCount };
+            const col = cols.get(item.id) ?? 0;
+            let span = 1;
+            while (col + span < colCount) {
+                const next = col + span;
+                const blocked = group.some((other) => {
+                    if (other.id === item.id) return false;
+                    if ((cols.get(other.id) ?? 0) !== next) return false;
+                    return other.startMin < item.endMin && item.startMin < other.endMin;
+                });
+                if (blocked) break;
+                span += 1;
+            }
+            result[item.id] = { col, colCount, span };
         }
     }
 
@@ -157,16 +175,78 @@ export const BLOCK_COLUMN_INSET_PX = 8;
 export const BLOCK_INLINE_CHROME_X_PX = 18;
 /**
  * Title width that has to stay visible beside the controls.
- * Two 44px controls need about six characters of title. A phone column split
- * two or three ways is narrower than that, so the block uses the same ellipsis
- * sheet as a block shorter than a fingertip. One task across the phone still fits.
+ * Two 44px controls need about six characters of title. A column narrower than
+ * that uses the ellipsis sheet, same as a block shorter than a fingertip.
  */
 export const MIN_TITLE_BESIDE_ACTIONS_PX = 96;
 
-/** Width of one overlap column's block inside a track of `trackWidthPx`. */
-export function overlapBlockWidth(trackWidthPx: number, colCount: number): number {
+/**
+ * One day-timeline overlap column, including the gap, wide enough for a title
+ * plus play and copy. Extra columns scroll sideways instead of shrinking below this.
+ */
+export const READABLE_OVERLAP_COLUMN_PX =
+    BLOCK_INLINE_CHROME_X_PX + 2 * INLINE_ACTION_PX + MIN_TITLE_BESIDE_ACTIONS_PX + BLOCK_COLUMN_INSET_PX;
+
+/**
+ * Week columns stay compact. 160px is the block width that shows the copy
+ * control (`@min-[10rem]`), plus the gap between neighbouring columns.
+ */
+export const COMPACT_OVERLAP_COLUMN_PX = 160 + BLOCK_COLUMN_INSET_PX;
+
+/**
+ * Track width for `colCount` overlap columns.
+ * A single column keeps the space it already has. Two or more columns never
+ * shrink below `minColumnPx`, so the caller scrolls when that is wider than
+ * the viewport.
+ */
+/** The week column floor. A day with one task stays this wide. */
+export const WEEK_COLUMN_FLOOR_PX = 160;
+/** Week blocks are at least this tall, and overlap columns use that padded length. */
+export const COMPACT_BLOCK_MIN_PX = 24;
+
+/**
+ * How many side-by-side columns a set of intervals needs.
+ * Compact timelines pad short blocks before comparing, matching `DayTimeline`.
+ */
+export function overlapColumnCount(items: TimelineInterval[], minVisualMinutes = 0): number {
+    const padded = minVisualMinutes > 0
+        ? items.map((item) => ({ ...item, endMin: Math.max(item.endMin, item.startMin + minVisualMinutes) }))
+        : items;
+    const assigned = assignOverlapColumns(padded);
+    return Object.values(assigned).reduce((max, item) => Math.max(max, item.colCount), 1);
+}
+
+/**
+ * Outer width of one timeline column.
+ * One task keeps `floorPx`. Two or more overlapping tasks widen the column so
+ * each one stays at `minColumnPx`, and the parent scrolls sideways.
+ */
+export function overlapColumnFloorPx(
+    colCount: number,
+    gutterPx: number,
+    minColumnPx: number,
+    floorPx = WEEK_COLUMN_FLOOR_PX
+): number {
     const cols = Math.max(1, colCount);
-    return trackWidthPx / cols - BLOCK_COLUMN_INSET_PX;
+    if (cols <= 1) return floorPx;
+    return Math.max(floorPx, gutterPx + cols * minColumnPx);
+}
+
+export function overlapTrackWidth(availablePx: number, colCount: number, minColumnPx: number): number {
+    const available = Number.isFinite(availablePx) ? Math.max(0, availablePx) : 0;
+    const cols = Math.max(1, colCount);
+    if (cols <= 1 || !(minColumnPx > 0)) return available;
+    return Math.max(available, cols * minColumnPx);
+}
+
+/**
+ * Width of one overlap block inside a track of `trackWidthPx`.
+ * `span` is how many columns the block occupies (see `assignOverlapColumns`).
+ */
+export function overlapBlockWidth(trackWidthPx: number, colCount: number, span = 1): number {
+    const cols = Math.max(1, colCount);
+    const used = Math.min(cols, Math.max(1, span));
+    return (trackWidthPx * used) / cols - BLOCK_COLUMN_INSET_PX;
 }
 
 /**

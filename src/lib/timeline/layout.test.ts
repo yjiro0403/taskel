@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { assignOverlapColumns, blockFitsInlineActions, isUnscheduledTask, overlapBlockWidth, scheduledTaskInterval } from './layout';
+import {
+    assignOverlapColumns,
+    blockFitsInlineActions,
+    COMPACT_OVERLAP_COLUMN_PX,
+    isUnscheduledTask,
+    overlapBlockWidth,
+    overlapColumnFloorPx,
+    overlapTrackWidth,
+    READABLE_OVERLAP_COLUMN_PX,
+    scheduledTaskInterval,
+} from './layout';
 import type { Task } from '../../types';
 
 function task(partial: Partial<Task> & Pick<Task, 'id'>): Task {
@@ -110,12 +120,51 @@ describe('inline actions on a narrow overlap column', () => {
         expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 1), 2)).toBe(true);
     });
 
-    it('drops the controls when two or more tasks share a phone slot', () => {
+    it('drops the controls when a phone column is split without scrolling', () => {
         expect(overlapBlockWidth(phoneTrack, 2)).toBe(142);
         expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 2), 2)).toBe(false);
         expect(overlapBlockWidth(phoneTrack, 3)).toBe(92);
         expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 3), 2)).toBe(false);
-        expect(blockFitsInlineActions(overlapBlockWidth(phoneTrack, 4), 2)).toBe(false);
+    });
+
+    it('widens two overlapping phone columns enough to scroll instead of crushing the title', () => {
+        const scrolled = overlapTrackWidth(phoneTrack, 2, READABLE_OVERLAP_COLUMN_PX);
+        expect(scrolled).toBe(2 * READABLE_OVERLAP_COLUMN_PX);
+        expect(scrolled).toBeGreaterThan(phoneTrack);
+        expect(blockFitsInlineActions(overlapBlockWidth(scrolled, 2), 2)).toBe(true);
+        expect(overlapTrackWidth(phoneTrack, 1, READABLE_OVERLAP_COLUMN_PX)).toBe(phoneTrack);
+        expect(blockFitsInlineActions(overlapBlockWidth(overlapTrackWidth(phoneTrack, 3, READABLE_OVERLAP_COLUMN_PX), 3), 2)).toBe(true);
+        expect(blockFitsInlineActions(overlapBlockWidth(scrolled, 2), 3)).toBe(false);
+    });
+
+    it('lets a block fill a later column that nothing overlaps', () => {
+        const layout = assignOverlapColumns([
+            { id: 'long', startMin: 8 * 60, endMin: 13 * 60 },
+            { id: 'earlyA', startMin: 9 * 60, endMin: 10 * 60 },
+            { id: 'earlyB', startMin: 9 * 60, endMin: 10 * 60 },
+            { id: 'later', startMin: 11 * 60, endMin: 12 * 60 },
+        ]);
+        expect(layout.later.col).toBe(1);
+        expect(layout.later.colCount).toBe(3);
+        expect(layout.later.span).toBe(2);
+        expect(layout.long.span).toBe(1);
+        expect(overlapBlockWidth(630, layout.later.colCount, layout.later.span)).toBe(412);
+    });
+
+    it('widens a week column only when tasks actually overlap', () => {
+        expect(overlapColumnFloorPx(1, 44, COMPACT_OVERLAP_COLUMN_PX)).toBe(160);
+        expect(overlapColumnFloorPx(2, 6, COMPACT_OVERLAP_COLUMN_PX)).toBe(6 + 2 * COMPACT_OVERLAP_COLUMN_PX);
+    });
+
+    it('keeps two fully overlapping tasks side by side', () => {
+        const layout = assignOverlapColumns([
+            { id: 'a', startMin: 9 * 60, endMin: 10 * 60 },
+            { id: 'b', startMin: 9 * 60, endMin: 10 * 60 },
+        ]);
+        expect(layout.a.colCount).toBe(2);
+        expect(layout.a.span).toBe(1);
+        expect(layout.b.span).toBe(1);
+        expect(layout.a.col).not.toBe(layout.b.col);
     });
 
     it('keeps the controls when the same three tasks have a wide track', () => {

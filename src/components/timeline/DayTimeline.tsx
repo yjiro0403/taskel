@@ -11,9 +11,14 @@ import {
     actualTaskInterval,
     assignOverlapColumns,
     blockFitsInlineActions,
+    COMPACT_BLOCK_MIN_PX,
+    COMPACT_OVERLAP_COLUMN_PX,
     INLINE_ACTION_PX,
     isUnscheduledTask,
     overlapBlockWidth,
+    overlapColumnFloorPx,
+    overlapTrackWidth,
+    READABLE_OVERLAP_COLUMN_PX,
     scheduledTaskInterval,
     taskDurationMinutes,
 } from '@/lib/timeline/layout';
@@ -53,7 +58,7 @@ import { resolveWeekDropHit } from './weekDropTarget';
 
 const DEFAULT_GUTTER = 56;
 const DEFAULT_MAX_HEIGHT = 900;
-const BLOCK_MIN_HEIGHT = 24;
+const BLOCK_MIN_HEIGHT = COMPACT_BLOCK_MIN_PX;
 /** px-2 py-1 on a block: the vertical padding the title lines cannot use. */
 const BLOCK_PADDING_Y = 8;
 /** Touch: hold this long without moving to lift a block. Moving earlier scrolls the page. */
@@ -169,7 +174,8 @@ export default function DayTimeline({
     const gridRef = useRef<HTMLDivElement>(null);
     /** The hour-gutter is outside this node, so its width is the block track. */
     const trackRef = useRef<HTMLDivElement>(null);
-    const [trackWidth, setTrackWidth] = useState(0);
+    /** Scrollport width, including the hour gutter. The track itself may be wider. */
+    const [viewportWidth, setViewportWidth] = useState(0);
     const [drag, setDrag] = useState<DragState>(null);
     /** The pointer has travelled since the drag was lifted: it is a drag, not a press. */
     const [dragTravelled, setDragTravelled] = useState(false);
@@ -354,18 +360,17 @@ export default function DayTimeline({
     }, [zoomable]);
 
     useLayoutEffect(() => {
-        if (!zoomable) return;
-        const node = trackRef.current;
+        const node = gridRef.current;
         if (!node || typeof ResizeObserver === 'undefined') return;
         const measure = () => {
             const next = node.clientWidth;
-            setTrackWidth((prev) => (prev === next ? prev : next));
+            setViewportWidth((prev) => (prev === next ? prev : next));
         };
         measure();
         const observer = new ResizeObserver(measure);
         observer.observe(node);
         return () => observer.disconnect();
-    }, [zoomable]);
+    }, []);
 
     useEffect(() => {
         if (!actionTaskId) return;
@@ -831,11 +836,33 @@ export default function DayTimeline({
             </section>
     ) : null;
 
+    const maxColCount = useMemo(() => {
+        let max = 1;
+        for (const assignment of Object.values(columns)) {
+            if (assignment.colCount > max) max = assignment.colCount;
+        }
+        return max;
+    }, [columns]);
+    const minColumnPx = compact ? COMPACT_OVERLAP_COLUMN_PX : READABLE_OVERLAP_COLUMN_PX;
+    const viewportTrack = Math.max(0, viewportWidth - labelGutter);
+    const contentTrackWidth = overlapTrackWidth(viewportTrack, maxColCount, minColumnPx);
+    // The day view scrolls inside itself. A week column grows instead, and the
+    // week scroller moves sideways, so a sticky gutter would pin Monday's hours
+    // over the other days.
+    const scrollsHorizontally = scrollable && viewportTrack > 0 && contentTrackWidth > viewportTrack + 0.5;
+    const laidOutTrack = viewportTrack <= 0 ? 0 : scrollsHorizontally ? contentTrackWidth : viewportTrack;
+    const weekMinWidth = !scrollable
+        ? overlapColumnFloorPx(maxColCount, labelGutter, minColumnPx)
+        : undefined;
+
     const actionTask = actionTaskId ? scheduled.find((task) => task.id === actionTaskId) ?? null : null;
     const actionInterval = actionTask ? intervals.find((item) => item.id === actionTask.id) ?? null : null;
 
     return (
-        <div className={clsx(unscheduledPlacement === 'top' && showUnscheduled ? 'space-y-3' : 'space-y-0', className)}>
+        <div
+            className={clsx(unscheduledPlacement === 'top' && showUnscheduled ? 'space-y-3' : 'space-y-0', className)}
+            style={weekMinWidth ? { minWidth: weekMinWidth } : undefined}
+        >
             {unscheduledPlacement === 'top' && unscheduledSection}
 
             <div
@@ -848,16 +875,56 @@ export default function DayTimeline({
                 className={clsx(
                     'relative',
                     plainChrome ? 'bg-transparent' : 'bg-white border border-gray-200',
-                    scrollable ? 'overflow-y-auto' : 'overflow-hidden',
-                    !plainChrome && (unscheduledPlacement === 'bottom' ? 'rounded-t-xl' : 'rounded-xl'),
-                    zoomable && 'touch-pan-y'
+                    scrollable ? 'overflow-auto' : 'overflow-hidden',
+                    !plainChrome && (unscheduledPlacement === 'bottom' ? 'rounded-t-xl' : 'rounded-xl')
                 )}
-                style={{ height: scrollable ? Math.min(gridHeight + 16, maxHeight) : gridHeight }}
+                style={{
+                    height: scrollable ? Math.min(gridHeight + 16, maxHeight) : gridHeight,
+                    touchAction: zoomable ? (scrollsHorizontally ? 'pan-x pan-y' : 'pan-y') : undefined,
+                }}
+                data-timeline-hscroll={scrollsHorizontally ? 'true' : 'false'}
             >
                 <div
+                    className="flex"
+                    style={{
+                        height: gridHeight,
+                        width: scrollsHorizontally ? labelGutter + contentTrackWidth : '100%',
+                    }}
+                >
+                <div
+                    className={clsx(
+                        'relative shrink-0',
+                        scrollable && 'sticky left-0 z-30',
+                        !plainChrome && 'bg-white'
+                    )}
+                    style={{ width: labelGutter, height: gridHeight }}
+                >
+                    {showHourLabels && hourMarks.map((minute) => (
+                        <span
+                            key={minute}
+                            className="absolute right-2 -top-2 text-xs text-gray-500 font-mono"
+                            style={{ top: (minute - visible.startMin) * pixelsPerMinute }}
+                        >
+                            {minutesToHHMM(minute)}
+                        </span>
+                    ))}
+                    {showHourLabels && showNow && (
+                        <span
+                            className="absolute right-2 -top-2 text-[10px] font-semibold text-red-600"
+                            style={{ top: (nowMin - visible.startMin) * pixelsPerMinute }}
+                        >
+                            {t('now')}
+                        </span>
+                    )}
+                </div>
+                <div
                     ref={trackRef}
-                    className="relative"
-                    style={{ height: gridHeight, marginLeft: labelGutter }}
+                    className="relative min-w-0"
+                    style={{
+                        height: gridHeight,
+                        flex: scrollsHorizontally ? 'none' : '1 1 auto',
+                        width: scrollsHorizontally ? contentTrackWidth : undefined,
+                    }}
                     onPointerDown={(event) => {
                         const target = event.target as HTMLElement;
                         emptyPressRef.current = target.closest('[data-task-id], button, a')
@@ -888,13 +955,7 @@ export default function DayTimeline({
                             key={minute}
                             className="absolute left-0 right-0 border-t border-gray-100"
                             style={{ top: (minute - visible.startMin) * pixelsPerMinute }}
-                        >
-                            {showHourLabels && (
-                                <span className="absolute -left-14 -top-2 text-xs text-gray-500 font-mono w-12 text-right">
-                                    {minutesToHHMM(minute)}
-                                </span>
-                            )}
-                        </div>
+                        />
                     ))}
 
                     {onCreateAt && hoverMin != null && !drag && (
@@ -918,18 +979,16 @@ export default function DayTimeline({
                             style={{ top: (nowMin - visible.startMin) * pixelsPerMinute }}
                         >
                             <div className="h-0.5 bg-red-500" />
-                            {showHourLabels && (
-                                <span className="absolute -left-14 -top-2 text-[10px] font-semibold text-red-600">{t('now')}</span>
-                            )}
                         </div>
                     )}
 
                     {scheduled.map((task) => {
                         const interval = intervals.find((item) => item.id === task.id);
                         if (!interval) return null;
-                        const assignment = columns[task.id] ?? { col: 0, colCount: 1 };
-                        const widthPct = 100 / assignment.colCount;
-                        const leftPct = widthPct * assignment.col;
+                        const assignment = columns[task.id] ?? { col: 0, colCount: 1, span: 1 };
+                        const span = assignment.span ?? 1;
+                        const widthPct = (100 * span) / assignment.colCount;
+                        const leftPct = (100 / assignment.colCount) * assignment.col;
                         const top = (interval.startMin - visible.startMin) * pixelsPerMinute;
                         const durationMin = Math.max(0, interval.endMin - interval.startMin);
                         // Week columns stay at least 24px so the title fits. The day
@@ -946,14 +1005,15 @@ export default function DayTimeline({
                         const showCopy = editable && Boolean(onDuplicate);
                         const showActorControl = editable && task.status !== 'done' && Boolean(onToggleActor);
                         const inlineActionCount = (showPlay ? 1 : 0) + (showCopy ? 1 : 0) + (showActorControl ? 1 : 0);
-                        const blockWidth = trackWidth > 0 ? overlapBlockWidth(trackWidth, assignment.colCount) : 0;
-                        // Shorter than a fingertip, or too narrow for a readable title beside
-                        // the 44px controls (two or more tasks in one phone slot): buttons
-                        // would cover the task, so a tap opens the sheet. Zooming past 44px,
-                        // or a wider column, puts the controls back.
+                        const blockWidth = laidOutTrack > 0
+                            ? overlapBlockWidth(laidOutTrack, assignment.colCount, span)
+                            : 0;
+                        // Shorter than a fingertip, or still too narrow for a readable title
+                        // beside the 44px controls (three controls, or a column that did not
+                        // grow): buttons would cover the task, so a tap opens the sheet.
                         const useSheet = zoomable && inlineActionCount > 0 && (
                             height < TOUCH_TARGET_PX
-                            || (trackWidth > 0 && !blockFitsInlineActions(blockWidth, inlineActionCount))
+                            || (laidOutTrack > 0 && !blockFitsInlineActions(blockWidth, inlineActionCount))
                         );
                         const touchReady = zoomable && !useSheet;
                         const actionRail = touchReady ? inlineActionCount * INLINE_ACTION_PX : 0;
@@ -1240,6 +1300,7 @@ export default function DayTimeline({
                             </div>
                         </div>
                     )}
+                </div>
                 </div>
             </div>
             {unscheduledPlacement === 'bottom' && unscheduledSection}
