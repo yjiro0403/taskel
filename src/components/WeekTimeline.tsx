@@ -13,12 +13,28 @@ import { canEditTask as canEditTaskPermission } from '@/lib/tasks/canEditTask';
 import { buildTimelinePlayUpdate, buildTimelineStopUpdate } from '@/lib/timeline/actuals';
 import { buildActorToggleUpdate } from '@/lib/tasks/workActor';
 import { computeVisibleRange } from '@/lib/timeline/time';
-import { scheduledTaskInterval } from '@/lib/timeline/layout';
+import {
+    COMPACT_BLOCK_MIN_PX,
+    COMPACT_OVERLAP_COLUMN_PX,
+    overlapColumnCount,
+    overlapColumnFloorPx,
+    scheduledTaskInterval,
+} from '@/lib/timeline/layout';
 import { useStore } from '@/store/useStore';
 import type { Task } from '@/types';
 
 const WEEK_PIXELS_PER_MINUTE = 0.8;
 const WEEK_MAX_HEIGHT = 720;
+const WEEK_ROW_FLOOR_PX = 980;
+
+function weekColumnMinWidth(tasks: Task[], showHourLabels: boolean): number {
+    const intervals = tasks
+        .filter((task) => task.status !== 'skipped')
+        .map((task) => scheduledTaskInterval(task))
+        .filter((item): item is NonNullable<typeof item> => item != null);
+    const colCount = overlapColumnCount(intervals, COMPACT_BLOCK_MIN_PX / WEEK_PIXELS_PER_MINUTE);
+    return overlapColumnFloorPx(colCount, showHourLabels ? 44 : 6, COMPACT_OVERLAP_COLUMN_PX);
+}
 
 interface WeekTimelineProps {
     days: Date[];
@@ -39,6 +55,7 @@ function WeekDayColumn({
     onDuplicate,
     canEditTask,
     onAdd,
+    minWidth,
 }: {
     date: Date;
     tasks: Task[];
@@ -53,6 +70,7 @@ function WeekDayColumn({
     onDuplicate: (task: Task) => void;
     canEditTask: (task: Task) => boolean;
     onAdd: () => void;
+    minWidth: number;
 }) {
     const dateStr = format(date, 'yyyy-MM-dd');
     const today = isToday(date);
@@ -66,10 +84,11 @@ function WeekDayColumn({
             ref={setNodeRef}
             data-timeline-column={dateStr}
             className={clsx(
-                'flex flex-col min-w-[160px] flex-1 border-r border-gray-100 last:border-r-0',
+                'flex flex-col flex-1 border-r border-gray-100 last:border-r-0',
                 isOver && 'bg-blue-50/40',
                 today && 'bg-blue-50/20'
             )}
+            style={{ minWidth }}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
         >
@@ -183,14 +202,26 @@ export default function WeekTimeline({ days, dayTasksMap }: WeekTimelineProps) {
         <>
             <div className="flex-1 min-h-0 overflow-auto">
                 <WeekTimelineDragProvider>
-                <div className="flex min-w-[980px] min-h-full border border-gray-200 rounded-xl overflow-hidden bg-white">
+                <div
+                    className="flex min-h-full border border-gray-200 rounded-xl overflow-hidden bg-white"
+                    style={{
+                        minWidth: Math.max(
+                            WEEK_ROW_FLOOR_PX,
+                            days.reduce((sum, day, index) => (
+                                sum + weekColumnMinWidth(dayTasksMap.get(format(day, 'yyyy-MM-dd')) || [], index === 0)
+                            ), 0)
+                        ),
+                    }}
+                >
                     {days.map((day, index) => {
                         const dateStr = format(day, 'yyyy-MM-dd');
+                        const columnTasks = dayTasksMap.get(dateStr) || [];
                         return (
                             <WeekDayColumn
                                 key={dateStr}
                                 date={day}
-                                tasks={dayTasksMap.get(dateStr) || []}
+                                tasks={columnTasks}
+                                minWidth={weekColumnMinWidth(columnTasks, index === 0)}
                                 visibleRange={visibleRange}
                                 showHourLabels={index === 0}
                                 currentTime={currentTime}
